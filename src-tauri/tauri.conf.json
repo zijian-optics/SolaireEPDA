@@ -23,7 +23,8 @@
         "decorations": false,
         "shadow": false,
         "transparent": true,
-        "visible": false
+        "visible": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-gpu"
       },
       {
         "label": "splash",
@@ -38,7 +39,8 @@
         "center": true,
         "visible": true,
         "alwaysOnTop": true,
-        "url": "splash.html"
+        "url": "splash.html",
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-gpu"
       }
     ],
     "security": {
