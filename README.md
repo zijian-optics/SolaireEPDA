@@ -65,7 +65,7 @@
 
 ### 下载安装包
 
-前往 [GitHub Releases][(https://github.com/zijian-optics/SolaireEPDA/releases)] 下载最新版本：
+前往 [GitHub Releases](https://github.com/zijian-optics/SolaireEPDA/releases) 下载最新版本：
 
 
 | 平台      | 格式     | 说明        |
@@ -153,7 +153,7 @@ cd web && npm run dev
 
 ### 提交 Issue
 
-如果你发现了 Bug 或有功能建议，请 [提交 Issue](https://github.com/YOUR_ORG/SolEdu/issues/new)。提交时请包含：
+如果你发现了 Bug 或有功能建议，请 [提交 Issue](https://github.com/zijian-optics/SolaireEPDA/issues/new)。提交时请包含：
 
 - 问题描述与复现步骤
 - 运行环境信息（操作系统、Python 版本等）
@@ -162,7 +162,7 @@ cd web && npm run dev
 ### 提交 Pull Request
 
 1. Fork 本仓库并创建特性分支
-2. 确保代码通过现有测试：`pytest` 与 `cd web && npm test`
+2. 确保代码通过现有测试：`pytest` 与 `cd web && npm test`, 并且进行了i18n国际化
 3. 提交 PR 并描述你的改动
 4. 在 solaire_doc中记录changelog
 
@@ -181,5 +181,3 @@ cd web && npm run dev
 完整许可证文本见 [LICENSE](LICENSE) 文件。
 
 ---
-
-SolEdu — 让教育工程化，让教师更自由
