@@ -65,7 +65,7 @@
 
 ### 下载安装包
 
-前往 [GitHub Releases](https://github.com/YOUR_ORG/SolEdu/releases) 下载最新版本：
+前往 [GitHub Releases][(https://github.com/zijian-optics/SolaireEPDA/releases)] 下载最新版本：
 
 
 | 平台      | 格式     | 说明        |
@@ -87,7 +87,7 @@
 ### 1. 克隆仓库
 
 ```bash
-git clone https://github.com/YOUR_ORG/SolEdu.git
+git clone https://github.com/zijian-optics/SolaireEPDA
 cd SolEdu
 ```
 
@@ -129,17 +129,7 @@ cd web && npm run dev
 
 前端默认运行在 `http://127.0.0.1:5173`，API 请求自动代理到后端 `8000` 端口。
 
-### 5. Docker 编译（可选）
-
-```bash
-# 构建镜像
-docker build -t soledu .
-
-# 运行试卷编译
-docker run --rm -v "$(pwd):/work" -w /work soledu build examples/demo_bank/exam.yaml -v
-```
-
-### 6. 桌面版构建
+### 5. 桌面版构建
 
 桌面版基于 Tauri，构建步骤详见 [docs/desktop-build.md](docs/desktop-build.md)。
 
