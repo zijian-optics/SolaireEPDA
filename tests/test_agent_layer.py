@@ -38,6 +38,30 @@ def test_openai_tools_payload_contains_analysis_and_memory():
     assert "graph.batch_bind_questions" in names
     assert "web.search" in names
     assert "agent.run_tool_pipeline" in names
+    assert "agent.read_skill_reference" in names
+
+
+def test_read_skill_reference_builtin_primebrush(tmp_path: Path) -> None:
+    """技能 references 不在教师项目内，须通过专用工具从技能包读取。"""
+    ctx = InvocationContext(project_root=tmp_path, session_id="s1", session=SessionState(session_id="s1"))
+    tr = invoke_registered_tool(
+        "agent.read_skill_reference",
+        {"name": "primebrush_diagrams", "path": "references/geometry-2d.md"},
+        ctx,
+    )
+    assert tr.status == "succeeded"
+    content = tr.data.get("content", "")
+    assert "geometry_2d" in content
+
+
+def test_read_skill_reference_rejects_path_traversal(tmp_path: Path) -> None:
+    ctx = InvocationContext(project_root=tmp_path, session_id="s1", session=SessionState(session_id="s1"))
+    tr = invoke_registered_tool(
+        "agent.read_skill_reference",
+        {"name": "primebrush_diagrams", "path": "references/../../../pyproject.toml"},
+        ctx,
+    )
+    assert tr.status == "failed"
 
 
 def test_invoke_list_datasets(tmp_path: Path) -> None:

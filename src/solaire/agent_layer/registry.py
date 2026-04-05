@@ -746,6 +746,25 @@ _RAW_TOOLS: list[RegisteredTool] = [
         risk=ToolRisk.READ,
         ui_label="正在加载技能指引…",
     ),
+    _fn(
+        "agent.read_skill_reference",
+        "读取技能包内参考文件（如 references/*.md）。path 为相对该技能根目录的路径，例如 references/geometry-2d.md。"
+        "内置技能文件不在教师项目目录中，请勿用 file.read 拼仓库源码路径。",
+        {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "技能标识名（与 agent.activate_skill 一致）"},
+                "path": {"type": "string", "description": "相对技能根目录的路径，如 references/overview.md"},
+                "offset": {"type": "integer", "description": "起始行号（0-based），默认 0"},
+                "limit": {"type": "integer", "description": "读取行数，默认全部"},
+            },
+            "required": ["name", "path"],
+            "additionalProperties": False,
+        },
+        session_tools.tool_read_skill_reference,
+        risk=ToolRisk.READ,
+        ui_label="正在读取技能参考…",
+    ),
     # --- Phase 2: File tools ---
     _fn(
         "file.read",

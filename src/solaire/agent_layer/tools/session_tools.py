@@ -132,3 +132,47 @@ def tool_activate_skill(ctx: InvocationContext, args: dict[str, Any]) -> ToolRes
         "instructions": content,
         "message": f"已激活技能「{name}」，请按指令执行。",
     })
+
+
+def tool_read_skill_reference(ctx: InvocationContext, args: dict[str, Any]) -> ToolResult:
+    """Read a reference file from a skill package directory (builtin or project .solaire/skills)."""
+    name = str(args.get("name") or "").strip()
+    rel = str(args.get("path") or "").strip()
+    if not name or not rel:
+        return ToolResult(status="failed", error_message="name 与 path 参数必填")
+    raw = rel.replace("\\", "/").strip().lstrip("/")
+    if not raw or ".." in raw.split("/"):
+        return ToolResult(status="failed", error_message="path 无效")
+
+    from solaire.agent_layer.skills import get_skill
+
+    sk = get_skill(name, ctx.project_root)
+    if sk is None:
+        return ToolResult(status="failed", error_message=f"未找到技能: {name}")
+    base = sk.skill_dir.resolve()
+    target = (sk.skill_dir / raw).resolve()
+    try:
+        target.relative_to(base)
+    except ValueError:
+        return ToolResult(status="failed", error_message="path 越界")
+    if not target.is_file():
+        return ToolResult(status="failed", error_message=f"文件不存在: {rel}")
+    try:
+        text = target.read_text(encoding="utf-8", errors="replace")
+    except Exception as e:
+        return ToolResult(status="failed", error_message=f"读取失败: {e}")
+    offset = int(args.get("offset") or 0)
+    limit = args.get("limit")
+    lines = text.splitlines(keepends=True)
+    total = len(lines)
+    if offset > 0:
+        lines = lines[offset:]
+    if limit is not None:
+        lines = lines[: int(limit)]
+    content = "".join(lines)
+    return ToolResult(data={
+        "skill": name,
+        "path": rel,
+        "total_lines": total,
+        "content": content,
+    })
