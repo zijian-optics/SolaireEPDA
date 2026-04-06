@@ -319,7 +319,7 @@ class TemplateRawFileBody(BaseModel):
 
 @app.get("/api/health")
 def health() -> dict[str, str]:
-    return {"status": "ok"}
+    return {"status": "ok", "product": "sol_edu"}
 
 
 @app.get("/api/system/tex-status")

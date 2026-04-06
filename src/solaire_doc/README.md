@@ -2,6 +2,10 @@
 
 本目录为 **Solaire Web 内手册** 的单一事实来源：`help-manifest.json` 列出可访问的篇目与路径，后端仅允许读取清单中的文件，供前端渲染。可选字段 **`section`**：`intro` | `guide` | `advanced`，对应侧栏三组；未写时按 `audience` 推断（`ai`→`advanced`，`dev`→`advanced`，其余用户向→`guide`）。
 
+## 根目录文件
+
+- **`changelog.md`**：面向使用者的版本与体验更新说明（应用内「介绍」侧栏可打开）。
+
 ## 子目录
 
 - **`introduction/`**：侧栏「介绍」篇目（如组卷系统概念）。

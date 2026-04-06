@@ -1,21 +1,32 @@
 import i18n from "../i18n/i18n";
 import { logApiCall } from "../lib/appLog";
+import { isTauriShell, waitForTauriShell } from "../lib/tauriEnv";
 
 let apiBaseResolved: string | null = null;
 let apiBasePromise: Promise<string> | null = null;
 
+/** 生产构建首次打开时，Tauri 注入可能晚于首帧脚本，需短暂等待再判定是否在壳内。 */
+const TAURI_INJECT_WAIT_MS = 5000;
+
 async function resolveApiBase(): Promise<string> {
   if (apiBaseResolved !== null) return apiBaseResolved;
-  const w = typeof window !== "undefined" ? window : undefined;
-  const isTauri =
-    w &&
-    ("__TAURI_INTERNALS__" in w ||
-      (w as unknown as { __TAURI__?: unknown }).__TAURI__ !== undefined);
-  if (isTauri) {
+
+  let inShell = isTauriShell();
+  if (!import.meta.env.DEV && !inShell) {
+    inShell = await waitForTauriShell(TAURI_INJECT_WAIT_MS);
+  }
+
+  if (inShell) {
     const { invoke } = await import("@tauri-apps/api/core");
-    const port = await invoke<number>("get_backend_port");
-    apiBaseResolved = `http://127.0.0.1:${port}`;
-    return apiBaseResolved;
+    try {
+      const port = await invoke<number>("get_backend_port");
+      apiBaseResolved = `http://127.0.0.1:${port}`;
+      return apiBaseResolved;
+    } catch (e) {
+      const msg =
+        e instanceof Error ? e.message : typeof e === "string" ? e : String(e);
+      throw new Error(msg);
+    }
   }
   apiBaseResolved = "";
   return apiBaseResolved;

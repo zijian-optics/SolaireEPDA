@@ -1,6 +1,7 @@
 // Prevents extra console window on Windows in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::collections::HashSet;
 use std::fs;
 use std::fs::OpenOptions;
 use std::net::TcpListener;
@@ -8,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -119,17 +120,30 @@ fn missing_icon_msg(lang: &str) -> &'static str {
     }
 }
 
+/// `/api/health` JSON 中用于识别本产品的字段值（与 FastAPI 一致）。
+const SOLAIRE_HEALTH_PRODUCT: &str = "sol_edu";
+
+fn backend_port_timeout_msg(lang: &str) -> String {
+    match lang {
+        "en" => "Local service port was not ready in time. See %TEMP%\\solaire-desktop-python.log.".to_string(),
+        _ => "本地服务端口长时间未就绪。请查看 %TEMP%\\solaire-desktop-python.log。".to_string(),
+    }
+}
+
 #[tauri::command]
-fn get_backend_port(state: tauri::State<'_, Arc<AppState>>) -> u16 {
-    let start = std::time::Instant::now();
+fn get_backend_port(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<u16, String> {
+    let start = Instant::now();
     while start.elapsed() < Duration::from_secs(120) {
         let p = state.backend_port.load(Ordering::SeqCst);
         if p != 0 {
-            return p;
+            return Ok(p);
         }
         std::thread::sleep(Duration::from_millis(50));
     }
-    8000
+    Err(backend_port_timeout_msg(&read_locale_file(&app)))
 }
 
 #[tauri::command]
@@ -259,7 +273,20 @@ fn pick_free_port() -> Result<u16, std::io::Error> {
     Ok(port)
 }
 
-fn wait_for_health(port: u16, lang: &str) -> Result<(), String> {
+fn wrong_health_msg(port: u16, lang: &str) -> String {
+    match lang {
+        "en" => format!(
+            "Port {} is not the SolEdu service (unexpected health response).",
+            port
+        ),
+        _ => format!(
+            "端口 {} 上不是 SolEdu 本地服务（健康检查响应异常）。",
+            port
+        ),
+    }
+}
+
+fn wait_for_health(port: u16, lang: &str, max_wait: Duration) -> Result<(), String> {
     let url = format!("http://127.0.0.1:{}/api/health", port);
     // 无超时时 `blocking::get` 在部分环境下可能长时间阻塞，导致整段健康检查卡死、无法写入调试日志。
     let client = Client::builder()
@@ -271,25 +298,40 @@ fn wait_for_health(port: u16, lang: &str) -> Result<(), String> {
         "H7",
         "main.rs:wait_for_health:start",
         "health_check_loop_started",
-        json!({ "port": port, "url": url }),
+        json!({ "port": port, "url": url, "max_wait_ms": max_wait.as_millis() }),
     );
-    let start = std::time::Instant::now();
+    let start = Instant::now();
     let mut first_err: Option<String> = None;
-    // 首次冷启动嵌入式 Python + 依赖较多时可能超过 45s
-    while start.elapsed() < Duration::from_secs(90) {
+    while start.elapsed() < max_wait {
         match client.get(&url).send() {
             Ok(resp) => {
+                let status = resp.status().as_u16();
                 if resp.status().is_success() {
-                    agent_debug_log(
-                        "H7",
-                        "main.rs:wait_for_health:success",
-                        "health_check_ok",
-                        json!({
-                            "elapsed_ms": start.elapsed().as_millis(),
-                            "status": resp.status().as_u16()
-                        }),
-                    );
-                    return Ok(());
+                    match resp.text() {
+                        Ok(text) => {
+                            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
+                                if v.get("status").and_then(|s| s.as_str()) == Some("ok")
+                                    && v.get("product").and_then(|s| s.as_str())
+                                        == Some(SOLAIRE_HEALTH_PRODUCT)
+                                {
+                                    agent_debug_log(
+                                        "H7",
+                                        "main.rs:wait_for_health:success",
+                                        "health_check_ok",
+                                        json!({
+                                            "elapsed_ms": start.elapsed().as_millis(),
+                                            "status": status
+                                        }),
+                                    );
+                                    return Ok(());
+                                }
+                                if v.get("status").and_then(|s| s.as_str()) == Some("ok") {
+                                    return Err(wrong_health_msg(port, lang));
+                                }
+                            }
+                        }
+                        Err(_) => {}
+                    }
                 }
             }
             Err(e) => {
@@ -317,6 +359,60 @@ fn wait_for_health(port: u16, lang: &str) -> Result<(), String> {
         }),
     );
     Err(health_timeout_msg(port, lang))
+}
+
+fn start_embedded_backend(py: &Path, lang: &str) -> Result<(u16, Option<Child>), String> {
+    let mut ports: Vec<u16> = (8000..=8010).collect();
+    for _ in 0..4 {
+        if let Ok(p) = pick_free_port() {
+            ports.push(p);
+        }
+    }
+    let mut seen = HashSet::new();
+    ports.retain(|p| seen.insert(*p));
+
+    let mut last_err: Option<String> = None;
+    for (i, port) in ports.iter().enumerate() {
+        let max_wait = if i == 0 {
+            Duration::from_secs(90)
+        } else {
+            Duration::from_secs(45)
+        };
+        let mut child = match spawn_python_backend(py, *port, lang) {
+            Ok(c) => c,
+            Err(e) => {
+                agent_debug_log(
+                    "H5",
+                    "main.rs:start_embedded:spawn_skip",
+                    "spawn_failed_try_next",
+                    json!({ "port": port, "err": e }),
+                );
+                last_err = Some(e);
+                continue;
+            }
+        };
+        match wait_for_health(*port, lang, max_wait) {
+            Ok(()) => return Ok((*port, Some(child))),
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                agent_debug_log(
+                    "H5",
+                    "main.rs:start_embedded:health_fail",
+                    "health_failed_try_next",
+                    json!({ "port": port, "err": e }),
+                );
+                last_err = Some(e);
+            }
+        }
+    }
+    Err(last_err.unwrap_or_else(|| {
+        match lang {
+            "en" => "Could not start the local SolEdu service. See %TEMP%\\solaire-desktop-python.log."
+                .to_string(),
+            _ => "无法启动 SolEdu 本地服务。请查看 %TEMP%\\solaire-desktop-python.log。".to_string(),
+        }
+    }))
 }
 
 fn close_splash(app: &tauri::AppHandle) {
@@ -359,7 +455,21 @@ fn spawn_python_backend(python_exe: &Path, port: u16, lang: &str) -> Result<Chil
 }
 
 fn main() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+    #[cfg(any(
+        target_os = "windows",
+        target_os = "linux",
+        target_os = "macos"
+    ))]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }));
+    }
+    builder
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![get_backend_port, get_app_locale, set_app_locale])
         .setup(|app| {
@@ -420,12 +530,7 @@ fn main() {
 
                 let backend_result: Result<(u16, Option<Child>), String> = (|| {
                     match embedded {
-                        Some(py) => {
-                            let port = pick_free_port().map_err(|e| e.to_string())?;
-                            let c = spawn_python_backend(&py, port, &lang_th)?;
-                            wait_for_health(port, &lang_th).map_err(|e| e.to_string())?;
-                            Ok((port, Some(c)))
-                        }
+                        Some(py) => start_embedded_backend(&py, &lang_th),
                         None => {
                             let port = 8000u16;
                             agent_debug_log(
@@ -434,7 +539,7 @@ fn main() {
                                 "about_to_wait_health",
                                 json!({ "port": port }),
                             );
-                            wait_for_health(port, &lang_th).map_err(|e| {
+                            wait_for_health(port, &lang_th, Duration::from_secs(90)).map_err(|e| {
                                 format!("{}{}", e, sidecar_dev_hint(&lang_th))
                             })?;
                             Ok((port, None))
