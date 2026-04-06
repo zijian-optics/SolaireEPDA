@@ -896,10 +896,16 @@ def bank_item_create(body: BankCreateBody) -> dict[str, Any]:
 
 
 @app.delete("/api/bank/items/{qualified_id:path}")
-def bank_item_delete(qualified_id: str) -> dict[str, Any]:
+def bank_item_delete(
+    qualified_id: str,
+    storage_path: str | None = Query(
+        None,
+        description="题库列表/详情中的 resource 相对路径；提供时只删除该文件，避免题号在目录解析歧义时误删他处题目。",
+    ),
+) -> dict[str, Any]:
     root = _require_root()
     try:
-        delete_question(root, qualified_id)
+        delete_question(root, qualified_id, storage_path)
         ensure_probe_list_yaml(root)
         return {"ok": True}
     except FileNotFoundError as e:

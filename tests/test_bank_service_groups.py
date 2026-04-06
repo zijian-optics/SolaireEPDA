@@ -70,3 +70,29 @@ def test_delete_group_removes_file(tmp_path: Path) -> None:
     delete_question(root, qid)
     p = root / "resource" / "数学" / "高考真题" / "math_022.yaml"
     assert not p.is_file()
+
+
+def test_delete_by_storage_path_only_removes_target_file(tmp_path: Path) -> None:
+    """相同题号在不同题集各有一份时，带 storage_path 只删对应 YAML。"""
+    root = tmp_path / "proj"
+    qyaml = """id: Q1
+type: choice
+content: "x"
+options:
+  A: "a"
+  B: "b"
+  C: "c"
+  D: "d"
+answer: A
+analysis: ""
+metadata: {}
+"""
+    mid = root / "resource" / "数学" / "期中"
+    final = root / "resource" / "数学" / "期末"
+    mid.mkdir(parents=True)
+    final.mkdir(parents=True)
+    (mid / "q.yaml").write_text(qyaml, encoding="utf-8")
+    (final / "q.yaml").write_text(qyaml, encoding="utf-8")
+    delete_question(root, "数学/期中/Q1", storage_path="数学/期中/q.yaml")
+    assert not (mid / "q.yaml").is_file()
+    assert (final / "q.yaml").is_file()

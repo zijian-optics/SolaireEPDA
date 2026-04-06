@@ -342,8 +342,30 @@ def save_question(project_root: Path, qualified_id: str, item: QuestionItem) -> 
     return save_bank_record(project_root, qualified_id, strip_hydrate_fields(item))
 
 
-def delete_question(project_root: Path, qualified_id: str) -> None:
+def delete_question(project_root: Path, qualified_id: str, storage_path: str | None = None) -> None:
+    """删除题目。若提供 ``storage_path``（列表/详情中的 resource 相对路径），只删该文件，避免仅靠题号在过大目录下误删。"""
     ns, qid = split_qualified_id(qualified_id)
+    if storage_path:
+        resource = (project_root / "resource").resolve()
+        rel = storage_path.strip().replace("\\", "/").lstrip("/")
+        ypath = (resource / rel).resolve()
+        assert_within_project(project_root, ypath)
+        lib = library_root_for_namespace(project_root, ns)
+        try:
+            ypath.resolve().relative_to(lib.resolve())
+        except ValueError as e:
+            raise ValueError("题目路径与当前题集不一致，已拒绝删除") from e
+        if not ypath.is_file():
+            raise FileNotFoundError(qualified_id)
+        records = load_questions_from_yaml_file(ypath, ns)
+        for rec in records:
+            if rec.id != qid:
+                continue
+            if len(records) == 1:
+                ypath.unlink()
+                return
+            raise ValueError("无法删除：文件含多条记录时请手动编辑 YAML")
+        raise FileNotFoundError(qualified_id)
     lib = library_root_for_namespace(project_root, ns)
     for ypath in iter_question_files(lib):
         assert_within_project(project_root, ypath)

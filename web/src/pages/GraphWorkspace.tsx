@@ -35,6 +35,7 @@ import {
   apiGraphUnbindBinding,
   apiGraphUpdateNode,
   apiGraphUploadMaterial,
+  resourceApiUrl,
 } from "../api/client";
 import { CircleChordEdge } from "../graph/CircleChordEdge";
 import {
@@ -1535,7 +1536,7 @@ export function GraphWorkspace({
                     <li key={l.id} className="flex items-center justify-between gap-2 rounded border border-slate-200 bg-white p-1">
                       <a
                         className="break-all text-blue-700 underline"
-                        href={`/api/resource/${l.relative_path.split("/").map(encodeURIComponent).join("/")}`}
+                        href={resourceApiUrl(l.relative_path)}
                         target="_blank"
                         rel="noreferrer"
                       >

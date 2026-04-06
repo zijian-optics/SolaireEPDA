@@ -42,6 +42,17 @@ export async function resolveApiUrl(path: string): Promise<string> {
   return joinApi(path);
 }
 
+/**
+ * `resource/` 下文件的 HTTP 路径（桌面壳下需带后端 origin，见 main.tsx 中 `ensureApiBase` 已先完成）。
+ */
+export function resourceApiUrl(resourceRel: string): string {
+  const rel = resourceRel
+    .split("/")
+    .map((s) => encodeURIComponent(s))
+    .join("/");
+  return joinApi(`/api/resource/${rel}`);
+}
+
 /** Prefer RFC 5987 filename* (UTF-8) so non-ASCII names from the backend are preserved. */
 function filenameFromContentDisposition(cd: string | null): string | null {
   if (!cd) {

@@ -757,7 +757,10 @@ export function BankWorkspace({
     onError(null);
     try {
       const enc = encodeURIComponent(selectedId);
-      await apiDelete(`/api/bank/items/${enc}`);
+      const sp = detail.storage_path
+        ? `?storage_path=${encodeURIComponent(detail.storage_path)}`
+        : "";
+      await apiDelete(`/api/bank/items/${enc}${sp}`);
       setSelectedId(null);
       setDetail(null);
       await loadList();

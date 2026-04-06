@@ -1,19 +1,13 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import mermaid from "mermaid";
 
+import { resourceApiUrl } from "../api/client";
 import { initMermaid } from "../lib/mermaidInit";
 import { buildKatexHtml } from "./KatexText";
 
 /** PrimeBrush / Mermaid / EMBED Web markers, or raw ```mermaid fences (client render). */
 const SEGMENT_RE =
   /:::((?:PRIMEBRUSH|MERMAID|EMBED)_IMG):([^:]+):::|```mermaid\s*\n([\s\S]*?)```/g;
-
-function resourceUrl(rel: string): string {
-  return `/api/resource/${rel
-    .split("/")
-    .map((s) => encodeURIComponent(s))
-    .join("/")}`;
-}
 
 function MermaidFencePreview({ body }: { body: string }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -71,7 +65,7 @@ export function ContentWithPrimeBrush({ text, className }: { text: string; class
         <img
           key={key++}
           className="my-2 max-h-72 max-w-full object-contain"
-          src={resourceUrl(rel)}
+          src={resourceApiUrl(rel)}
           alt=""
         />,
       );
