@@ -7,7 +7,7 @@ import remarkMath from "remark-math";
 import { BookOpen } from "lucide-react";
 import "katex/dist/katex.min.css";
 import { HelpMermaidBlock } from "../components/HelpMermaidBlock";
-import { apiGet } from "../api/client";
+import { apiAbsoluteUrl, apiGet } from "../api/client";
 import { useAgentContext } from "../contexts/AgentContext";
 import { cn } from "../lib/utils";
 
@@ -38,7 +38,7 @@ const mdComponents = {
   li: ({ children }: { children?: ReactNode }) => <li className="leading-relaxed">{children}</li>,
   a: ({ href, children }: { href?: string; children?: ReactNode }) => (
     <a
-      href={href}
+      href={href && href.startsWith("/api/") ? apiAbsoluteUrl(href) : href}
       className="font-medium text-sky-700 underline decoration-sky-300 underline-offset-2 hover:text-sky-900"
       target={href?.startsWith("/") ? undefined : "_blank"}
       rel={href?.startsWith("/") ? undefined : "noreferrer noopener"}
@@ -49,7 +49,7 @@ const mdComponents = {
   img: ({ src, alt }: { src?: string; alt?: string }) => (
     <figure className="my-5">
       <img
-        src={src}
+        src={src ? apiAbsoluteUrl(src) : undefined}
         alt={alt ?? ""}
         className="max-h-[min(420px,70vh)] max-w-full rounded-md border border-slate-200 bg-white p-2 shadow-sm"
         loading="lazy"

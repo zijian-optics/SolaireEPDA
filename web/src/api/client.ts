@@ -53,6 +53,26 @@ export function resourceApiUrl(resourceRel: string): string {
   return joinApi(`/api/resource/${rel}`);
 }
 
+/**
+ * 手册 Markdown、富文本里以 `/api/...` 开头的绝对路径（如 `/api/help/asset/...`），
+ * 在 Tauri 壳下需拼上后端 origin，否则图片会请求到 WebView 自身页面而显示损坏。
+ */
+export function apiAbsoluteUrl(path: string): string {
+  const p = path.trim();
+  if (!p) return p;
+  if (
+    p.startsWith("http://") ||
+    p.startsWith("https://") ||
+    p.startsWith("data:") ||
+    p.startsWith("blob:")
+  ) {
+    return p;
+  }
+  if (p.startsWith("//")) return p;
+  const normalized = p.startsWith("/") ? p : `/${p}`;
+  return joinApi(normalized);
+}
+
 /** Prefer RFC 5987 filename* (UTF-8) so non-ASCII names from the backend are preserved. */
 function filenameFromContentDisposition(cd: string | null): string | null {
   if (!cd) {
