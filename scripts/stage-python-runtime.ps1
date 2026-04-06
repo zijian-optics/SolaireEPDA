@@ -94,6 +94,10 @@ try {
   Pop-Location
 }
 
+Write-Host "==> Verify chemistry rendering (rdkit)" -ForegroundColor Cyan
+& $pythonExe -c "import rdkit; print('rdkit', rdkit.__version__)"
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 # Optional: double-click to start local server (troubleshooting)
 $bat = @'
 @echo off

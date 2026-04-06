@@ -1,8 +1,53 @@
 # 桌面版构建与验证（Windows）
 
-## 前置条件
+## 从零到 MSI：推荐顺序（按步执行）
 
-- Rust（`rustup`）、Node 20+、可访问 **python.org** 与 **bootstrap.pypa.io**（用于下载 embeddable Python 与 get-pip；仅构建机需要）
+下面是一条**官方推荐**的完整路径：在工具链与网络正常的前提下，按顺序执行即可得到安装包。若某一步失败，先解决该步再往下，不要跳步。
+
+1. **安装工具链**（顺序不限，但须在步骤 4 之前全部就绪）
+   - [Rust](https://rustup.rs/)（`rustup`）
+   - **Node.js 20+** 与 **npm**（建议 LTS）
+   - **Git**
+   - **Visual Studio Build Tools**（含 **MSVC**），供 Rust 链接原生代码
+   - 可选：`pip install maturin`（PrimeBrush PyO3 加速；未安装则 `build.ps1` 会跳过并回退纯 Python）
+
+2. **确认网络可访问**（构建阶段会下载；公司网络若拦截需放行或走代理）
+   - `python.org`、`bootstrap.pypa.io`（嵌入式 Python 与 get-pip）
+   - `registry.npmjs.org`（前端依赖）
+   - `pypi.org`（嵌入式解释器执行 `pip install .` 时安装项目依赖，**含化学结构式渲染所需库**）
+
+3. **克隆仓库并进入根目录**（须与 `src-tauri` 同级，见下文「开发调试」）
+
+4. **在仓库根目录安装 Node 依赖**（生成 `node_modules`，提供 Tauri CLI）
+
+   ```powershell
+   npm install
+   ```
+
+5. **一键构建**（内部顺序固定，无需手动拆开）
+
+   ```powershell
+   .\scripts\build.ps1
+   ```
+
+   `build.ps1` 会依次做（摘要）：
+   - （若存在 `maturin`）编译 `primebrush-rs`
+   - `web\`：`npm ci` → `npm run build`
+   - `.\scripts\stage-python-runtime.ps1`：准备 `src-tauri\runtime\python\` 并 `pip install .`（安装失败会中止；成功后脚本会**校验**化学渲染库可导入）
+   - 若本机缺少 WiX 缓存：自动尝试 `.\scripts\prepare-wix-tools.ps1`
+   - `npm run tauri:build` 产出 MSI
+
+6. **取产物**：`src-tauri\target\release\bundle\msi\` 下的 `.msi`
+
+**不要做的事**：在未成功运行 `stage-python-runtime.ps1`（或完整 `build.ps1`）的情况下直接 `npm run tauri:build`，否则安装包内嵌入式 Python 不完整，本地服务不可用。
+
+**说明**：任何构建都无法承诺「任意环境 100% 一次成功」（代理、杀软、磁盘空间、端口占用等均可能导致失败）。若卡在某一步，请用本文「MSI 打包失败」「集成验证」等小节对照排查。
+
+---
+
+## 前置条件（摘要）
+
+- Rust（`rustup`）、Node 20+、可访问 **python.org**、**bootstrap.pypa.io**、**pypi.org**、npm 源（仅构建机需要）
 - Windows：安装 **Visual Studio Build Tools**（含 MSVC），以便 Rust 链接
 - **Tauri CLI**（二选一）：在仓库根目录执行 `npm install` 后使用 `npm run tauri:dev`；或全局安装 `cargo install tauri-cli` 后在**仓库根目录**使用 `cargo tauri dev`（不要在 `src-tauri` 子目录里执行）。
 - 可选：`pip install maturin`（PrimeBrush PyO3 加速）
@@ -42,13 +87,15 @@
 
 ## 干净 Conda 环境（仅日常开发推荐，非安装包必需）
 
-在仓库根目录使用 **前缀路径** 创建环境（不污染 base），便于与 `scripts/dev-desktop.ps1`、本地 `pytest` 一致：
+在仓库根目录使用 **前缀路径** 创建环境（不污染 base），便于与 `scripts/dev-desktop.ps1`（会**优先**使用该目录下的 `python.exe`）、本地 `pytest` 一致：
 
 ```powershell
 conda create -p .\.conda-solaire python=3.12 pip -y
 $env:PYTHONNOUSERSITE = "1"
 .\.conda-solaire\python.exe -m pip install --no-user -e .
 ```
+
+`pip install -e .` 会安装 `pyproject.toml` 中的**全部主依赖**（含化学结构式渲染；无需再装旧的「化学可选包」）。
 
 `.conda-solaire\` 已加入 `.gitignore`。
 

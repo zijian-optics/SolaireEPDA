@@ -1,4 +1,4 @@
-"""化学二维结构式插件（SMILES → SVG，可选 RDKit）。"""
+"""化学二维结构式插件（SMILES → SVG，RDKit 渲染）。"""
 
 from __future__ import annotations
 
@@ -53,7 +53,8 @@ class ChemistryMoleculePlugin(PrimeBrushPlugin):
         assert isinstance(doc, ChemistryMoleculeModel)
         w, h, _ = normalize_canvas(doc.canvas if hasattr(doc, "canvas") else None)
         wi, hi = int(w), int(h)
-        if doc.notation != "SMILES":
+        notation = (doc.notation or "").strip().upper()
+        if notation != "SMILES":
             return _svg_placeholder("当前仅支持一种结构式写法（见用户手册）", doc.value or "—", w, h)
         if not (doc.value or "").strip():
             return _svg_placeholder("请填写结构式内容", "", w, h)

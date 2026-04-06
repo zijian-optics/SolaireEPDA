@@ -186,12 +186,12 @@
 
 ## 五、化学二维结构式（`chemistry_molecule`）
 
-用于按 **SMILES** 描述渲染常见有机分子骨架（需运行环境安装 **RDKit** 时方可输出完整结构图；未安装时界面会给出占位说明，不影响保存题目）。
+用于按 **SMILES** 描述渲染常见有机分子骨架。**正常安装的本软件**会自带完整结构式渲染能力；若仍只看到文字占位，多为内容无法识别或软件未完整安装，可联系管理员排查。
 
 | 字段 | 是否必填 | 说明 |
 |------|----------|------|
 | `notation` | 可选 | 目前请使用 `SMILES`（默认）。其它写法尚未接入渲染。 |
-| `value` | 必填 | SMILES 字符串，例如乙醇可写 `CCO`。 |
+| `value` | 必填 | SMILES 字符串，例如葡萄糖可写 `C(C1C(C(C(C(O1)O)O)O)O)O`。 |
 | `canvas` | 可选 | 出图宽高，与其它图类型相同。 |
 
 ---
@@ -357,12 +357,14 @@ primebrush:
 
 ### 示例 5：化学结构式（`chemistry_molecule`，SMILES）
 
+![葡萄糖结构式示意图](/api/help/asset/primebrush/glucose.svg)
+
 ```text
 primebrush:
   type: chemistry_molecule
   canvas: { width: 320, height: 240, unit: px }
   notation: SMILES
-  value: "CCO"
+  value: "C(C1C(C(C(C(O1)O)O)O)O)O"
 ```
 
 ---
@@ -375,6 +377,6 @@ primebrush:
 | 提示某点不存在 | 作图步骤**顺序**要对：先定义点，再在后续步骤里引用。 |
 | 求交点失败 | 检查两直线是否平行、线圆/两圆是否真的相交。 |
 | 随机三角形每次不同 | 属正常；若希望可复现，固定 **`seed`**。 |
-| 化学图只有文字占位 | 多为未安装 RDKit 或 SMILES 无法识别；请检查 `value` 是否为合法 SMILES，或联系管理员确认运行环境。 |
+| 化学图只有文字占位 | 多为 SMILES 写法不被识别，或软件未完整安装；请检查 `value` 是否为合法 SMILES，或联系管理员。 |
 
 更多尺规组合示例（垂足、平行、两圆交等）可参考仓库内 **`examples/primebrush/geometry_2d/ruler_compass.yaml`**。若需在开发机上把单份图稿编译成 SVG，可执行 `python -m solaire.primebrush.cli build <文件.yaml>`（YAML 顶层须为 `primebrush:`）。命令行亦提供 `primebrush build <文件.yaml>`（见 `pyproject.toml` 中的入口配置）。

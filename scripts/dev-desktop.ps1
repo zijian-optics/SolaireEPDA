@@ -53,7 +53,11 @@ if ($listener) {
     "--host", "127.0.0.1",
     "--port", "8000"
   )
-  if (Get-Command py -ErrorAction SilentlyContinue) {
+  $repoCondaPy = Join-Path $repoRoot ".conda-solaire\python.exe"
+  if (Test-Path $repoCondaPy) {
+    $exe = $repoCondaPy
+    Write-Host ("[dev-desktop] Using project Python: {0}" -f $repoCondaPy)
+  } elseif (Get-Command py -ErrorAction SilentlyContinue) {
     $exe = "py"
     $argsUv = @("-3.12") + $argsUv
   } elseif (Get-Command python -ErrorAction SilentlyContinue) {

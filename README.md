@@ -97,6 +97,8 @@ cd SolEdu
 pip install -e .
 ```
 
+（会安装 `pyproject.toml` 中的全部主依赖，含教育绘图里的化学结构式渲染组件。）
+
 ### 3. 安装前端依赖
 
 ```bash

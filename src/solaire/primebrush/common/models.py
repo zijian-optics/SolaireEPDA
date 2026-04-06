@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class CanvasSpec(BaseModel):
@@ -46,14 +46,20 @@ class ChartModel(BaseModel):
 
 
 class ChemistryMoleculeModel(BaseModel):
-    """二维结构式（优先 SMILES）；无 RDKit 时输出带说明的占位图。"""
+    """二维结构式（SMILES）；渲染库缺失或内容无效时输出带说明的占位图。"""
 
     type: Literal["chemistry_molecule"] = "chemistry_molecule"
     canvas: CanvasSpec | None = None
     style: StyleSpec | None = None
-    notation: Literal["SMILES", "IUPAC"] = "SMILES"
+    notation: str = "SMILES"
     value: str = ""
     seed: int | None = None
+
+    @field_validator("notation", mode="before")
+    @classmethod
+    def _normalize_notation(cls, value: Any) -> str:
+        text = str(value or "").strip().upper()
+        return text or "SMILES"
 
 
 PrimeBrushDoc = Union[Geometry2DModel, Plot2DModel, ChartModel, ChemistryMoleculeModel]

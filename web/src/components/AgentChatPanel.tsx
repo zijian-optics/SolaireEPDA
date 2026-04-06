@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
+import { MarkdownProseImg, MarkdownProseLink } from "../lib/markdownTauriUrls";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
@@ -748,7 +749,11 @@ export function AgentChatPanel({
               <div className="mr-4 flex gap-2">
                 <Bot className="mt-0.5 h-4 w-4 shrink-0 text-violet-500" />
                 <div className="prose prose-sm max-w-none text-slate-800 prose-p:my-1 prose-headings:my-2">
-                  <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm, remarkMath]}
+                    rehypePlugins={[rehypeKatex]}
+                    components={{ img: MarkdownProseImg, a: MarkdownProseLink }}
+                  >
                     {ln.text}
                   </ReactMarkdown>
                 </div>

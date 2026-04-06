@@ -16,7 +16,7 @@ PrimeBrush 是 EducationPaperDesignAutomation 的教育绘图库，
   - geography_contour  地理等高线绘图
 
 已实现扩展：
-  - chemistry_molecule  化学二维结构式（SMILES，可选 RDKit）
+  - chemistry_molecule  化学二维结构式（SMILES，依赖 RDKit，随主依赖安装）
 
 外部模块接口（不变的契约）：
   parse_primebrush(raw) -> PrimeBrushDoc

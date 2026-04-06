@@ -41,6 +41,14 @@ def test_chemistry_molecule_placeholder_svg() -> None:
     assert "<svg" in svg.lower() or svg.strip().startswith("<?xml")
 
 
+def test_chemistry_molecule_notation_case_insensitive() -> None:
+    raw = (
+        "primebrush:\n  type: chemistry_molecule\n  notation: smiles\n  value: 'CCO'\n"
+    )
+    doc = parse_primebrush(raw)
+    assert doc.notation == "SMILES"
+
+
 def test_expr_sin() -> None:
     import numpy as np
     from solaire.primebrush.plots.expr import eval_expr

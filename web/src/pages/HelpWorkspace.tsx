@@ -7,8 +7,9 @@ import remarkMath from "remark-math";
 import { BookOpen } from "lucide-react";
 import "katex/dist/katex.min.css";
 import { HelpMermaidBlock } from "../components/HelpMermaidBlock";
-import { apiAbsoluteUrl, apiGet } from "../api/client";
+import { apiGet } from "../api/client";
 import { useAgentContext } from "../contexts/AgentContext";
+import { MarkdownHelpFigureImg, MarkdownHelpLink } from "../lib/markdownTauriUrls";
 import { cn } from "../lib/utils";
 
 function codeBlockPlainText(children: ReactNode): string {
@@ -36,27 +37,8 @@ const mdComponents = {
   ul: ({ children }: { children?: ReactNode }) => <ul className="mb-3 list-disc space-y-1 pl-6 text-slate-700">{children}</ul>,
   ol: ({ children }: { children?: ReactNode }) => <ol className="mb-3 list-decimal space-y-1 pl-6 text-slate-700">{children}</ol>,
   li: ({ children }: { children?: ReactNode }) => <li className="leading-relaxed">{children}</li>,
-  a: ({ href, children }: { href?: string; children?: ReactNode }) => (
-    <a
-      href={href && href.startsWith("/api/") ? apiAbsoluteUrl(href) : href}
-      className="font-medium text-sky-700 underline decoration-sky-300 underline-offset-2 hover:text-sky-900"
-      target={href?.startsWith("/") ? undefined : "_blank"}
-      rel={href?.startsWith("/") ? undefined : "noreferrer noopener"}
-    >
-      {children}
-    </a>
-  ),
-  img: ({ src, alt }: { src?: string; alt?: string }) => (
-    <figure className="my-5">
-      <img
-        src={src ? apiAbsoluteUrl(src) : undefined}
-        alt={alt ?? ""}
-        className="max-h-[min(420px,70vh)] max-w-full rounded-md border border-slate-200 bg-white p-2 shadow-sm"
-        loading="lazy"
-      />
-      {alt ? <figcaption className="mt-2 text-center text-sm text-slate-600">{alt}</figcaption> : null}
-    </figure>
-  ),
+  a: MarkdownHelpLink,
+  img: MarkdownHelpFigureImg,
   code: ({ className, children }: { className?: string; children?: ReactNode }) => {
     const inline = !className;
     if (inline) {
