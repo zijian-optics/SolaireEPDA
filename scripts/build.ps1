@@ -1,6 +1,6 @@
-﻿# SolEdu Windows 一键构建：可选 Rust 扩展 → 前端 → 嵌入式 Python 运行时 → Tauri 安装包
-# 用法（仓库根目录）：.\scripts\build.ps1
-# 需：Rust、Node 20+、MSVC、（可选）maturin、cargo-tauri（cargo install tauri-cli）
+﻿# SolEdu Windows 桌面打包：可选 Rust 扩展 → 前端 → 嵌入式 Python 运行时 → Tauri 安装包
+# 推荐入口：pixi run build-desktop（在仓库根目录）
+# 需：Rust、Node 20+、MSVC、（可选）maturin
 
 param(
   [switch]$SkipRust,
@@ -12,6 +12,19 @@ param(
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path $PSScriptRoot -Parent
 Set-Location $repoRoot
+
+if (-not $PSBoundParameters.ContainsKey("SkipRust") -and $env:SOLAIRE_SKIP_RUST -eq "1") {
+  $SkipRust = $true
+}
+if (-not $PSBoundParameters.ContainsKey("SkipPythonRuntime") -and $env:SOLAIRE_SKIP_PY_RUNTIME -eq "1") {
+  $SkipPythonRuntime = $true
+}
+if (-not $PSBoundParameters.ContainsKey("SkipNuitka") -and $env:SOLAIRE_SKIP_NUITKA -eq "1") {
+  $SkipNuitka = $true
+}
+if (-not $PSBoundParameters.ContainsKey("SkipTauri") -and $env:SOLAIRE_SKIP_TAURI -eq "1") {
+  $SkipTauri = $true
+}
 
 Write-Host "仓库: $repoRoot" -ForegroundColor Cyan
 

@@ -1,0 +1,2 @@
+; Project-scoped npm config used by pixi tasks.
+; This prevents user-level npm config from leaking into build resolution.
