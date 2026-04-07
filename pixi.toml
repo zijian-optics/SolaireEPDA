@@ -16,10 +16,14 @@ rust = "*"
 maturin = "*"
 
 [tasks]
-doctor = "python --version && node --version && cargo --version && rustc --version && maturin --version"
+# 内部子任务（bootstrap 的依赖，用户不直接调用）
 install-python = "python -m pip install --upgrade pip setuptools wheel && python -m pip install -e ."
 install-node-root = "npm install --userconfig .npmrc.pixi"
 install-node-web = { cmd = "npm ci --userconfig ../.npmrc.pixi", cwd = "web" }
+
+# 首次初始化（运行一次即可）
 bootstrap = { depends-on = ["install-python", "install-node-root", "install-node-web"] }
+
+# 主任务
+dev = "npm run tauri:dev"
 build-desktop = "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1"
-verify-release = "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_release.ps1 -SkipTex"

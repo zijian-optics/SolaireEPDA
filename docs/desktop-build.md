@@ -1,189 +1,110 @@
-# 桌面版构建与验证（Windows）
+# 桌面版构建指南（Windows）
 
-## 从零到 MSI：推荐顺序（按步执行）
+## 快速开始
 
-下面是一条**官方推荐**的完整路径：在工具链与网络正常的前提下，按顺序执行即可得到安装包。若某一步失败，先解决该步再往下，不要跳步。
+### 前置条件
 
-1. **安装工具链**（推荐 Pixi 统一管理）
-   - [Pixi](https://pixi.sh/latest/)（推荐；统一提供 Python/Node/Rust）
-   - **Git**
-   - **Visual Studio Build Tools**（含 **MSVC**），供 Rust 链接原生代码
-   - （兼容旧流程）也可手工安装 Rust / Node / Python，但不推荐
+- [Pixi](https://pixi.sh/latest/)（统一管理 Python / Node / Rust 工具链）
+- **Git**
+- **Visual Studio Build Tools**（含 MSVC，供 Rust 链接原生代码）
+- 构建期间需可访问：`python.org`、`bootstrap.pypa.io`、`pypi.org`、`registry.npmjs.org`（公司网络若拦截，需放行或配代理）
 
-2. **确认网络可访问**（构建阶段会下载；公司网络若拦截需放行或走代理）
-   - `python.org`、`bootstrap.pypa.io`（嵌入式 Python 与 get-pip）
-   - `registry.npmjs.org`（前端依赖）
-   - `pypi.org`（嵌入式解释器执行 `pip install .` 时安装项目依赖，**含化学结构式渲染所需库**）
+### 初始化（首次执行一次）
 
-3. **克隆仓库并进入根目录**（须与 `src-tauri` 同级，见下文「开发调试」）
+```powershell
+git clone https://github.com/zijian-optics/SolaireEPDA.git
+cd SolaireEPDA
+pixi install
+pixi run bootstrap
+```
 
-4. **初始化项目内环境**
+### 开发模式
 
-   ```powershell
-   pixi install
-   pixi run bootstrap
-   ```
+```powershell
+pixi run dev
+```
 
-5. **一键构建**（内部顺序固定，无需手动拆开）
+启动后访问 `http://127.0.0.1:5173`（前端），后端 API 运行于 `http://127.0.0.1:8000`。
 
-   ```powershell
-   .\scripts\build-with-pixi.ps1
-   ```
+### 桌面版打包
 
-   `build-with-pixi.ps1` 会先进入 Pixi 项目内环境，再调用 `build.ps1`。构建步骤摘要：
-   - （若存在 `maturin`）编译 `primebrush-rs`
-   - `web\`：`npm ci` → `npm run build`
-   - `.\scripts\stage-python-runtime.ps1`：准备 `src-tauri\runtime\python\` 并 `pip install .`（安装失败会中止；成功后脚本会**校验**化学渲染库可导入）
-   - 若本机缺少 WiX 缓存：自动尝试 `.\scripts\prepare-wix-tools.ps1`
-   - `npm run tauri:build` 产出 MSI
+```powershell
+pixi run build-desktop
+```
 
-6. **取产物**：`src-tauri\target\release\bundle\msi\` 下的 `.msi`
-
-**不要做的事**：在未成功运行 `stage-python-runtime.ps1`（或完整 `build-with-pixi.ps1`）的情况下直接 `npm run tauri:build`，否则安装包内嵌入式 Python 不完整，本地服务不可用。
-
-**说明**：任何构建都无法承诺「任意环境 100% 一次成功」（代理、杀软、磁盘空间、端口占用等均可能导致失败）。若卡在某一步，请用本文「MSI 打包失败」「集成验证」等小节对照排查。
+产物位于 `src-tauri\target\release\bundle\msi\`。
 
 ---
 
-## 前置条件（摘要）
+## 开发模式详解
 
-- 推荐安装 Pixi（并可访问 **python.org**、**bootstrap.pypa.io**、**pypi.org**、npm 源）
-- Windows：安装 **Visual Studio Build Tools**（含 MSVC），以便 Rust 链接
-- **Tauri CLI**（二选一）：在仓库根目录执行 `npm install` 后使用 `npm run tauri:dev`；或全局安装 `cargo install tauri-cli` 后在**仓库根目录**使用 `cargo tauri dev`（不要在 `src-tauri` 子目录里执行）。
-- 可选：手工安装 `maturin`（兼容旧流程；Pixi 流程中已包含）
+`pixi run dev` 等同于 `npm run tauri:dev`，Tauri 会自动执行 `scripts/dev-desktop.ps1`，该脚本负责：
 
-## 应用图标（窗口 / 托盘 / 安装包）
+1. 检测并（重）启动 Uvicorn 后端（`127.0.0.1:8000`）
+2. 等待后端健康检查通过（最多 45 秒）
+3. 启动 Vite 开发服务器（`127.0.0.1:5173`）并打开 Tauri 窗口
 
-- **源图**：仓库根目录 [`icon.png`](../icon.png)（与 `src-tauri/icons/icon.png` 同步），为 **正方形** 主图；[`tauri.conf.json`](../src-tauri/tauri.conf.json) 的 `bundle.icon` 指向 `icons/32x32.png`、`icons/128x128.png`、`icons/icon.ico`。
-- **托盘**：[`src-tauri/src/main.rs`](../src-tauri/src/main.rs) 使用 `tray-icon.png` 构建托盘图标。
-- **更新流程**：将新的正方形 PNG 覆盖 `src-tauri/icons/icon.png`（须为 **1:1**；若原图为横向矩形，需先裁切或加边），在**仓库根目录**执行：
+开发模式使用当前源码的 Python 环境，**不**使用 `src-tauri/runtime/python` 内的嵌入式解释器。
 
-  ```powershell
-  npm install   # 确保有 @tauri-apps/cli
-  npx tauri icon .\src-tauri\icons\icon.png
-  ```
+---
 
-  会重新生成 `icons/` 下各平台尺寸、`icon.ico`、`icon.icns` 等。
+## 打包详解
 
-## 嵌入式 Python 运行时（默认打包路径）
+`pixi run build-desktop` 内部按序执行：
 
-正式安装包中的本地服务不再使用 Nuitka 单文件 exe，而是 **Windows embeddable Python** + `pip install` 后的 `site-packages`，目录位于 `src-tauri/runtime/python/`（由脚本生成，体积大，见该目录下 `.gitignore`）。
+1. （若已安装 `maturin`）编译 `primebrush-rs` PyO3 扩展
+2. 前端：`npm ci` → `npm run build`
+3. `scripts/stage-python-runtime.ps1`：下载 Windows embeddable Python，启用 `import site`，安装 pip，执行 `pip install .` 安装本仓库及全部依赖
+4. 若本机缺少 WiX 缓存，自动执行 `scripts/prepare-wix-tools.ps1` 预下载 WiX Toolset
+5. `npm run tauri:build` 产出 MSI 安装包
 
-在仓库根目录执行（或直接使用一键 `.\scripts\build-with-pixi.ps1`，其中已包含此步骤）：
+> 打包前**必须**成功完成 `stage-python-runtime.ps1`，否则安装包内嵌入式 Python 不完整，本地服务无法启动。
 
-```powershell
-.\scripts\stage-python-runtime.ps1
-# 强制重新下载并安装：
-.\scripts\stage-python-runtime.ps1 -Force
-```
+---
 
-脚本会：下载 embeddable zip、启用 `import site`、安装 pip、再 `pip install .` 安装本仓库及依赖。完成后可用下列命令自检（需在仓库根目录已安装的前提下，解释器路径以你本机为准）：
+## 集成验证
 
-```powershell
-.\src-tauri\runtime\python\python.exe -m solaire.desktop_entry --port 8765
-```
+安装生成的 MSI 后：
 
-`tauri.conf.json` 的 `bundle.resources` 包含 `runtime/python/**/*`，将整棵运行时打进 MSI。
+1. 若启动长时间无响应，查看 `%TEMP%\solaire-desktop-python.log`（嵌入式 Python stderr，可定位 import 失败或端口占用问题）
+2. 确认无额外控制台窗口；应用最小化后在系统托盘可见
+3. 在欢迎页使用「新建项目」或「打开项目」后，确认各功能页面可正常使用
+4. 关闭再重开，「最近打开」中应出现该项目
+5. PDF 导出依赖本机安装的 TeX 发行版（MiKTeX 或 TeX Live）；未安装时组卷页会显示引导
 
-## 干净 Conda 环境（仅日常开发推荐，非安装包必需）
+---
 
-在仓库根目录使用 **前缀路径** 创建环境（不污染 base），便于与 `scripts/dev-desktop.ps1`（会**优先**使用该目录下的 `python.exe`）、本地 `pytest` 一致：
+## 常见问题
 
-```powershell
-conda create -p .\.conda-solaire python=3.12 pip -y
-$env:PYTHONNOUSERSITE = "1"
-.\.conda-solaire\python.exe -m pip install --no-user -e .
-```
+### WiX 下载超时（`timeout: global`）
 
-`pip install -e .` 会安装 `pyproject.toml` 中的**全部主依赖**（含化学结构式渲染；无需再装旧的「化学可选包」）。
-
-`.conda-solaire\` 已加入 `.gitignore`。
-
-## 一键构建
-
-在仓库根目录：
-
-```powershell
-.\scripts\build-with-pixi.ps1
-```
-
-可跳过部分步骤：
-
-```powershell
-.\scripts\build-with-pixi.ps1 -SkipRust              # 跳过 maturin
-.\scripts\build-with-pixi.ps1 -SkipPythonRuntime     # 跳过嵌入式 Python 筹备（仅前端 + Tauri；本地服务需自行处理）
-.\scripts\build-with-pixi.ps1 -SkipNuitka            # 与 -SkipPythonRuntime 相同（旧参数名，已弃用）
-.\scripts\build-with-pixi.ps1 -SkipTauri             # 不打包安装包
-```
-
-若直接执行 `npm run tauri:build`，需**先**成功运行 `.\scripts\stage-python-runtime.ps1`，否则 `bundle.resources` 下仅有占位文件，安装包内本地服务不可用。
-
-### MSI 打包失败：`timeout: global`（下载 WiX 超时）
-
-打 **MSI** 时 Tauri 会从 GitHub 下载 **WiX Toolset**（`wix314-binaries.zip`）。网络慢或被墙时，内置下载容易超时并报错 `failed to bundle project timeout: global`。
-
-**做法一（推荐）**：先预下载到 Tauri 使用的缓存目录（与 `tauri-bundler` 一致：`%LOCALAPPDATA%\cache\tauri\WixTools314`）：
+Tauri 打包时需从 GitHub 下载 WiX Toolset。网络受限时，预先手动执行：
 
 ```powershell
 .\scripts\prepare-wix-tools.ps1
-# 缓存损坏或需重装：
-.\scripts\prepare-wix-tools.ps1 -Force
 ```
 
-`.\scripts\build-with-pixi.ps1`（内部调用 `build.ps1`）在缺少该目录时会**自动**尝试执行上述脚本（使用较长 HTTP 超时）。若仍失败，可浏览器下载同一 zip 后解压到 `%LOCALAPPDATA%\cache\tauri\WixTools314`，确保目录内直接可见 `candle.exe`、`light.exe` 等。
+或浏览器下载 `wix314-binaries.zip` 后解压到 `%LOCALAPPDATA%\cache\tauri\WixTools314`（目录内须直接可见 `candle.exe`、`light.exe`）。
 
-**做法二**：为 Tauri 打包器配置 GitHub 资源镜像（环境变量，见上游 `tauri-bundler` 的 `http_utils`）：
+### 嵌入式 Python 压缩包损坏
 
-- `TAURI_BUNDLER_TOOLS_GITHUB_MIRROR`：将完整 GitHub 资源 URL 映射到镜像的基础地址；或
-- `TAURI_BUNDLER_TOOLS_GITHUB_MIRROR_TEMPLATE`：按模板替换 `owner/repo/tag/file`。
-
-配置后重新执行 `npm run tauri:build` 或 `.\scripts\build-with-pixi.ps1`。
-
-## 集成验证建议
-
-1. 安装生成的 MSI（或运行 `src-tauri\target\release\solaire-desktop.exe`）。
-2. 若启动长时间无响应：主进程会等待本地服务 `/api/health`；嵌入式 Python 的 **stderr** 会追加写入 **`%TEMP%\solaire-desktop-python.log`**（可查看是否 import 失败、端口占用等）。
-3. 确认无额外控制台窗口；应用最小化后在系统托盘可见。
-4. 在欢迎页使用「新建项目」或「打开项目」绑定工作目录后，确认组卷/题库等页面可正常使用。
-5. 关闭应用后再次打开，「最近打开」中应出现该项目。
-6. PDF 导出仍依赖本机安装的 **PDF 排版环境**（常见为 MiKTeX 或 TeX Live）。安装包**不包含**该环境；未安装时，组卷页会显示引导条，并可在 Windows 上尝试「一键安装」（调用系统自带的应用安装器安装 MiKTeX）。受限网络或策略禁止时，请用户按引导打开官方页面手动安装，完成后在组卷页点「重新检测」。
-
-## 正式包：本地服务端口与单实例
-
-- 安装包会**优先**在 **127.0.0.1:8000** 启动嵌入式本地服务；若该端口不可用或健康检查未通过，会自动尝试其它端口（实现见 [`src-tauri/src/main.rs`](../src-tauri/src/main.rs)）。
-- 健康检查要求 `GET /api/health` 返回的 JSON 同时包含约定的 `status` 与 `product: sol_edu`，避免误把本机其它 HTTP 服务当成本地后端。
-- 主窗口通过 `get_backend_port` 获取**实际**监听端口；若在超时内端口仍未发布，界面会显示错误说明，**不再**在未就绪时静默假定端口为 8000（以免前端长时间请求错误地址、表现为无报错卡死）。
-- 桌面端**仅允许单实例**：用户再次启动程序时，会激活已有主窗口，而不会拉起第二套本地服务进程。
-- 排障：嵌入式 Python 的 **stderr** 仍写入 **`%TEMP%\solaire-desktop-python.log`**（import 失败、绑定端口失败等可在此查看）。
-
-## 开发调试（Tauri + Vite）
-
-### 打完包后 `tauri dev` 卡死 / 白屏很久？
-
-**开发模式**（debug）下，应用默认**不**拉起 `src-tauri/runtime/python` 内的嵌入式解释器，而是连接 `beforeDevCommand` 启动的 **Uvicorn 127.0.0.1:8000**，避免冷启动慢、占满健康检查等待或与开发后端冲突。
-
-若你**刻意**要在 `tauri dev` 里调试与安装包一致的嵌入式运行时，请先执行 `.\scripts\stage-python-runtime.ps1`，再设置环境变量 **`SOLAIRE_USE_SIDECAR=1`** 后启动。
-
-必须在**仓库根目录**（与 `src-tauri` 同级）运行 Tauri，否则 CLI 找不到工程。
+报错 `End of Central Directory record could not be found` 时，脚本会自动重新下载。若仍失败，手动清除缓存后重试：
 
 ```powershell
-cd D:\Git\AmazingEducation   # 换成你的仓库根路径
-npm install                  # 首次：安装 @tauri-apps/cli
-npm run tauri:dev
+Remove-Item -Force .\.cache\python-embed\python-3.12.7-embed-amd64.zip
+pixi run build-desktop
 ```
 
-或已安装 Rust 版 CLI 时：
+### 端口 8000 被占用（开发模式）
+
+`dev-desktop.ps1` 启动时若检测到 8000 端口已被**非** Solaire 进程占用，会报错退出并提示占用进程。请先停止该进程再重试。
+
+### 调试嵌入式运行时
+
+若需在 `pixi run dev` 中调试与安装包一致的嵌入式解释器，先执行：
 
 ```powershell
-cargo install tauri-cli      # 仅需执行一次
-cd D:\Git\AmazingEducation
-cargo tauri dev
+.\scripts\stage-python-runtime.ps1
 ```
 
-`tauri dev` 会在**仓库根目录**执行 `scripts/dev-desktop.ps1`（勿写成 `../scripts/`，否则会指到仓库外）：后台 Uvicorn（8000）+ 前台 Vite（5173）。
-
-若出现 `error: no such command: tauri`，说明尚未安装 Tauri CLI，请使用上面的 `npm install` + `npm run tauri:dev`，或执行 `cargo install tauri-cli`。
-
-## 历史说明
-
-仓库内仍保留 [`scripts/nuitka-solaire.ps1`](../scripts/nuitka-solaire.ps1) 供参考，**默认一键构建已不再调用**。若需恢复 Nuitka 单文件侧车，需自行改回 `build.ps1` 与 `main.rs` 逻辑。
+再设置环境变量 `SOLAIRE_USE_SIDECAR=1` 后启动 `pixi run dev`。

@@ -73,72 +73,41 @@
 
 > 其他平台支持正在规划中。
 
-### 环境要求（本地运行源码）
-
-- **Python 3.11+**
-- **Node.js 18+**（前端开发）
-- **TeX 发行版**（TeX Live 或 MiKTeX）— 导出 PDF 必需；`latexmk` 与 `xelatex` 需在 PATH 中
-- **Pixi**（桌面版构建推荐；用于项目内环境隔离）
-
 ## 本地编译
 
-### 1. 克隆仓库
+### 环境要求
 
-```bash
-git clone https://github.com/zijian-optics/SolaireEPDA
-cd SolEdu
-```
+- [**Pixi**](https://pixi.sh/latest/)（统一管理 Python / Node / Rust，无需单独安装三者）
+- **Git**
+- **Visual Studio Build Tools**（含 MSVC，Rust 链接原生代码必需）
+- **TeX 发行版**（TeX Live 或 MiKTeX）— 导出 PDF 必需；`latexmk` 与 `xelatex` 需在 PATH 中
 
-### 2. 安装后端依赖
-
-```bash
-pip install -e .
-```
-
-（会安装 `pyproject.toml` 中的全部主依赖，含教育绘图里的化学结构式渲染组件。）
-
-### 3. 安装前端依赖
-
-```bash
-cd web
-npm install
-cd ..
-```
-
-### 4. 启动开发服务器
-
-**一键启动**（推荐）：
-
-
-| 平台                 | 命令                |
-| ------------------ | ----------------- |
-| Windows PowerShell | `.\start-web.ps1` |
-| Windows CMD        | `start-web.bat`   |
-| macOS / Linux      | `./start-web.sh`  |
-
-
-**手动分步启动**：
-
-```bash
-# 启动后端（终端 1）
-python -m uvicorn solaire.web.app:app --host 127.0.0.1 --port 8000
-
-# 启动前端（终端 2）
-cd web && npm run dev
-```
-
-前端默认运行在 `http://127.0.0.1:5173`，API 请求自动代理到后端 `8000` 端口。
-
-### 5. 桌面版构建
-
-桌面版基于 Tauri，构建步骤详见 [docs/desktop-build.md](docs/desktop-build.md)。
+### 1. 克隆并初始化
 
 ```powershell
-# Windows（推荐）: Pixi 项目内环境一键构建
-.\scripts\build-with-pixi.ps1
+git clone https://github.com/zijian-optics/SolaireEPDA
+cd SolaireEPDA
+pixi install
+pixi run bootstrap
 ```
 
-交互式执行清单见：[docs/pixi-packaging-playbook.md](docs/pixi-packaging-playbook.md)。
+`pixi run bootstrap` 会在项目内环境安装全部 Python 和前端依赖（首次约 3–5 分钟）。
+
+### 2. 开发模式
+
+```powershell
+pixi run dev
+```
+
+启动 Tauri 窗口、Vite 前端（`http://127.0.0.1:5173`）和 Uvicorn 后端（`http://127.0.0.1:8000`）。
+
+### 3. 桌面版打包
+
+```powershell
+pixi run build-desktop
+```
+
+产物位于 `src-tauri\target\release\bundle\msi\`。详细说明与常见问题见 [docs/desktop-build.md](docs/desktop-build.md)。
 
 ## 未来计划
 

@@ -1,6 +1,6 @@
-﻿# SolEdu Windows 一键构建：可选 Rust 扩展 → 前端 → 嵌入式 Python 运行时 → Tauri 安装包
-# 用法（仓库根目录）：.\scripts\build.ps1
-# 需：Rust、Node 20+、MSVC、（可选）maturin、cargo-tauri（cargo install tauri-cli）
+﻿# SolEdu Windows 桌面打包：可选 Rust 扩展 → 前端 → 嵌入式 Python 运行时 → Tauri 安装包
+# 推荐入口：pixi run build-desktop（在仓库根目录）
+# 需：Rust、Node 20+、MSVC、（可选）maturin
 
 param(
   [switch]$SkipRust,
@@ -27,9 +27,6 @@ if (-not $PSBoundParameters.ContainsKey("SkipTauri") -and $env:SOLAIRE_SKIP_TAUR
 }
 
 Write-Host "仓库: $repoRoot" -ForegroundColor Cyan
-if (-not $env:PIXI_PROJECT_ROOT) {
-  Write-Host "提示：建议改用 .\scripts\build-with-pixi.ps1，确保工具链来自项目内环境。" -ForegroundColor Yellow
-}
 
 $skipPy = $SkipPythonRuntime -or $SkipNuitka
 if ($SkipNuitka -and -not $SkipPythonRuntime) {
