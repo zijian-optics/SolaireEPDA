@@ -31,6 +31,31 @@ Run that script or the full repo build (.\scripts\build.ps1) before packaging.
   Set-Content -Path (Join-Path $Dir "README.txt") -Value $stub.Trim() -Encoding UTF8
 }
 
+function Download-EmbedZip {
+  param(
+    [string]$Url,
+    [string]$TargetPath
+  )
+  Write-Host "==> Download embeddable: $Url" -ForegroundColor Cyan
+  Invoke-WebRequest -Uri $Url -OutFile $TargetPath -UseBasicParsing
+}
+
+function Test-ZipArchiveReadable {
+  param([string]$Path)
+  if (-not (Test-Path $Path)) { return $false }
+  Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+  $archive = $null
+  try {
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($Path)
+    if ($archive.Entries.Count -lt 1) { return $false }
+    return $true
+  } catch {
+    return $false
+  } finally {
+    if ($archive) { $archive.Dispose() }
+  }
+}
+
 function Sync-SampleProject {
   param([string]$RepoRoot)
   $sampleSrc = Join-Path $RepoRoot "src\solaire\web\bundled_project_templates\math"
@@ -51,15 +76,45 @@ if ((Test-Path $runtimeRoot) -and (Test-Path (Join-Path $runtimeRoot "python.exe
 }
 
 $zipLocal = Join-Path $cacheDir $embedName
-if (-not (Test-Path $zipLocal)) {
-  Write-Host "==> Download embeddable: $embedUrl" -ForegroundColor Cyan
-  Invoke-WebRequest -Uri $embedUrl -OutFile $zipLocal -UseBasicParsing
+if ($Force -and (Test-Path $zipLocal)) {
+  Write-Host "==> Remove cached embeddable zip (-Force): $zipLocal" -ForegroundColor Yellow
+  Remove-Item -Force $zipLocal
+}
+if (-not (Test-ZipArchiveReadable $zipLocal)) {
+  if (Test-Path $zipLocal) {
+    Write-Host "==> Cached embeddable zip is invalid, re-downloading" -ForegroundColor Yellow
+    Remove-Item -Force $zipLocal
+  }
+  Download-EmbedZip -Url $embedUrl -TargetPath $zipLocal
+  if (-not (Test-ZipArchiveReadable $zipLocal)) {
+    Write-Error "下载后的嵌入式 Python 压缩包仍无法读取：$zipLocal"
+  }
 }
 
-New-Item -ItemType Directory -Force -Path $runtimeRoot | Out-Null
-Write-RuntimeReadmeStub $runtimeRoot
-Write-Host "==> Expand-Archive to $runtimeRoot" -ForegroundColor Cyan
-Expand-Archive -Path $zipLocal -DestinationPath $runtimeRoot -Force
+$expanded = $false
+for ($attempt = 1; $attempt -le 2 -and -not $expanded; $attempt++) {
+  if (Test-Path $runtimeRoot) {
+    Remove-Item -Recurse -Force $runtimeRoot
+  }
+  New-Item -ItemType Directory -Force -Path $runtimeRoot | Out-Null
+  Write-RuntimeReadmeStub $runtimeRoot
+  Write-Host "==> Expand-Archive to $runtimeRoot (attempt $attempt/2)" -ForegroundColor Cyan
+  try {
+    Expand-Archive -Path $zipLocal -DestinationPath $runtimeRoot -Force
+    $expanded = $true
+  } catch {
+    if ($attempt -eq 1) {
+      Write-Host "==> Expand failed, cache zip may be corrupted. Re-downloading once..." -ForegroundColor Yellow
+      if (Test-Path $zipLocal) { Remove-Item -Force $zipLocal }
+      Download-EmbedZip -Url $embedUrl -TargetPath $zipLocal
+      if (-not (Test-ZipArchiveReadable $zipLocal)) {
+        Write-Error "重新下载后压缩包仍不可用：$zipLocal"
+      }
+    } else {
+      throw
+    }
+  }
+}
 
 $pthPath = Get-ChildItem -Path $runtimeRoot -Filter "python*._pth" -File | Select-Object -First 1
 if (-not $pthPath) {

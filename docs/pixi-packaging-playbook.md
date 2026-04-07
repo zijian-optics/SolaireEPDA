@@ -103,3 +103,19 @@ pixi run build-desktop
 不要直接在裸终端运行 `npm` / `python` / `cargo` 构建命令。
 
 另外，Pixi 任务已固定使用仓库内 `.npmrc.pixi`，不会读取用户目录下的 npm 配置文件，避免个人环境影响依赖解析。
+
+### Q3：`Expand-Archive` 报 `End of Central Directory record could not be found` 怎么办？
+
+这是嵌入式 Python 缓存压缩包损坏的典型报错。现在脚本会自动校验 zip 并在损坏时重新下载。你可直接重跑：
+
+```powershell
+pixi run build-desktop
+```
+
+若仍失败，可手动清理后重试：
+
+```powershell
+Remove-Item -Force .\.cache\python-embed\python-3.12.7-embed-amd64.zip
+.\scripts\stage-python-runtime.ps1 -Force
+pixi run build-desktop
+```
