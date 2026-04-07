@@ -1,4 +1,4 @@
-[project]
+[workspace]
 name = "soledu-build"
 description = "SolEdu desktop build toolchain managed by pixi"
 channels = ["conda-forge"]
