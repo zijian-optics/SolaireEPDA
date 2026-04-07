@@ -1,0 +1,25 @@
+[project]
+name = "soledu-build"
+description = "SolEdu desktop build toolchain managed by pixi"
+channels = ["conda-forge"]
+platforms = ["win-64", "linux-64"]
+
+[activation.env]
+PYTHONNOUSERSITE = "1"
+PIP_DISABLE_PIP_VERSION_CHECK = "1"
+
+[dependencies]
+python = "3.12.*"
+pip = "*"
+nodejs = "20.*"
+rust = "*"
+maturin = "*"
+
+[tasks]
+doctor = "python --version && node --version && cargo --version && rustc --version && maturin --version"
+install-python = "python -m pip install --upgrade pip setuptools wheel && python -m pip install -e ."
+install-node-root = "npm install"
+install-node-web = { cmd = "npm ci", cwd = "web" }
+bootstrap = { depends-on = ["install-python", "install-node-root", "install-node-web"] }
+build-desktop = "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1"
+verify-release = "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_release.ps1 -SkipTex"

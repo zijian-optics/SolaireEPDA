@@ -86,11 +86,13 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Write-Host "==> pip install repo (may take a while)" -ForegroundColor Cyan
 Push-Location $repoRoot
 try {
-  & $pythonExe -m pip install -U pip wheel setuptools
+  $env:PYTHONNOUSERSITE = "1"
+  & $pythonExe -m pip install --no-user -U pip wheel setuptools
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-  & $pythonExe -m pip install --no-warn-script-location .
+  & $pythonExe -m pip install --no-user --no-warn-script-location .
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 } finally {
+  Remove-Item Env:PYTHONNOUSERSITE -ErrorAction SilentlyContinue
   Pop-Location
 }
 

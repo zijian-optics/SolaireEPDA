@@ -80,6 +80,7 @@
 - **Python 3.11+**
 - **Node.js 18+**（前端开发）
 - **TeX 发行版**（TeX Live 或 MiKTeX）— 导出 PDF 必需；`latexmk` 与 `xelatex` 需在 PATH 中
+- **Pixi**（桌面版构建推荐；用于项目内环境隔离）
 - 或使用 **Docker**（免装 TeX，推荐用于分发场景）
 
 ## 本地编译
@@ -136,9 +137,11 @@ cd web && npm run dev
 桌面版基于 Tauri，构建步骤详见 [docs/desktop-build.md](docs/desktop-build.md)。
 
 ```powershell
-# Windows 一键构建
-.\scripts\build.ps1
+# Windows（推荐）: Pixi 项目内环境一键构建
+.\scripts\build-with-pixi.ps1
 ```
+
+交互式执行清单见：[docs/pixi-packaging-playbook.md](docs/pixi-packaging-playbook.md)。
 
 ## 未来计划
 

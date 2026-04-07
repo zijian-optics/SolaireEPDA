@@ -13,7 +13,23 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path $PSScriptRoot -Parent
 Set-Location $repoRoot
 
+if (-not $PSBoundParameters.ContainsKey("SkipRust") -and $env:SOLAIRE_SKIP_RUST -eq "1") {
+  $SkipRust = $true
+}
+if (-not $PSBoundParameters.ContainsKey("SkipPythonRuntime") -and $env:SOLAIRE_SKIP_PY_RUNTIME -eq "1") {
+  $SkipPythonRuntime = $true
+}
+if (-not $PSBoundParameters.ContainsKey("SkipNuitka") -and $env:SOLAIRE_SKIP_NUITKA -eq "1") {
+  $SkipNuitka = $true
+}
+if (-not $PSBoundParameters.ContainsKey("SkipTauri") -and $env:SOLAIRE_SKIP_TAURI -eq "1") {
+  $SkipTauri = $true
+}
+
 Write-Host "仓库: $repoRoot" -ForegroundColor Cyan
+if (-not $env:PIXI_PROJECT_ROOT) {
+  Write-Host "提示：建议改用 .\scripts\build-with-pixi.ps1，确保工具链来自项目内环境。" -ForegroundColor Yellow
+}
 
 $skipPy = $SkipPythonRuntime -or $SkipNuitka
 if ($SkipNuitka -and -not $SkipPythonRuntime) {

@@ -19,6 +19,7 @@ nuitka_build/
 .venv/
 venv/
 .conda-solaire/
+.pixi/
 
 # LaTeX / latexmk 中间文件
 *.aux

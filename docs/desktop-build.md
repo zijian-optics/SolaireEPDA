@@ -4,12 +4,11 @@
 
 下面是一条**官方推荐**的完整路径：在工具链与网络正常的前提下，按顺序执行即可得到安装包。若某一步失败，先解决该步再往下，不要跳步。
 
-1. **安装工具链**（顺序不限，但须在步骤 4 之前全部就绪）
-   - [Rust](https://rustup.rs/)（`rustup`）
-   - **Node.js 20+** 与 **npm**（建议 LTS）
+1. **安装工具链**（推荐 Pixi 统一管理）
+   - [Pixi](https://pixi.sh/latest/)（推荐；统一提供 Python/Node/Rust）
    - **Git**
    - **Visual Studio Build Tools**（含 **MSVC**），供 Rust 链接原生代码
-   - 可选：`pip install maturin`（PrimeBrush PyO3 加速；未安装则 `build.ps1` 会跳过并回退纯 Python）
+   - （兼容旧流程）也可手工安装 Rust / Node / Python，但不推荐
 
 2. **确认网络可访问**（构建阶段会下载；公司网络若拦截需放行或走代理）
    - `python.org`、`bootstrap.pypa.io`（嵌入式 Python 与 get-pip）
@@ -18,19 +17,20 @@
 
 3. **克隆仓库并进入根目录**（须与 `src-tauri` 同级，见下文「开发调试」）
 
-4. **在仓库根目录安装 Node 依赖**（生成 `node_modules`，提供 Tauri CLI）
+4. **初始化项目内环境**
 
    ```powershell
-   npm install
+   pixi install
+   pixi run bootstrap
    ```
 
 5. **一键构建**（内部顺序固定，无需手动拆开）
 
    ```powershell
-   .\scripts\build.ps1
+   .\scripts\build-with-pixi.ps1
    ```
 
-   `build.ps1` 会依次做（摘要）：
+   `build-with-pixi.ps1` 会先进入 Pixi 项目内环境，再调用 `build.ps1`。构建步骤摘要：
    - （若存在 `maturin`）编译 `primebrush-rs`
    - `web\`：`npm ci` → `npm run build`
    - `.\scripts\stage-python-runtime.ps1`：准备 `src-tauri\runtime\python\` 并 `pip install .`（安装失败会中止；成功后脚本会**校验**化学渲染库可导入）
@@ -39,7 +39,7 @@
 
 6. **取产物**：`src-tauri\target\release\bundle\msi\` 下的 `.msi`
 
-**不要做的事**：在未成功运行 `stage-python-runtime.ps1`（或完整 `build.ps1`）的情况下直接 `npm run tauri:build`，否则安装包内嵌入式 Python 不完整，本地服务不可用。
+**不要做的事**：在未成功运行 `stage-python-runtime.ps1`（或完整 `build-with-pixi.ps1`）的情况下直接 `npm run tauri:build`，否则安装包内嵌入式 Python 不完整，本地服务不可用。
 
 **说明**：任何构建都无法承诺「任意环境 100% 一次成功」（代理、杀软、磁盘空间、端口占用等均可能导致失败）。若卡在某一步，请用本文「MSI 打包失败」「集成验证」等小节对照排查。
 
@@ -47,10 +47,10 @@
 
 ## 前置条件（摘要）
 
-- Rust（`rustup`）、Node 20+、可访问 **python.org**、**bootstrap.pypa.io**、**pypi.org**、npm 源（仅构建机需要）
+- 推荐安装 Pixi（并可访问 **python.org**、**bootstrap.pypa.io**、**pypi.org**、npm 源）
 - Windows：安装 **Visual Studio Build Tools**（含 MSVC），以便 Rust 链接
 - **Tauri CLI**（二选一）：在仓库根目录执行 `npm install` 后使用 `npm run tauri:dev`；或全局安装 `cargo install tauri-cli` 后在**仓库根目录**使用 `cargo tauri dev`（不要在 `src-tauri` 子目录里执行）。
-- 可选：`pip install maturin`（PrimeBrush PyO3 加速）
+- 可选：手工安装 `maturin`（兼容旧流程；Pixi 流程中已包含）
 
 ## 应用图标（窗口 / 托盘 / 安装包）
 
@@ -69,7 +69,7 @@
 
 正式安装包中的本地服务不再使用 Nuitka 单文件 exe，而是 **Windows embeddable Python** + `pip install` 后的 `site-packages`，目录位于 `src-tauri/runtime/python/`（由脚本生成，体积大，见该目录下 `.gitignore`）。
 
-在仓库根目录执行（或直接使用一键 `.\scripts\build.ps1`，其中已包含此步骤）：
+在仓库根目录执行（或直接使用一键 `.\scripts\build-with-pixi.ps1`，其中已包含此步骤）：
 
 ```powershell
 .\scripts\stage-python-runtime.ps1
@@ -104,16 +104,16 @@ $env:PYTHONNOUSERSITE = "1"
 在仓库根目录：
 
 ```powershell
-.\scripts\build.ps1
+.\scripts\build-with-pixi.ps1
 ```
 
 可跳过部分步骤：
 
 ```powershell
-.\scripts\build.ps1 -SkipRust              # 跳过 maturin
-.\scripts\build.ps1 -SkipPythonRuntime     # 跳过嵌入式 Python 筹备（仅前端 + Tauri；本地服务需自行处理）
-.\scripts\build.ps1 -SkipNuitka            # 与 -SkipPythonRuntime 相同（旧参数名，已弃用）
-.\scripts\build.ps1 -SkipTauri             # 不打包安装包
+.\scripts\build-with-pixi.ps1 -SkipRust              # 跳过 maturin
+.\scripts\build-with-pixi.ps1 -SkipPythonRuntime     # 跳过嵌入式 Python 筹备（仅前端 + Tauri；本地服务需自行处理）
+.\scripts\build-with-pixi.ps1 -SkipNuitka            # 与 -SkipPythonRuntime 相同（旧参数名，已弃用）
+.\scripts\build-with-pixi.ps1 -SkipTauri             # 不打包安装包
 ```
 
 若直接执行 `npm run tauri:build`，需**先**成功运行 `.\scripts\stage-python-runtime.ps1`，否则 `bundle.resources` 下仅有占位文件，安装包内本地服务不可用。
@@ -130,14 +130,14 @@ $env:PYTHONNOUSERSITE = "1"
 .\scripts\prepare-wix-tools.ps1 -Force
 ```
 
-`.\scripts\build.ps1` 在缺少该目录时会**自动**尝试执行上述脚本（使用较长 HTTP 超时）。若仍失败，可浏览器下载同一 zip 后解压到 `%LOCALAPPDATA%\cache\tauri\WixTools314`，确保目录内直接可见 `candle.exe`、`light.exe` 等。
+`.\scripts\build-with-pixi.ps1`（内部调用 `build.ps1`）在缺少该目录时会**自动**尝试执行上述脚本（使用较长 HTTP 超时）。若仍失败，可浏览器下载同一 zip 后解压到 `%LOCALAPPDATA%\cache\tauri\WixTools314`，确保目录内直接可见 `candle.exe`、`light.exe` 等。
 
 **做法二**：为 Tauri 打包器配置 GitHub 资源镜像（环境变量，见上游 `tauri-bundler` 的 `http_utils`）：
 
 - `TAURI_BUNDLER_TOOLS_GITHUB_MIRROR`：将完整 GitHub 资源 URL 映射到镜像的基础地址；或
 - `TAURI_BUNDLER_TOOLS_GITHUB_MIRROR_TEMPLATE`：按模板替换 `owner/repo/tag/file`。
 
-配置后重新执行 `npm run tauri:build` 或 `.\scripts\build.ps1`。
+配置后重新执行 `npm run tauri:build` 或 `.\scripts\build-with-pixi.ps1`。
 
 ## 集成验证建议
 
