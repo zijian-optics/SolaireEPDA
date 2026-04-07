@@ -37,13 +37,22 @@ venv/
 examples/web_sample_project/.solaire
 *.docx
 
-# Rust
+# Rust / Tauri（src-tauri）
 primebrush-rs/target/
 src-tauri/target/
+# 本地 sidecar / 预编译二进制（按需放入，通常不提交）
 src-tauri/binaries/*.exe
-# 嵌入式 Python 除 README/.gitignore 外的生成文件（见 src-tauri/runtime/python/.gitignore）
+src-tauri/binaries/*.dll
+# 可选：若在此放本地证书/密钥，勿提交（取消注释即可）
+# src-tauri/**/*.pfx
+# src-tauri/**/.env
+# src-tauri/**/.env.*
 
-nuitka_build/
+# 嵌入式 Python：由 scripts/stage-python-runtime.ps1 生成（embeddable + site-packages，体积大）
+# 仅跟踪 README 与本目录 .gitignore；其余见 src-tauri/runtime/python/.gitignore
+src-tauri/runtime/python/*
+!src-tauri/runtime/python/README.txt
+!src-tauri/runtime/python/.gitignore
 
 # 仅本地保留、不推送到公开仓库（产品/架构/状态快照与 Cursor 内部计划）
 /PRD.md
