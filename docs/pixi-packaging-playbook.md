@@ -101,3 +101,5 @@ pixi run build-desktop
 - 或 `pixi run ...` 前缀命令
 
 不要直接在裸终端运行 `npm` / `python` / `cargo` 构建命令。
+
+另外，Pixi 任务已固定使用仓库内 `.npmrc.pixi`，不会读取用户目录下的 npm 配置文件，避免个人环境影响依赖解析。
