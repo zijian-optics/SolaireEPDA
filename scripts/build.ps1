@@ -55,7 +55,8 @@ npm run build
 Pop-Location
 
 if (-not $skipPy) {
-  & (Join-Path $repoRoot "scripts\stage-python-runtime.ps1")
+  Write-Host "==> Rebuild embedded Python runtime from clean state" -ForegroundColor Cyan
+  & (Join-Path $repoRoot "scripts\stage-python-runtime.ps1") -Force
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
   $pyw = Join-Path $repoRoot "src-tauri\runtime\python\pythonw.exe"
   if (-not (Test-Path $pyw)) {

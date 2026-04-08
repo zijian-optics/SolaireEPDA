@@ -1,5 +1,0 @@
-# 本目录由 scripts/stage-python-runtime.ps1 填充；勿将生成物提交到 Git。
-# 根目录 .gitignore 对同一路径也有规则，双保险。
-*
-!README.txt
-!.gitignore
