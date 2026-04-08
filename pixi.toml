@@ -6,6 +6,7 @@ platforms = ["win-64", "linux-64"]
 
 [activation.env]
 PYTHONNOUSERSITE = "1"
+PYTHONUNBUFFERED = "1"
 PIP_DISABLE_PIP_VERSION_CHECK = "1"
 
 [dependencies]
@@ -16,22 +17,29 @@ rust = "*"
 maturin = "*"
 
 [tasks]
-# ── 依赖安装（bootstrap 子任务，用户不直接调用）──────────────
+# ── 依赖安装（子任务）────────────────────────────────────
 install-python = "python -m pip install --upgrade pip setuptools wheel && python -m pip install -e ."
 install-node-root = "npm install --userconfig .npmrc.pixi"
 install-node-web = { cmd = "npm ci --userconfig ../.npmrc.pixi", cwd = "web" }
 
-# ── 首次初始化（运行一次即可）─────────────────────────────
+# ── 初始化（首次运行一次）────────────────────────────────
 bootstrap = { depends-on = ["install-python", "install-node-root", "install-node-web"] }
 
-# ── 开发：后端（终端 1）──────────────────────────────────
-dev-backend = "python -m uvicorn solaire.web.app:app --app-dir src --host 127.0.0.1 --port 8000 --reload"
+# ── 清理构建产物 ─────────────────────────────────────────
+clean = 'powershell -NoProfile -Command "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue web/dist, src-tauri/target/release/bundle; Write-Host [clean] Done."'
 
-# ── 开发：仅前端 Vite ────────────────────────────────────
+# ── 构建前端 ─────────────────────────────────────────────
+build = { cmd = "npm run build", cwd = "web" }
+
+# ── 开发（一键启动后端 + 前端 + Tauri）───────────────────
+dev = "npm run tauri:dev"
+dev-backend = "python -m uvicorn solaire.web.app:app --app-dir src --host 127.0.0.1 --port 8000 --reload"
 dev-frontend = { cmd = "npm run dev -- --host localhost --port 5173 --strictPort", cwd = "web" }
 
-# ── 开发：桌面端 Tauri（终端 2，需先 pixi run dev-backend）──
-dev = "npm run tauri:dev"
+# ── 测试 & 类型检查 ──────────────────────────────────────
+test = "python -m pytest"
+test-web = { cmd = "npm test", cwd = "web" }
+typecheck = { cmd = "npx tsc --noEmit", cwd = "web" }
 
-# ── 构建 ────────────────────────────────────────────────
+# ── 桌面端发布构建 ───────────────────────────────────────
 build-desktop = "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1"
