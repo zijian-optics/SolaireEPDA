@@ -6,7 +6,7 @@
   "build": {
     "frontendDist": "../web/dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev-desktop.ps1",
+    "beforeDevCommand": "npm run dev --prefix web -- --host localhost --port 5173 --strictPort",
     "beforeBuildCommand": "npm run build --prefix web"
   },
   "app": {

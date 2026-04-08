@@ -16,14 +16,22 @@ rust = "*"
 maturin = "*"
 
 [tasks]
-# 内部子任务（bootstrap 的依赖，用户不直接调用）
+# ── 依赖安装（bootstrap 子任务，用户不直接调用）──────────────
 install-python = "python -m pip install --upgrade pip setuptools wheel && python -m pip install -e ."
 install-node-root = "npm install --userconfig .npmrc.pixi"
 install-node-web = { cmd = "npm ci --userconfig ../.npmrc.pixi", cwd = "web" }
 
-# 首次初始化（运行一次即可）
+# ── 首次初始化（运行一次即可）─────────────────────────────
 bootstrap = { depends-on = ["install-python", "install-node-root", "install-node-web"] }
 
-# 主任务
+# ── 开发：后端（终端 1）──────────────────────────────────
+dev-backend = "python -m uvicorn solaire.web.app:app --app-dir src --host 127.0.0.1 --port 8000 --reload"
+
+# ── 开发：仅前端 Vite ────────────────────────────────────
+dev-frontend = { cmd = "npm run dev -- --host localhost --port 5173 --strictPort", cwd = "web" }
+
+# ── 开发：桌面端 Tauri（终端 2，需先 pixi run dev-backend）──
 dev = "npm run tauri:dev"
+
+# ── 构建 ────────────────────────────────────────────────
 build-desktop = "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1"
