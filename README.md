@@ -1,5 +1,3 @@
-
-
 # SolEdu
 
 **AI 驱动的 K12 教育自动化平台**  
@@ -77,7 +75,7 @@
 
 ### 环境要求
 
-- [**Pixi**](https://pixi.sh/latest/)（统一管理 Python / Node / Rust，无需单独安装三者）
+- **[Pixi](https://pixi.sh/latest/)**（统一管理 Python / Node / Rust，无需单独安装三者）
 - **Git**
 - **Visual Studio Build Tools**（含 MSVC，Rust 链接原生代码必需）
 - **TeX 发行版**（TeX Live 或 MiKTeX）— 导出 PDF 必需；`latexmk` 与 `xelatex` 需在 PATH 中
@@ -99,9 +97,28 @@ pixi run bootstrap
 pixi run dev
 ```
 
-启动 Tauri 窗口、Vite 前端（`http://127.0.0.1:5173`）和 Uvicorn 后端（`http://127.0.0.1:8000`）。
+在同一终端内依次拉起：
 
-### 3. 桌面版打包
+- **后端**：Uvicorn（`http://127.0.0.1:8000`，带 `--reload`）
+- **前端**：Vite 开发服务（`http://localhost:5173`，与 `tauri.conf.json` 中 `devUrl` 一致）
+- **桌面壳**：Tauri `tauri dev`
+
+串联逻辑由 `scripts/dev-desktop.ps1` 作为 Tauri 的 `beforeDevCommand` 执行；首次启动前若 `:8000` 上仍有残留进程，脚本会尝试结束后再启动，避免端口占用。
+
+**可选（单独调试）**：若只想跑后端或前端，可另开终端执行 `pixi run dev-backend` 或 `pixi run dev-frontend`。此时不要再执行 `pixi run dev`，以免与固定端口冲突。
+
+### 3. 清理与前端构建
+
+```powershell
+pixi run clean   # 删除 web/dist、src-tauri/target/release/bundle（安装包目录）
+pixi run build   # 在 web/ 下执行生产构建（tsc + vite build）
+```
+
+改完前端想先打静态资源再开桌面开发时，可按需执行 `clean` / `build`；日常开发仍以 `pixi run dev` 为主（Vite 热更新，无需每次 `build`）。
+
+**质量检查（可选）**：`pixi run test`（Python）、`pixi run test-web`（前端单测）、`pixi run typecheck`（TypeScript）。
+
+### 4. 桌面版打包
 
 ```powershell
 pixi run build-desktop
@@ -133,7 +150,7 @@ pixi run build-desktop
 ### 提交 Pull Request
 
 1. Fork 本仓库并创建特性分支
-2. 确保代码通过现有测试：`pytest` 与 `cd web && npm test`, 并且进行了i18n国际化
+2. 确保代码通过现有测试：`pixi run test` 与 `pixi run test-web`，并完成必要的 i18n 国际化
 3. 提交 PR 并描述你的改动
 4. 在 solaire_doc中记录changelog
 
