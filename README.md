@@ -105,6 +105,8 @@ pixi run dev
 
 串联逻辑由 `scripts/dev-desktop.ps1` 作为 Tauri 的 `beforeDevCommand` 执行；首次启动前若 `:8000` 上仍有残留进程，脚本会尝试结束后再启动，避免端口占用。
 
+为保证 `tauri dev` 下的热重载与重启稳定，桌面壳在开发模式中不会启用单实例拦截，也不会在关闭主窗体时隐藏到托盘；发布构建仍保留单实例与托盘行为，不受开发态设置影响。
+
 **可选（单独调试）**：若只想跑后端或前端，可另开终端执行 `pixi run dev-backend` 或 `pixi run dev-frontend`。此时不要再执行 `pixi run dev`，以免与固定端口冲突。
 
 ### 3. 清理与前端构建

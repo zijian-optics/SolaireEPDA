@@ -17,6 +17,14 @@ def _resolve(ctx: InvocationContext, rel: str) -> Path:
     return p
 
 
+def _configured_tesseract_cmd() -> str | None:
+    from solaire.web import extension_preferences
+    from solaire.web.extension_registry import _resolve_manual_exe_path
+
+    manual = extension_preferences.get_extension_prefs("tesseract")
+    return _resolve_manual_exe_path("tesseract", "tesseract", manual)
+
+
 def tool_doc_convert_to_markdown(ctx: InvocationContext, args: dict[str, Any]) -> ToolResult:
     rel = str(args.get("path") or "")
     if not rel:
@@ -121,6 +129,8 @@ def tool_doc_ocr_image(ctx: InvocationContext, args: dict[str, Any]) -> ToolResu
             error_message="无法使用文字识别：缺少必要的识别组件。请打开「设置 → 扩展组件」查看「文字识别」安装说明后重试。",
         )
     try:
+        configured_cmd = _configured_tesseract_cmd()
+        pytesseract.pytesseract.tesseract_cmd = configured_cmd or "tesseract"
         img = Image.open(str(p))
         text = pytesseract.image_to_string(img, lang=lang)
         return ToolResult(data={

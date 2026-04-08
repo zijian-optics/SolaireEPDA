@@ -6,17 +6,23 @@ import {
   CheckCircle2,
   Download,
   ExternalLink,
+  File,
+  FolderOpen,
   Loader2,
   Package,
   RefreshCw,
+  Trash2,
   X,
 } from "lucide-react";
 import {
   apiSystemExtensionInstall,
+  apiSystemExtensionManualPathDelete,
+  apiSystemExtensionManualPathPut,
   apiSystemExtensions,
   ensureApiBase,
   type SystemExtensionStatus,
 } from "../api/client";
+import { pickHostPath } from "../lib/pickExtensionPath";
 import { openExternalUrl } from "../lib/openExternalUrl";
 import { cn } from "../lib/utils";
 
@@ -30,17 +36,24 @@ function extensionDisplayReady(ext: SystemExtensionStatus): boolean {
 function ExtensionCard({
   ext,
   onInstallClick,
+  onPickPath,
+  onClearManual,
   installBusyId,
+  pathBusyId,
   recheckBusy,
 }: {
   ext: SystemExtensionStatus;
   onInstallClick: (id: string) => void;
+  onPickPath: (id: string, locationKind: "dir" | "file") => void;
+  onClearManual: (id: string) => void;
   installBusyId: string | null;
+  pathBusyId: string | null;
   recheckBusy: boolean;
 }) {
   const { t } = useTranslation(["settings", "common"]);
   const ready = extensionDisplayReady(ext);
-  const busy = installBusyId === ext.id;
+  const installBusy = installBusyId === ext.id;
+  const pathBusy = pathBusyId === ext.id;
 
   const showOcrPartial =
     ext.id === "tesseract" && ext.ready === true && ext.ocr_ready === false;
@@ -97,6 +110,11 @@ function ExtensionCard({
                         {t("ext.path")}: {e.path}
                       </>
                     ) : null}
+                    {e.resolved_from === "manual" ? (
+                      <span className="ml-1 rounded bg-violet-100 px-1 py-0.5 text-[10px] font-medium text-violet-900">
+                        {t("ext.fromPage")}
+                      </span>
+                    ) : null}
                   </>
                 ) : (
                   <> — {t("ext.missingExe")}</>
@@ -118,12 +136,66 @@ function ExtensionCard({
         {ext.can_auto_install ? (
           <button
             type="button"
-            disabled={busy || recheckBusy}
+            disabled={installBusy || pathBusy || recheckBusy}
             onClick={() => onInstallClick(ext.id)}
             className="inline-flex items-center gap-1 rounded-md border border-violet-300 bg-violet-50 px-2.5 py-1.5 text-xs font-medium text-violet-900 hover:bg-violet-100 disabled:opacity-50"
           >
-            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-            {busy ? t("ext.installing") : t("ext.autoInstall")}
+            {installBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+            {installBusy ? t("ext.installing") : t("ext.startInstall")}
+          </button>
+        ) : null}
+        {ext.id === "latex" ? (
+          <>
+            <button
+              type="button"
+              disabled={pathBusy || recheckBusy}
+              onClick={() => void onPickPath(ext.id, "dir")}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+            >
+              {pathBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FolderOpen className="h-3.5 w-3.5" />}
+              {t("ext.chooseInstallDir")}
+            </button>
+            <button
+              type="button"
+              disabled={pathBusy || recheckBusy}
+              onClick={() => void onPickPath(ext.id, "file")}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+            >
+              {pathBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <File className="h-3.5 w-3.5" />}
+              {t("ext.chooseProgramFile")}
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              disabled={pathBusy || recheckBusy}
+              onClick={() => void onPickPath(ext.id, "file")}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+            >
+              {pathBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <File className="h-3.5 w-3.5" />}
+              {t("ext.chooseProgramFile")}
+            </button>
+            <button
+              type="button"
+              disabled={pathBusy || recheckBusy}
+              onClick={() => void onPickPath(ext.id, "dir")}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+            >
+              {pathBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FolderOpen className="h-3.5 w-3.5" />}
+              {t("ext.searchInFolder")}
+            </button>
+          </>
+        )}
+        {ext.has_manual_paths ? (
+          <button
+            type="button"
+            disabled={pathBusy || recheckBusy}
+            onClick={() => void onClearManual(ext.id)}
+            className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-medium text-rose-900 hover:bg-rose-100 disabled:opacity-50"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            {t("ext.clearSavedPath")}
           </button>
         ) : null}
       </div>
@@ -141,6 +213,7 @@ export function ExtensionsPanel({ onError }: Props) {
   const [loading, setLoading] = useState(true);
   const [recheckBusy, setRecheckBusy] = useState(false);
   const [installBusyId, setInstallBusyId] = useState<string | null>(null);
+  const [pathBusyId, setPathBusyId] = useState<string | null>(null);
   const [installOpen, setInstallOpen] = useState(false);
   const [installPhase, setInstallPhase] = useState<"loading" | "done">("loading");
   const [installTitle, setInstallTitle] = useState("");
@@ -177,6 +250,44 @@ export function ExtensionsPanel({ onError }: Props) {
       onError(e instanceof Error ? e.message : String(e));
     } finally {
       setRecheckBusy(false);
+    }
+  };
+
+  const handlePickPath = async (extId: string, locationKind: "dir" | "file") => {
+    setPathBusyId(extId);
+    onError(null);
+    try {
+      const picked = await pickHostPath(locationKind, {
+        dir: t("ext.pickDirTitle"),
+        file: t("ext.pickFileTitle"),
+      });
+      if (!picked) {
+        return;
+      }
+      await ensureApiBase();
+      const r = await apiSystemExtensionManualPathPut(extId, {
+        path: picked,
+        location_kind: locationKind,
+      });
+      setExtensions(r.extensions);
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPathBusyId(null);
+    }
+  };
+
+  const handleClearManual = async (extId: string) => {
+    setPathBusyId(extId);
+    onError(null);
+    try {
+      await ensureApiBase();
+      const r = await apiSystemExtensionManualPathDelete(extId);
+      setExtensions(r.extensions);
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPathBusyId(null);
     }
   };
 
@@ -242,7 +353,10 @@ export function ExtensionsPanel({ onError }: Props) {
             key={ext.id}
             ext={ext}
             onInstallClick={handleInstallClick}
+            onPickPath={handlePickPath}
+            onClearManual={handleClearManual}
             installBusyId={installBusyId}
+            pathBusyId={pathBusyId}
             recheckBusy={recheckBusy}
           />
         ))}

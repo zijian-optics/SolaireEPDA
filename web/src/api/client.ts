@@ -529,6 +529,8 @@ export type SystemExtensionExecutable = {
   on_path: boolean;
   path: string | null;
   version: string | null;
+  /** 本页指定路径优先于自动检测 */
+  resolved_from?: "manual" | "system";
 };
 
 export type SystemExtensionStatus = {
@@ -544,6 +546,10 @@ export type SystemExtensionStatus = {
   winget_on_path: boolean | null;
   python_ocr_ready?: boolean;
   ocr_ready?: boolean;
+  /** 是否在设置中保存过手动路径 */
+  has_manual_paths?: boolean;
+  /** 已保存的手动路径摘要（展示用） */
+  manual_paths?: Record<string, string | null | undefined>;
 };
 
 export type SystemExtensionsResponse = {
@@ -560,6 +566,24 @@ export async function apiSystemExtensionInstall(
   return apiPost<{ ok: boolean; message: string }>(
     `/api/system/extensions/${encodeURIComponent(extId)}/install`,
     {},
+  );
+}
+
+export async function apiSystemExtensionManualPathPut(
+  extId: string,
+  body: { path: string; location_kind: "dir" | "file" },
+): Promise<{ ok: boolean; extensions: SystemExtensionStatus[] }> {
+  return apiPut<{ ok: boolean; extensions: SystemExtensionStatus[] }>(
+    `/api/system/extensions/${encodeURIComponent(extId)}/manual-path`,
+    body,
+  );
+}
+
+export async function apiSystemExtensionManualPathDelete(
+  extId: string,
+): Promise<{ ok: boolean; extensions: SystemExtensionStatus[] }> {
+  return apiDelete<{ ok: boolean; extensions: SystemExtensionStatus[] }>(
+    `/api/system/extensions/${encodeURIComponent(extId)}/manual-path`,
   );
 }
 

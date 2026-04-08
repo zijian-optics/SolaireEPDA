@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+import types
 from pathlib import Path
 
 from solaire.agent_layer.guardrails import (
@@ -25,6 +27,53 @@ from solaire.agent_layer.plan_document import load_plan_steps_from_rel_path, ste
 from solaire.agent_layer.registry import invoke_registered_tool, openai_tools_payload, select_tools_for_turn
 from solaire.agent_layer.tool_executor import consecutive_subtask_tool_indices
 from solaire.agent_layer.tools import file_tools
+
+
+def test_doc_ocr_image_uses_saved_tesseract_path(tmp_path: Path, monkeypatch) -> None:
+    img_rel = "images/sample.png"
+    img_path = tmp_path / img_rel
+    img_path.parent.mkdir(parents=True, exist_ok=True)
+    img_path.write_bytes(b"fake-image")
+    exe_path = tmp_path / "tools" / "tesseract.exe"
+    exe_path.parent.mkdir(parents=True, exist_ok=True)
+    exe_path.write_bytes(b"")
+
+    pil_module = types.ModuleType("PIL")
+
+    class _ImageModule:
+        @staticmethod
+        def open(path: str) -> str:
+            return path
+
+    pil_module.Image = _ImageModule
+
+    fake_inner = types.SimpleNamespace(tesseract_cmd=None)
+    called: dict[str, object] = {}
+    pytesseract_module = types.ModuleType("pytesseract")
+    pytesseract_module.pytesseract = fake_inner
+
+    def _image_to_string(img: object, lang: str) -> str:
+        called["img"] = img
+        called["lang"] = lang
+        called["tesseract_cmd"] = fake_inner.tesseract_cmd
+        return "识别结果"
+
+    pytesseract_module.image_to_string = _image_to_string
+
+    monkeypatch.setitem(sys.modules, "PIL", pil_module)
+    monkeypatch.setitem(sys.modules, "pytesseract", pytesseract_module)
+    monkeypatch.setattr(
+        "solaire.web.extension_preferences.get_extension_prefs",
+        lambda ext_id: {"path": str(exe_path)} if ext_id == "tesseract" else None,
+    )
+
+    ctx = InvocationContext(project_root=tmp_path, session_id="s1", session=SessionState(session_id="s1"))
+    tr = invoke_registered_tool("doc.ocr_image", {"path": img_rel, "lang": "chi_sim"}, ctx)
+
+    assert tr.status == "succeeded"
+    assert tr.data["content"] == "识别结果"
+    assert called["lang"] == "chi_sim"
+    assert called["tesseract_cmd"] == str(exe_path.resolve())
 
 
 def test_openai_tools_payload_contains_analysis_and_memory():
