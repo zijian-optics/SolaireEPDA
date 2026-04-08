@@ -123,11 +123,72 @@ fn missing_icon_msg(lang: &str) -> &'static str {
 /// `/api/health` JSON 中用于识别本产品的字段值（与 FastAPI 一致）。
 const SOLAIRE_HEALTH_PRODUCT: &str = "sol_edu";
 
-fn backend_port_timeout_msg(lang: &str) -> String {
-    match lang {
-        "en" => "Local service port was not ready in time. See %TEMP%\\solaire-desktop-python.log.".to_string(),
-        _ => "本地服务端口长时间未就绪。请查看 %TEMP%\\solaire-desktop-python.log。".to_string(),
+fn python_log_path() -> PathBuf {
+    std::env::temp_dir().join("solaire-desktop-python.log")
+}
+
+fn truncate_python_log() {
+    let _ = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(python_log_path());
+}
+
+fn read_log_tail(max_lines: usize) -> String {
+    let Ok(contents) = fs::read_to_string(python_log_path()) else {
+        return String::new();
+    };
+    let lines: Vec<&str> = contents.lines().collect();
+    let start = lines.len().saturating_sub(max_lines);
+    lines[start..].join("\n")
+}
+
+fn is_port_available(port: u16) -> bool {
+    TcpListener::bind(("127.0.0.1", port)).is_ok()
+}
+
+fn append_log_context(msg: &str, lang: &str) -> String {
+    let tail = read_log_tail(25);
+    let log_path = python_log_path();
+    let (log_label, full_label) = match lang {
+        "en" => ("Recent log", "Full log"),
+        _ => ("最近日志", "完整日志"),
+    };
+    if tail.is_empty() {
+        format!("{}\n\n{}: {}", msg, full_label, log_path.display())
+    } else {
+        format!(
+            "{}\n\n--- {} ---\n{}\n\n{}: {}",
+            msg,
+            log_label,
+            tail,
+            full_label,
+            log_path.display()
+        )
     }
+}
+
+fn process_crashed_msg(port: u16, exit_code: Option<i32>, lang: &str) -> String {
+    let code = exit_code.map_or("?".into(), |c| c.to_string());
+    match lang {
+        "en" => format!(
+            "Local service process exited unexpectedly on port {} (exit code: {}).",
+            port, code
+        ),
+        _ => format!(
+            "本地服务进程在端口 {} 上异常退出（退出码：{}）。",
+            port, code
+        ),
+    }
+}
+
+fn backend_port_timeout_msg(lang: &str) -> String {
+    let base = match lang {
+        "en" => "Local service port was not ready in time.",
+        _ => "本地服务端口长时间未就绪。",
+    };
+    append_log_context(base, lang)
 }
 
 #[tauri::command]
@@ -286,9 +347,13 @@ fn wrong_health_msg(port: u16, lang: &str) -> String {
     }
 }
 
-fn wait_for_health(port: u16, lang: &str, max_wait: Duration) -> Result<(), String> {
+fn wait_for_health(
+    port: u16,
+    lang: &str,
+    max_wait: Duration,
+    mut child: Option<&mut Child>,
+) -> Result<(), String> {
     let url = format!("http://127.0.0.1:{}/api/health", port);
-    // 无超时时 `blocking::get` 在部分环境下可能长时间阻塞，导致整段健康检查卡死、无法写入调试日志。
     let client = Client::builder()
         .timeout(Duration::from_secs(2))
         .connect_timeout(Duration::from_secs(2))
@@ -303,6 +368,23 @@ fn wait_for_health(port: u16, lang: &str, max_wait: Duration) -> Result<(), Stri
     let start = Instant::now();
     let mut first_err: Option<String> = None;
     while start.elapsed() < max_wait {
+        if let Some(ref mut c) = child {
+            match c.try_wait() {
+                Ok(Some(status)) => {
+                    let msg = process_crashed_msg(port, status.code(), lang);
+                    agent_debug_log(
+                        "H7",
+                        "main.rs:wait_for_health:child_exited",
+                        "child_process_exited_early",
+                        json!({ "port": port, "exit_code": status.code() }),
+                    );
+                    return Err(append_log_context(&msg, lang));
+                }
+                Ok(None) => {}
+                Err(_) => {}
+            }
+        }
+
         match client.get(&url).send() {
             Ok(resp) => {
                 let status = resp.status().as_u16();
@@ -358,10 +440,12 @@ fn wait_for_health(port: u16, lang: &str, max_wait: Duration) -> Result<(), Stri
             "first_err": first_err
         }),
     );
-    Err(health_timeout_msg(port, lang))
+    Err(append_log_context(&health_timeout_msg(port, lang), lang))
 }
 
 fn start_embedded_backend(py: &Path, lang: &str) -> Result<(u16, Option<Child>), String> {
+    truncate_python_log();
+
     let mut ports: Vec<u16> = (8000..=8010).collect();
     for _ in 0..4 {
         if let Ok(p) = pick_free_port() {
@@ -371,12 +455,36 @@ fn start_embedded_backend(py: &Path, lang: &str) -> Result<(u16, Option<Child>),
     let mut seen = HashSet::new();
     ports.retain(|p| seen.insert(*p));
 
+    let (available, occupied): (Vec<u16>, Vec<u16>) =
+        ports.into_iter().partition(|p| is_port_available(*p));
+
+    agent_debug_log(
+        "H5",
+        "main.rs:start_embedded:port_scan",
+        "port_availability",
+        json!({ "available": available, "occupied": occupied }),
+    );
+
+    if available.is_empty() {
+        let msg = match lang {
+            "en" => format!(
+                "All candidate ports are occupied ({:?}). Please close conflicting programs and retry.",
+                occupied
+            ),
+            _ => format!(
+                "所有候选端口均被占用（{:?}），请关闭冲突程序后重试。",
+                occupied
+            ),
+        };
+        return Err(msg);
+    }
+
     let mut last_err: Option<String> = None;
-    for (i, port) in ports.iter().enumerate() {
+    for (i, port) in available.iter().enumerate() {
         let max_wait = if i == 0 {
-            Duration::from_secs(90)
+            Duration::from_secs(60)
         } else {
-            Duration::from_secs(45)
+            Duration::from_secs(30)
         };
         let mut child = match spawn_python_backend(py, *port, lang) {
             Ok(c) => c,
@@ -391,7 +499,7 @@ fn start_embedded_backend(py: &Path, lang: &str) -> Result<(u16, Option<Child>),
                 continue;
             }
         };
-        match wait_for_health(*port, lang, max_wait) {
+        match wait_for_health(*port, lang, max_wait, Some(&mut child)) {
             Ok(()) => return Ok((*port, Some(child))),
             Err(e) => {
                 let _ = child.kill();
@@ -406,13 +514,11 @@ fn start_embedded_backend(py: &Path, lang: &str) -> Result<(u16, Option<Child>),
             }
         }
     }
-    Err(last_err.unwrap_or_else(|| {
-        match lang {
-            "en" => "Could not start the local SolEdu service. See %TEMP%\\solaire-desktop-python.log."
-                .to_string(),
-            _ => "无法启动 SolEdu 本地服务。请查看 %TEMP%\\solaire-desktop-python.log。".to_string(),
-        }
-    }))
+    let fallback_msg = match lang {
+        "en" => "Could not start the local SolEdu service.".to_string(),
+        _ => "无法启动 SolEdu 本地服务。".to_string(),
+    };
+    Err(last_err.unwrap_or_else(|| append_log_context(&fallback_msg, lang)))
 }
 
 fn close_splash(app: &tauri::AppHandle) {
@@ -426,7 +532,7 @@ fn spawn_python_backend(python_exe: &Path, port: u16, lang: &str) -> Result<Chil
         .parent()
         .ok_or_else(|| "invalid python path".to_string())?;
 
-    let log_path = std::env::temp_dir().join("solaire-desktop-python.log");
+    let log_path = python_log_path();
     let log = OpenOptions::new()
         .create(true)
         .append(true)
@@ -437,8 +543,9 @@ fn spawn_python_backend(python_exe: &Path, port: u16, lang: &str) -> Result<Chil
     cmd.current_dir(work_dir)
         .env("PYTHONHOME", work_dir)
         .env("PYTHONUNBUFFERED", "1")
+        .env("PYTHONNOUSERSITE", "1")
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
+        .stdout(Stdio::from(log.try_clone().map_err(|e| e.to_string())?))
         .stderr(Stdio::from(log))
         .args([
             "-m",
@@ -539,7 +646,7 @@ fn main() {
                                 "about_to_wait_health",
                                 json!({ "port": port }),
                             );
-                            wait_for_health(port, &lang_th, Duration::from_secs(90)).map_err(|e| {
+                            wait_for_health(port, &lang_th, Duration::from_secs(90), None).map_err(|e| {
                                 format!("{}{}", e, sidecar_dev_hint(&lang_th))
                             })?;
                             Ok((port, None))

@@ -141,19 +141,82 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Write-Host "==> pip install repo (may take a while)" -ForegroundColor Cyan
 Push-Location $repoRoot
 try {
+  # Isolate from host machine Python environment so dependency graph
+  # only reflects this embedded runtime.
   $env:PYTHONNOUSERSITE = "1"
+  Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
   & $pythonExe -m pip install --no-user -U pip wheel setuptools
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
   & $pythonExe -m pip install --no-user --no-warn-script-location .
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 } finally {
-  Remove-Item Env:PYTHONNOUSERSITE -ErrorAction SilentlyContinue
   Pop-Location
 }
+
+Write-Host "==> Freeze installed package list (for diagnostics)" -ForegroundColor Cyan
+& $pythonExe -m pip list --format=freeze | Tee-Object -FilePath (Join-Path $runtimeRoot "installed-packages.txt")
+
+Write-Host "==> Verify installed dependency graph (pip check)" -ForegroundColor Cyan
+& $pythonExe -m pip check
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+Write-Host "==> Verify python-multipart (FastAPI form upload dependency)" -ForegroundColor Cyan
+$multipartTmp = Join-Path $runtimeRoot "_verify_multipart.py"
+@"
+from multipart import __version__ as _mv
+from starlette.formparsers import MultiPartParser
+import fastapi
+print('fastapi=' + fastapi.__version__ + '  python-multipart=' + _mv)
+"@ | Set-Content -Path $multipartTmp -Encoding UTF8
+& $pythonExe $multipartTmp
+if ($LASTEXITCODE -ne 0) {
+  Write-Host "==> multipart verification failed; attempting explicit install" -ForegroundColor Yellow
+  & $pythonExe -m pip install --no-user python-multipart
+  & $pythonExe $multipartTmp
+  if ($LASTEXITCODE -ne 0) {
+    Remove-Item -Force $multipartTmp -ErrorAction SilentlyContinue
+    Write-Error "python-multipart is required by FastAPI but could not be installed."
+  }
+}
+Remove-Item -Force $multipartTmp -ErrorAction SilentlyContinue
 
 Write-Host "==> Verify chemistry rendering (rdkit)" -ForegroundColor Cyan
 & $pythonExe -c "import rdkit; print('rdkit', rdkit.__version__)"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+Write-Host "==> Verify critical transitive dependencies" -ForegroundColor Cyan
+$transitiveTmp = Join-Path $runtimeRoot "_verify_transitive.py"
+@"
+import sys, platform
+required = ['pydantic', 'yaml', 'jinja2', 'uvicorn', 'numpy',
+            'openpyxl', 'openai', 'tiktoken', 'pdfplumber', 'PIL',
+            'starlette', 'httptools']
+unix_only = ['uvloop']
+failures = []
+for mod in required:
+    try:
+        __import__(mod)
+    except ImportError:
+        failures.append(mod)
+skipped = []
+if platform.system() != 'Windows':
+    for mod in unix_only:
+        try:
+            __import__(mod)
+        except ImportError:
+            failures.append(mod)
+else:
+    skipped = unix_only
+if failures:
+    raise SystemExit('Missing transitive deps: ' + ', '.join(failures))
+msg = 'All critical transitive dependencies OK'
+if skipped:
+    msg += ' (skipped on Windows: ' + ', '.join(skipped) + ')'
+print(msg)
+"@ | Set-Content -Path $transitiveTmp -Encoding UTF8
+& $pythonExe $transitiveTmp
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+Remove-Item -Force $transitiveTmp -ErrorAction SilentlyContinue
 
 # Optional: double-click to start local server (troubleshooting)
 $bat = @'
