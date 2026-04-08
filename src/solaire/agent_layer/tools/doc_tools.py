@@ -37,11 +37,20 @@ def tool_doc_convert_to_markdown(ctx: InvocationContext, args: dict[str, Any]) -
             ["pandoc", str(p), "-t", "markdown", "--wrap=none"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=60,
         )
+        err_tail = (result.stderr or "")[:500]
         if result.returncode != 0:
-            return ToolResult(status="failed", error_message=f"pandoc 转换失败: {result.stderr[:500]}")
-        md = result.stdout
+            return ToolResult(status="failed", error_message=f"pandoc 转换失败: {err_tail}")
+        # Windows 下偶发 stdout 为 None（控制台/编码边界），须归一为 str 再写入文件
+        md = result.stdout if isinstance(result.stdout, str) else ""
+        if not md.strip() and err_tail.strip():
+            return ToolResult(
+                status="failed",
+                error_message=f"pandoc 未输出内容，请确认源文件格式受支持。详情：{err_tail[:500]}",
+            )
         out_rel = str(Path(rel).with_suffix(".md"))
         out_path = _resolve(ctx, out_rel)
         out_path.parent.mkdir(parents=True, exist_ok=True)

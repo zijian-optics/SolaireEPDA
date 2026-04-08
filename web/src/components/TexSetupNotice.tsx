@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertCircle, CheckCircle2, ExternalLink, RefreshCw } from "lucide-react";
 import { apiGet, apiPost, ensureApiBase } from "../api/client";
-import { cn } from "../lib/utils";
+import { openExternalUrl } from "../lib/openExternalUrl";
 
 type TexStatus = {
   platform: string;
@@ -90,18 +90,14 @@ export function TexSetupNotice({ onError }: Props) {
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2 pl-6">
-        <a
-          href={MIKTEX_DOWNLOAD}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={cn(
-            "inline-flex items-center gap-1 rounded-md border border-amber-300 bg-white px-2.5 py-1.5 text-xs font-medium text-amber-950",
-            "hover:bg-amber-100",
-          )}
+        <button
+          type="button"
+          onClick={() => void openExternalUrl(MIKTEX_DOWNLOAD)}
+          className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-white px-2.5 py-1.5 text-xs font-medium text-amber-950 hover:bg-amber-100"
         >
           <ExternalLink className="h-3.5 w-3.5" />
           {t("compose:texNoticeOpenGuide")}
-        </a>
+        </button>
         {showOneClick ? (
           <button
             type="button"

@@ -17,6 +17,7 @@ import {
   ensureApiBase,
   type SystemExtensionStatus,
 } from "../api/client";
+import { openExternalUrl } from "../lib/openExternalUrl";
 import { cn } from "../lib/utils";
 
 function extensionDisplayReady(ext: SystemExtensionStatus): boolean {
@@ -106,15 +107,14 @@ function ExtensionCard({
         </div>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3 pl-[52px]">
-        <a
-          href={ext.download_url}
-          target="_blank"
-          rel="noopener noreferrer"
+        <button
+          type="button"
+          onClick={() => void openExternalUrl(ext.download_url)}
           className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50"
         >
           <ExternalLink className="h-3.5 w-3.5" />
           {t("ext.manualDownload")}
-        </a>
+        </button>
         {ext.can_auto_install ? (
           <button
             type="button"

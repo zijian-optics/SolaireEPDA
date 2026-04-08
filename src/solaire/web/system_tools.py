@@ -27,32 +27,14 @@ def tex_status() -> dict[str, Any]:
 
 def tex_install_miktex_via_winget() -> dict[str, Any]:
     """Start winget install for MiKTeX (non-blocking). Windows only."""
+    from solaire.web.extension_registry import install_via_winget
+
     if sys.platform != "win32":
         return {"ok": False, "message": "当前系统不支持此一键安装，请按页面说明手动安装 PDF 排版组件。"}
-    winget = shutil.which("winget")
-    if not winget:
+    r = install_via_winget("MiKTeX.MiKTeX")
+    if not r.get("ok") and r.get("message") == "未找到系统自带的应用安装器，请使用「手动下载」按官方说明安装。":
         return {
             "ok": False,
             "message": "未找到系统自带的应用安装器，请从 MiKTeX 官网下载安装包手动安装。",
         }
-    cmd = [
-        winget,
-        "install",
-        "MiKTeX.MiKTeX",
-        "--accept-source-agreements",
-        "--accept-package-agreements",
-    ]
-    try:
-        subprocess.Popen(
-            cmd,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            close_fds=True,
-        )
-    except OSError as e:
-        return {"ok": False, "message": f"无法启动安装流程：{e}"}
-    return {
-        "ok": True,
-        "message": "已尝试启动安装程序，请按系统提示完成安装；完成后可点击「重新检测」。",
-    }
+    return r

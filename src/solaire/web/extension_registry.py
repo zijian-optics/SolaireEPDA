@@ -156,6 +156,24 @@ def detect_all() -> dict[str, Any]:
     return {"extensions": items}
 
 
+def _win32_winget_popen_kwargs() -> dict[str, object]:
+    """Detach winget from the Python sidecar so the installer UI is not killed with the parent job."""
+    if sys.platform != "win32":
+        return {}
+    flags = 0
+    # CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS — 避免子进程随嵌入式 Python 一并结束
+    if hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
+        flags |= int(subprocess.CREATE_NEW_PROCESS_GROUP)  # type: ignore[attr-defined]
+    if hasattr(subprocess, "DETACHED_PROCESS"):
+        flags |= int(subprocess.DETACHED_PROCESS)  # type: ignore[attr-defined]
+    out: dict[str, object] = {}
+    if flags:
+        out["creationflags"] = flags
+    # Windows 上 close_fds=True 可能导致句柄继承异常，影响 winget/商店安装器
+    out["close_fds"] = False
+    return out
+
+
 def install_via_winget(winget_id: str) -> dict[str, Any]:
     """Start winget install (non-blocking). Windows only."""
     if sys.platform != "win32":
@@ -173,13 +191,14 @@ def install_via_winget(winget_id: str) -> dict[str, Any]:
         "--accept-source-agreements",
         "--accept-package-agreements",
     ]
+    popen_kw = _win32_winget_popen_kwargs()
     try:
         subprocess.Popen(
             cmd,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            close_fds=True,
+            **popen_kw,
         )
     except OSError as e:
         return {"ok": False, "message": f"无法启动安装流程：{e}"}

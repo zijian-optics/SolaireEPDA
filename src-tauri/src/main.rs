@@ -471,6 +471,7 @@ fn main() {
     }
     builder
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![get_backend_port, get_app_locale, set_app_locale])
         .setup(|app| {
             agent_debug_log(
