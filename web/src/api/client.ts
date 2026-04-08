@@ -523,6 +523,70 @@ export async function apiBankItems(): Promise<{ items: any[] }> {
   return apiGet<{ items: any[] }>("/api/bank/items");
 }
 
+// --- System extensions (optional host tools) ---
+export type SystemExtensionExecutable = {
+  name: string;
+  on_path: boolean;
+  path: string | null;
+  version: string | null;
+  /** 本页指定路径优先于自动检测 */
+  resolved_from?: "manual" | "system";
+};
+
+export type SystemExtensionStatus = {
+  id: string;
+  name: string;
+  description: string;
+  download_url: string;
+  install_hint: string | null;
+  executables: SystemExtensionExecutable[];
+  ready: boolean;
+  can_auto_install: boolean;
+  platform: string;
+  winget_on_path: boolean | null;
+  python_ocr_ready?: boolean;
+  ocr_ready?: boolean;
+  /** 是否在设置中保存过手动路径 */
+  has_manual_paths?: boolean;
+  /** 已保存的手动路径摘要（展示用） */
+  manual_paths?: Record<string, string | null | undefined>;
+};
+
+export type SystemExtensionsResponse = {
+  extensions: SystemExtensionStatus[];
+};
+
+export async function apiSystemExtensions(): Promise<SystemExtensionsResponse> {
+  return apiGet<SystemExtensionsResponse>("/api/system/extensions");
+}
+
+export async function apiSystemExtensionInstall(
+  extId: string,
+): Promise<{ ok: boolean; message: string }> {
+  return apiPost<{ ok: boolean; message: string }>(
+    `/api/system/extensions/${encodeURIComponent(extId)}/install`,
+    {},
+  );
+}
+
+export async function apiSystemExtensionManualPathPut(
+  extId: string,
+  body: { path: string; location_kind: "dir" | "file" },
+): Promise<{ ok: boolean; extensions: SystemExtensionStatus[] }> {
+  return apiPut<{ ok: boolean; extensions: SystemExtensionStatus[] }>(
+    `/api/system/extensions/${encodeURIComponent(extId)}/manual-path`,
+    body,
+  );
+}
+
+export async function apiSystemExtensionManualPathDelete(
+  extId: string,
+): Promise<{ ok: boolean; extensions: SystemExtensionStatus[] }> {
+  return apiDelete<{ ok: boolean; extensions: SystemExtensionStatus[] }>(
+    `/api/system/extensions/${encodeURIComponent(extId)}/manual-path`,
+  );
+}
+
 // --- Agent (M3) ---
 export type AgentConfig = {
   llm_configured: boolean;

@@ -10,6 +10,8 @@ import {
   type AgentLlmSettingsResponse,
   type AgentSafetyModeOption,
 } from "../api/client";
+import { ExtensionsPanel } from "../components/ExtensionsPanel";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { useAgentContext } from "../contexts/AgentContext";
 import { changeAppLanguage } from "../i18n/changeLanguage";
 import type { AppLang } from "../i18n/tauriLocale";
@@ -34,14 +36,15 @@ export function SettingsWorkspace({
   const [msg, setMsg] = useState<string | null>(null);
   const [safetyMode, setSafetyMode] = useState("allegro");
   const [safetyOptions, setSafetyOptions] = useState<AgentSafetyModeOption[]>([]);
+  const [settingsTab, setSettingsTab] = useState("model");
 
   useEffect(() => {
     setPageContext({
       current_page: "settings",
-      summary: t("pageSummary"),
+      summary: settingsTab === "extensions" ? t("ext.pageSummary") : t("pageSummary"),
     });
     return () => setPageContext(null);
-  }, [setPageContext, t]);
+  }, [setPageContext, t, settingsTab]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -163,13 +166,29 @@ export function SettingsWorkspace({
         )}
       </div>
 
-      {loading ? (
-        <div className="mt-8 flex items-center gap-2 text-slate-500">
-          <Loader2 className="h-5 w-5 animate-spin" />
-          {t("settings:loading")}
-        </div>
-      ) : (
-        <div className="mx-auto mt-6 max-w-lg space-y-4">
+      <Tabs value={settingsTab} onValueChange={setSettingsTab} className="mt-6">
+        <TabsList className="mb-1 w-full max-w-lg sm:w-auto">
+          <TabsTrigger value="model" className="flex-1 sm:flex-none">
+            {t("settings:tabModel")}
+          </TabsTrigger>
+          <TabsTrigger value="extensions" className="flex-1 sm:flex-none">
+            {t("settings:tabExtensions")}
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="extensions" className="mx-auto max-w-2xl">
+          <h2 className="sr-only">{t("ext.title")}</h2>
+          <ExtensionsPanel onError={onError} />
+        </TabsContent>
+
+        <TabsContent value="model" className="mx-auto max-w-lg">
+          {loading ? (
+            <div className="mt-4 flex items-center gap-2 text-slate-500">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              {t("settings:loading")}
+            </div>
+          ) : (
+            <div className="space-y-4">
           <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
             <label className="block text-sm font-medium text-slate-700">{t("settings:uiLanguage")}</label>
             <select
@@ -311,8 +330,10 @@ export function SettingsWorkspace({
               </button>
             )}
           </div>
-        </div>
-      )}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

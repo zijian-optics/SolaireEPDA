@@ -46,6 +46,11 @@ pixi run build-desktop
 
 开发模式使用当前源码的 Python 环境，**不**使用 `src-tauri/runtime/python` 内的嵌入式解释器。
 
+此外，开发模式与发布构建在窗口行为上有一处刻意差异：
+
+- `tauri dev`：不启用单实例拦截；关闭主窗体时直接退出，便于热重载后重新拉起新实例
+- 发布构建：保留单实例限制；关闭主窗体时隐藏到系统托盘，符合正式版桌面应用使用习惯
+
 ---
 
 ## 打包详解
@@ -98,6 +103,22 @@ pixi run build-desktop
 ### 端口 8000 被占用（开发模式）
 
 `dev-desktop.ps1` 启动时若检测到 8000 端口已被**非** Solaire 进程占用，会报错退出并提示占用进程。请先停止该进程再重试。
+
+### `tauri dev` 改完 `src-tauri` 后看起来“没有反应”
+
+先确认当前终端中是否出现以下日志：
+
+- `Info File src-tauri\src\main.rs changed. Rebuilding application...`
+- `Running target\debug\solaire-desktop.exe`
+- 后端日志里出现 `GET /api/health HTTP/1.1 200 OK`
+
+若以上日志都出现，通常表示热重载链路正常，新的桌面实例已经重新启动。
+
+若仍未看到主窗口，可优先检查：
+
+1. 终端里是否还有旧的 `solaire-desktop.exe` 残留
+2. `127.0.0.1:8000` 的本地后端是否已成功响应 `/api/health`
+3. `scripts/dev-desktop.ps1` 是否正常拉起了 Vite 与 Uvicorn
 
 ### 调试嵌入式运行时
 

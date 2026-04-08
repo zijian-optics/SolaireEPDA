@@ -29,7 +29,7 @@ from solaire.exam_compiler.facade import (
     strip_hydrate_fields,
 )
 
-from solaire.web import bundled_paths, help_docs, recent_projects, state, system_tools
+from solaire.web import bundled_paths, extension_registry, help_docs, recent_projects, state, system_tools
 from solaire.web.agent_api import router as agent_router
 from solaire.web.bank_exchange import export_bank_exchange_zip, import_bank_exchange_zip
 from solaire.web.result_service import (
@@ -332,6 +332,93 @@ def api_tex_status() -> dict[str, Any]:
 def api_tex_install() -> dict[str, Any]:
     """Try to start MiKTeX install via winget (Windows)."""
     return system_tools.tex_install_miktex_via_winget()
+
+
+@app.get("/api/system/extensions")
+def api_system_extensions() -> dict[str, Any]:
+    """Detect optional host extensions (LaTeX, Pandoc, OCR, Mermaid renderer)."""
+    return extension_registry.detect_all()
+
+
+@app.post("/api/system/extensions/{ext_id}/install")
+def api_system_extension_install(ext_id: str) -> dict[str, Any]:
+    """Try to start winget install for a registered extension (Windows)."""
+    return extension_registry.install_extension(ext_id)
+
+
+class ExtensionManualPathBody(BaseModel):
+    """User-selected install location for an extension (folder or executable)."""
+
+    path: str = Field(..., min_length=1)
+    location_kind: Literal["dir", "file"] = "file"
+
+
+class ExtensionPickDialogBody(BaseModel):
+    dialog: Literal["dir", "file"] = "file"
+
+
+@app.put("/api/system/extensions/{ext_id}/manual-path")
+def api_extension_manual_path_put(ext_id: str, body: ExtensionManualPathBody) -> dict[str, Any]:
+    r = extension_registry.validate_and_save_manual_path(
+        ext_id,
+        body.path,
+        location_kind=body.location_kind,
+    )
+    if not r.get("ok"):
+        raise HTTPException(status_code=400, detail=str(r.get("message", "保存失败")))
+    return {"ok": True, "extensions": extension_registry.detect_all()["extensions"]}
+
+
+@app.delete("/api/system/extensions/{ext_id}/manual-path")
+def api_extension_manual_path_delete(ext_id: str) -> dict[str, Any]:
+    r = extension_registry.clear_manual_path(ext_id)
+    if not r.get("ok"):
+        raise HTTPException(status_code=400, detail=str(r.get("message", "清除失败")))
+    return {"ok": True, "extensions": extension_registry.detect_all()["extensions"]}
+
+
+def _pick_executable_dialog() -> str | None:
+    """Native file picker for an executable (same machine as API)."""
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except ImportError as e:
+        raise RuntimeError("TKINTER_UNAVAILABLE") from e
+
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        root.attributes("-topmost", True)
+    except tk.TclError:
+        pass
+    try:
+        path = filedialog.askopenfilename(
+            title="选择程序文件",
+            filetypes=[("可执行文件", "*.exe"), ("所有文件", "*.*")],
+        )
+    finally:
+        root.destroy()
+    return path or None
+
+
+@app.post("/api/system/extensions/pick-path")
+async def api_extension_pick_path(body: ExtensionPickDialogBody) -> dict[str, Any]:
+    """Open OS dialog on the machine running the API (browser + local backend)."""
+    try:
+        if body.dialog == "dir":
+            path = await asyncio.to_thread(_pick_directory_dialog)
+        else:
+            path = await asyncio.to_thread(_pick_executable_dialog)
+    except RuntimeError as e:
+        if str(e) == "TKINTER_UNAVAILABLE":
+            raise HTTPException(
+                status_code=501,
+                detail="当前环境无法弹出系统选择窗口，请在本机手动输入路径。",
+            ) from e
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    if not path:
+        raise HTTPException(status_code=400, detail="未选择或已取消")
+    return {"ok": True, "path": path}
 
 
 @app.get("/api/help/index")

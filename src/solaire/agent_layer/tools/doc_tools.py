@@ -17,6 +17,14 @@ def _resolve(ctx: InvocationContext, rel: str) -> Path:
     return p
 
 
+def _configured_tesseract_cmd() -> str | None:
+    from solaire.web import extension_preferences
+    from solaire.web.extension_registry import _resolve_manual_exe_path
+
+    manual = extension_preferences.get_extension_prefs("tesseract")
+    return _resolve_manual_exe_path("tesseract", "tesseract", manual)
+
+
 def tool_doc_convert_to_markdown(ctx: InvocationContext, args: dict[str, Any]) -> ToolResult:
     rel = str(args.get("path") or "")
     if not rel:
@@ -30,18 +38,27 @@ def tool_doc_convert_to_markdown(ctx: InvocationContext, args: dict[str, Any]) -
     if shutil.which("pandoc") is None:
         return ToolResult(
             status="failed",
-            error_message="系统未安装 pandoc，无法进行文档转换。请联系管理员安装 pandoc 后重试。",
+            error_message="本机未安装文档转换组件，无法进行转换。请打开「设置 → 扩展组件」安装「文档转换」后重试。",
         )
     try:
         result = subprocess.run(
             ["pandoc", str(p), "-t", "markdown", "--wrap=none"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=60,
         )
+        err_tail = (result.stderr or "")[:500]
         if result.returncode != 0:
-            return ToolResult(status="failed", error_message=f"pandoc 转换失败: {result.stderr[:500]}")
-        md = result.stdout
+            return ToolResult(status="failed", error_message=f"pandoc 转换失败: {err_tail}")
+        # Windows 下偶发 stdout 为 None（控制台/编码边界），须归一为 str 再写入文件
+        md = result.stdout if isinstance(result.stdout, str) else ""
+        if not md.strip() and err_tail.strip():
+            return ToolResult(
+                status="failed",
+                error_message=f"pandoc 未输出内容，请确认源文件格式受支持。详情：{err_tail[:500]}",
+            )
         out_rel = str(Path(rel).with_suffix(".md"))
         out_path = _resolve(ctx, out_rel)
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -73,7 +90,7 @@ def tool_doc_extract_pdf_text(ctx: InvocationContext, args: dict[str, Any]) -> T
     except ImportError:
         return ToolResult(
             status="failed",
-            error_message="未安装 pdfplumber 库，无法提取 PDF 文本。请联系管理员执行 pip install pdfplumber。",
+            error_message="无法提取 PDF 文本：缺少必要的阅读组件。请使用官方安装包或维护说明补全本机运行环境后重试。",
         )
     try:
         pages_text: list[str] = []
@@ -109,9 +126,11 @@ def tool_doc_ocr_image(ctx: InvocationContext, args: dict[str, Any]) -> ToolResu
     except ImportError:
         return ToolResult(
             status="failed",
-            error_message="未安装 OCR 依赖（Pillow + pytesseract）。请联系管理员安装后重试。",
+            error_message="无法使用文字识别：缺少必要的识别组件。请打开「设置 → 扩展组件」查看「文字识别」安装说明后重试。",
         )
     try:
+        configured_cmd = _configured_tesseract_cmd()
+        pytesseract.pytesseract.tesseract_cmd = configured_cmd or "tesseract"
         img = Image.open(str(p))
         text = pytesseract.image_to_string(img, lang=lang)
         return ToolResult(data={

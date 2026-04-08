@@ -43,8 +43,8 @@ def test_tex_install_calls_winget(monkeypatch: pytest.MonkeyPatch) -> None:
             called["args"] = args
             called["kwargs"] = kwargs
 
-    monkeypatch.setattr("solaire.web.system_tools.shutil.which", lambda x: "C:\\winget.exe" if x == "winget" else None)
-    monkeypatch.setattr("solaire.web.system_tools.subprocess.Popen", DummyPopen)
+    monkeypatch.setattr("solaire.web.extension_registry.shutil.which", lambda x: "C:\\winget.exe" if x == "winget" else None)
+    monkeypatch.setattr("solaire.web.extension_registry.subprocess.Popen", DummyPopen)
 
     client = TestClient(app)
     r = client.post("/api/system/tex-install")

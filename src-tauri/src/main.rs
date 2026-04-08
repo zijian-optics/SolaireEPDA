@@ -78,6 +78,14 @@ fn tray_menu_labels(lang: &str) -> (&'static str, &'static str) {
     }
 }
 
+fn use_single_instance_plugin() -> bool {
+    !cfg!(debug_assertions)
+}
+
+fn hide_main_window_on_close() -> bool {
+    !cfg!(debug_assertions)
+}
+
 fn health_timeout_msg(port: u16, lang: &str) -> String {
     match lang {
         "en" => format!(
@@ -569,15 +577,18 @@ fn main() {
         target_os = "macos"
     ))]
     {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.show();
-                let _ = w.set_focus();
-            }
-        }));
+        if use_single_instance_plugin() {
+            builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
+            }));
+        }
     }
     builder
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![get_backend_port, get_app_locale, set_app_locale])
         .setup(|app| {
             agent_debug_log(
@@ -833,7 +844,8 @@ fn main() {
                             }),
                         );
 
-                        if let Some(win) = app_handle.get_webview_window("main") {
+                        if hide_main_window_on_close() {
+                            if let Some(win) = app_handle.get_webview_window("main") {
                             let win_clone = win.clone();
                             win.on_window_event(move |ev| {
                                 if let WindowEvent::CloseRequested { api, .. } = ev {
@@ -841,7 +853,8 @@ fn main() {
                                     let _ = win_clone.hide();
                                 }
                             });
-                        } else {
+                            }
+                        } else if app_handle.get_webview_window("main").is_none() {
                             agent_debug_log(
                                 "H2",
                                 "main.rs:setup:main_missing",
@@ -890,4 +903,64 @@ fn main() {
                 // Child is killed on explicit quit from tray; best-effort on other exits.
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    #[test]
+    fn wait_for_health_should_ignore_proxy_for_localhost() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind test health server");
+        let port = listener.local_addr().expect("local addr").port();
+
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut buf = [0u8; 1024];
+            let _ = stream.read(&mut buf);
+            let body = r#"{"status":"ok","product":"sol_edu"}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream.write_all(response.as_bytes()).expect("write response");
+            stream.flush().expect("flush response");
+        });
+
+        let old_http_proxy = std::env::var_os("HTTP_PROXY");
+        let old_https_proxy = std::env::var_os("HTTPS_PROXY");
+        let old_no_proxy = std::env::var_os("NO_PROXY");
+        std::env::set_var("HTTP_PROXY", "http://127.0.0.1:9");
+        std::env::set_var("HTTPS_PROXY", "http://127.0.0.1:9");
+        std::env::remove_var("NO_PROXY");
+
+        let result = wait_for_health(port, "zh", Duration::from_millis(800), None);
+
+        match old_http_proxy {
+            Some(v) => std::env::set_var("HTTP_PROXY", v),
+            None => std::env::remove_var("HTTP_PROXY"),
+        }
+        match old_https_proxy {
+            Some(v) => std::env::set_var("HTTPS_PROXY", v),
+            None => std::env::remove_var("HTTPS_PROXY"),
+        }
+        match old_no_proxy {
+            Some(v) => std::env::set_var("NO_PROXY", v),
+            None => std::env::remove_var("NO_PROXY"),
+        }
+
+        server.join().expect("server thread");
+        assert!(result.is_ok(), "expected localhost health check to bypass proxy, got {result:?}");
+    }
+
+    #[test]
+    fn dev_build_should_not_use_single_instance_or_hide_on_close() {
+        if cfg!(debug_assertions) {
+            assert!(!use_single_instance_plugin());
+            assert!(!hide_main_window_on_close());
+        }
+    }
 }
