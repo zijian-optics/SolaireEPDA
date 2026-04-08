@@ -30,7 +30,7 @@ def tool_doc_convert_to_markdown(ctx: InvocationContext, args: dict[str, Any]) -
     if shutil.which("pandoc") is None:
         return ToolResult(
             status="failed",
-            error_message="系统未安装 pandoc，无法进行文档转换。请联系管理员安装 pandoc 后重试。",
+            error_message="本机未安装文档转换组件，无法进行转换。请打开「设置 → 扩展组件」安装「文档转换」后重试。",
         )
     try:
         result = subprocess.run(
@@ -73,7 +73,7 @@ def tool_doc_extract_pdf_text(ctx: InvocationContext, args: dict[str, Any]) -> T
     except ImportError:
         return ToolResult(
             status="failed",
-            error_message="未安装 pdfplumber 库，无法提取 PDF 文本。请联系管理员执行 pip install pdfplumber。",
+            error_message="无法提取 PDF 文本：缺少必要的阅读组件。请使用官方安装包或维护说明补全本机运行环境后重试。",
         )
     try:
         pages_text: list[str] = []
@@ -109,7 +109,7 @@ def tool_doc_ocr_image(ctx: InvocationContext, args: dict[str, Any]) -> ToolResu
     except ImportError:
         return ToolResult(
             status="failed",
-            error_message="未安装 OCR 依赖（Pillow + pytesseract）。请联系管理员安装后重试。",
+            error_message="无法使用文字识别：缺少必要的识别组件。请打开「设置 → 扩展组件」查看「文字识别」安装说明后重试。",
         )
     try:
         img = Image.open(str(p))

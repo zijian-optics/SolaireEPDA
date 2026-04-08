@@ -523,6 +523,46 @@ export async function apiBankItems(): Promise<{ items: any[] }> {
   return apiGet<{ items: any[] }>("/api/bank/items");
 }
 
+// --- System extensions (optional host tools) ---
+export type SystemExtensionExecutable = {
+  name: string;
+  on_path: boolean;
+  path: string | null;
+  version: string | null;
+};
+
+export type SystemExtensionStatus = {
+  id: string;
+  name: string;
+  description: string;
+  download_url: string;
+  install_hint: string | null;
+  executables: SystemExtensionExecutable[];
+  ready: boolean;
+  can_auto_install: boolean;
+  platform: string;
+  winget_on_path: boolean | null;
+  python_ocr_ready?: boolean;
+  ocr_ready?: boolean;
+};
+
+export type SystemExtensionsResponse = {
+  extensions: SystemExtensionStatus[];
+};
+
+export async function apiSystemExtensions(): Promise<SystemExtensionsResponse> {
+  return apiGet<SystemExtensionsResponse>("/api/system/extensions");
+}
+
+export async function apiSystemExtensionInstall(
+  extId: string,
+): Promise<{ ok: boolean; message: string }> {
+  return apiPost<{ ok: boolean; message: string }>(
+    `/api/system/extensions/${encodeURIComponent(extId)}/install`,
+    {},
+  );
+}
+
 // --- Agent (M3) ---
 export type AgentConfig = {
   llm_configured: boolean;

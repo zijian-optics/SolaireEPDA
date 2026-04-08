@@ -29,7 +29,7 @@ from solaire.exam_compiler.facade import (
     strip_hydrate_fields,
 )
 
-from solaire.web import bundled_paths, help_docs, recent_projects, state, system_tools
+from solaire.web import bundled_paths, extension_registry, help_docs, recent_projects, state, system_tools
 from solaire.web.agent_api import router as agent_router
 from solaire.web.bank_exchange import export_bank_exchange_zip, import_bank_exchange_zip
 from solaire.web.result_service import (
@@ -332,6 +332,18 @@ def api_tex_status() -> dict[str, Any]:
 def api_tex_install() -> dict[str, Any]:
     """Try to start MiKTeX install via winget (Windows)."""
     return system_tools.tex_install_miktex_via_winget()
+
+
+@app.get("/api/system/extensions")
+def api_system_extensions() -> dict[str, Any]:
+    """Detect optional host extensions (LaTeX, Pandoc, OCR, Mermaid renderer)."""
+    return extension_registry.detect_all()
+
+
+@app.post("/api/system/extensions/{ext_id}/install")
+def api_system_extension_install(ext_id: str) -> dict[str, Any]:
+    """Try to start winget install for a registered extension (Windows)."""
+    return extension_registry.install_extension(ext_id)
 
 
 @app.get("/api/help/index")
