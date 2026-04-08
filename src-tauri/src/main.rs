@@ -108,8 +108,8 @@ fn spawn_sidecar_err(path: &Path, err: &std::io::Error, lang: &str) -> String {
 
 fn sidecar_dev_hint(lang: &str) -> &'static str {
     match lang {
-        "en" => " (no embedded Python; in dev run: python -m uvicorn solaire.web.app:app --host 127.0.0.1 --port 8000)",
-        _ => "（未找到嵌入式 Python，请在开发时先启动：python -m uvicorn solaire.web.app:app --host 127.0.0.1 --port 8000）",
+        "en" => " (no embedded Python; please start the backend first: pixi run dev-backend)",
+        _ => "（未找到嵌入式 Python，请先在另一终端启动后端：pixi run dev-backend）",
     }
 }
 
@@ -647,7 +647,7 @@ fn main() {
                                 "about_to_wait_health",
                                 json!({ "port": port }),
                             );
-                            wait_for_health(port, &lang_th, Duration::from_secs(90), None).map_err(|e| {
+                            wait_for_health(port, &lang_th, Duration::from_secs(30), None).map_err(|e| {
                                 format!("{}{}", e, sidecar_dev_hint(&lang_th))
                             })?;
                             Ok((port, None))
