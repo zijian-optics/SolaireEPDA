@@ -164,6 +164,10 @@ pixi run build-desktop
 
 为保障项目的长期健康发展，首次提交 PR 时需签署 [贡献者许可协议（CLA）](CLA.md)。CLA 不会改变你对自己代码的权利，仅确保项目可以持续以开源方式分发。
 
+### 合作交流群
+
+QQ群：1094709486
+
 ## 许可证
 
 本项目基于 **[AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0.html)** 协议开源。
