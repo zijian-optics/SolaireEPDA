@@ -1,0 +1,43 @@
+# 选考生物学（参照安徽等「16 道选择 + 5 道非选择」结构）：满分 100
+template_id: gaokao2024_biology
+layout: single_column
+latex_base: GaokaoBiology.tex.j2
+sections:
+  - section_id: 一、单项选择题（一）
+    type: choice
+    required_count: 12
+    score_per_item: 2
+    describe: 本题共12小题，每小题2分，共24分。
+  - section_id: 一、单项选择题（二）
+    type: choice
+    required_count: 4
+    score_per_item: 4
+    describe: 本题共4小题，每小题4分，共16分。
+  - section_id: 二、非选择题
+    type: reasoning
+    required_count: 5
+    score_per_item: 12
+    describe: 本题共5小题，共60分（各小题分值以试卷标注为准）。
+metadata_defaults:
+  title: 生物学
+  body_font_size_pt: 11
+  show_binding_line: true
+  line_stretch: 1.5
+  show_page_number_footer: true
+  title_block_style: exam2024
+  section_heading_style: hang_bold
+  include_common_math_macros: true
+  margins_mm:
+    left: 31.7
+    right: 31.7
+    top: 30.4
+    bottom: 30.4
+  preamble_notices: |
+    \noindent\textbf{注意事项：}\par\smallskip
+    1. 答卷前，考生务必将自己的姓名、准考证号填写在答题卡上。\par
+    2. 回答选择题时，选出每小题答案后，用铅笔把答题卡上对应题目的答案标号涂黑。如需改动，用橡皮擦干净后，再选涂其他答案标号。回答非选择题时，将答案写在答题卡上。写在本试卷上无效。\par
+    3. 考试结束后，将本试卷和答题卡一并交回。
+  show_student_sidebar: true
+  sidebar_show_class: true
+  binding_line_position_cm: 1.2
+  show_name_column: false

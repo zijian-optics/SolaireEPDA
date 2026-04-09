@@ -59,5 +59,8 @@ src-tauri/runtime/python/*
 /ARCHITECTURE.md
 /docs/STATUS.md
 /docs/PROJECT_MAP.md
-/.cursor/
+# Cursor：不提交会话/计划等；仅提交共享规则（见 .cursor/rules/）
+.cursor/**
+!.cursor/rules/
+!.cursor/rules/**
 /.claude/

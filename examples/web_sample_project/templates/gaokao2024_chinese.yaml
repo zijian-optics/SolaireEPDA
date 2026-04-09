@@ -1,0 +1,63 @@
+# 新课标全国卷语文（参照 2024 新课标卷常见结构）：满分 150
+template_id: gaokao2024_chinese
+layout: single_column
+latex_base: GaokaoChinese.tex.j2
+sections:
+  - section_id: 一、现代文阅读（一）
+    type: choice
+    required_count: 5
+    score_per_item: 3.8
+    describe: 本题共5小题，共19分。（小题分值以试卷标注为准。）
+  - section_id: 二、现代文阅读（二）
+    type: choice
+    required_count: 4
+    score_per_item: 4
+    describe: 本题共4小题，共16分。
+  - section_id: 三、文言文阅读
+    type: reasoning
+    required_count: 5
+    score_per_item: 4.4
+    describe: 本题共5小题，共22分。
+  - section_id: 四、古代诗歌阅读
+    type: short_answer
+    required_count: 2
+    score_per_item: 4.5
+    describe: 本题共2小题，共9分。
+  - section_id: 五、名篇名句默写
+    type: fill
+    required_count: 6
+    score_per_item: 1
+    describe: 本题共6空，每空1分，共6分。
+  - section_id: 六、语言文字运用
+    type: reasoning
+    required_count: 5
+    score_per_item: 3.6
+    describe: 本题共5小题，共18分。
+  - section_id: 七、写作
+    type: essay
+    required_count: 1
+    score_per_item: 60
+    describe: 共60分。
+metadata_defaults:
+  title: 语文
+  body_font_size_pt: 11
+  show_binding_line: true
+  line_stretch: 1.5
+  show_page_number_footer: true
+  title_block_style: exam2024
+  section_heading_style: hang_bold
+  include_common_math_macros: false
+  margins_mm:
+    left: 31.7
+    right: 31.7
+    top: 30.4
+    bottom: 30.4
+  preamble_notices: |
+    \noindent\textbf{注意事项：}\par\smallskip
+    1. 答卷前，考生务必将自己的姓名、准考证号填写在答题卡上。\par
+    2. 回答选择题时，选出每小题答案后，用铅笔把答题卡上对应题目的答案标号涂黑。如需改动，用橡皮擦干净后，再选涂其他答案标号。回答非选择题时，将答案写在答题卡上。写在本试卷上无效。\par
+    3. 考试结束后，将本试卷和答题卡一并交回。
+  show_student_sidebar: true
+  sidebar_show_class: true
+  binding_line_position_cm: 1.2
+  show_name_column: false

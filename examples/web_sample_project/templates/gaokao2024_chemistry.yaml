@@ -1,0 +1,38 @@
+# 选考化学（参照多省「14 道单选 + 4 道非选择」结构）：满分 100
+template_id: gaokao2024_chemistry
+layout: single_column
+latex_base: GaokaoChemistry.tex.j2
+sections:
+  - section_id: 一、单项选择题
+    type: choice
+    required_count: 14
+    score_per_item: 3
+    describe: 本题共14小题，每小题3分，共42分。
+  - section_id: 二、非选择题
+    type: reasoning
+    required_count: 4
+    score_per_item: 14.5
+    describe: 本题共4小题，共58分（各小题分值以试卷标注为准）。
+metadata_defaults:
+  title: 化学
+  body_font_size_pt: 11
+  show_binding_line: true
+  line_stretch: 1.5
+  show_page_number_footer: true
+  title_block_style: exam2024
+  section_heading_style: hang_bold
+  include_common_math_macros: true
+  margins_mm:
+    left: 31.7
+    right: 31.7
+    top: 30.4
+    bottom: 30.4
+  preamble_notices: |
+    \noindent\textbf{注意事项：}\par\smallskip
+    1. 答卷前，考生务必将自己的姓名、准考证号填写在答题卡上。\par
+    2. 回答选择题时，选出每小题答案后，用铅笔把答题卡上对应题目的答案标号涂黑。如需改动，用橡皮擦干净后，再选涂其他答案标号。回答非选择题时，将答案写在答题卡上。写在本试卷上无效。\par
+    3. 考试结束后，将本试卷和答题卡一并交回。
+  show_student_sidebar: true
+  sidebar_show_class: true
+  binding_line_position_cm: 1.2
+  show_name_column: false

@@ -1,0 +1,63 @@
+# 新课标全国卷英语：听力30+阅读50+语言运用30+写作40，满分 150
+template_id: gaokao2024_english
+layout: single_column
+latex_base: GaokaoEnglish.tex.j2
+sections:
+  - section_id: 第一部分　听力
+    type: choice
+    required_count: 20
+    score_per_item: 1.5
+    describe: 共两节，满分30分。第一节5小题，第二节15小题；每小题1.5分。
+  - section_id: 第二部分　阅读（第一节）
+    type: choice
+    required_count: 15
+    score_per_item: 2.5
+    describe: 阅读理解共15小题，每小题2.5分，满分37.5分。
+  - section_id: 第二部分　阅读（第二节）
+    type: choice
+    required_count: 5
+    score_per_item: 2.5
+    describe: 七选五共5小题，每小题2.5分，满分12.5分。
+  - section_id: 第三部分　语言运用（第一节）
+    type: choice
+    required_count: 15
+    score_per_item: 1
+    describe: 完形填空共15小题，每小题1分，满分15分。
+  - section_id: 第三部分　语言运用（第二节）
+    type: fill
+    required_count: 10
+    score_per_item: 1.5
+    describe: 语法填空共10小题，每小题1.5分，满分15分。
+  - section_id: 第四部分　写作（第一节）
+    type: essay
+    required_count: 1
+    score_per_item: 15
+    describe: 应用文写作，满分15分。
+  - section_id: 第四部分　写作（第二节）
+    type: essay
+    required_count: 1
+    score_per_item: 25
+    describe: 读后续写，满分25分。
+metadata_defaults:
+  title: 英语
+  body_font_size_pt: 11
+  show_binding_line: true
+  line_stretch: 1.5
+  show_page_number_footer: true
+  title_block_style: exam2024
+  section_heading_style: hang_bold
+  include_common_math_macros: false
+  margins_mm:
+    left: 31.7
+    right: 31.7
+    top: 30.4
+    bottom: 30.4
+  preamble_notices: |
+    \noindent\textbf{注意事项：}\par\smallskip
+    1. 答卷前，考生务必将自己的姓名、准考证号填写在答题卡上。\par
+    2. 回答选择题时，选出每小题答案后，用铅笔把答题卡上对应题目的答案标号涂黑。如需改动，用橡皮擦干净后，再选涂其他答案标号。回答非选择题时，将答案写在答题卡上。写在本试卷上无效。\par
+    3. 考试结束后，将本试卷和答题卡一并交回。
+  show_student_sidebar: true
+  sidebar_show_class: true
+  binding_line_position_cm: 1.2
+  show_name_column: false

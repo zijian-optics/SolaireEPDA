@@ -1,4 +1,4 @@
-# 与 gaokao2024_math.yaml 一致；latex_base 使用内置 GaokaoMath.tex.j2
+# 新课标全国卷数学：8+3+3+5，满分 150（解答题共 77 分，均分按 15.4 计）
 template_id: gaokao2024_math
 layout: single_column
 latex_base: GaokaoMath.tex.j2
