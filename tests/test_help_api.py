@@ -77,6 +77,17 @@ def test_help_asset_path_traversal(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert r.status_code in (400, 403, 404)
 
 
+def test_help_index_bundled_without_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Package layout: manifest lives next to help_docs.py under assets/help_docs."""
+    monkeypatch.delenv("SOLAIRE_HELP_DOC_ROOT", raising=False)
+    client = TestClient(app)
+    r = client.get("/api/help/index")
+    assert r.status_code == 200
+    data = r.json()
+    assert "pages" in data
+    assert len(data["pages"]) >= 1
+
+
 def test_help_page_unknown(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     doc_root = tmp_path / "solaire_doc"
     doc_root.mkdir(parents=True)

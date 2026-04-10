@@ -1,21 +1,13 @@
-"""Application help: Markdown under src/solaire_doc/ with manifest allowlist."""
+"""Application help: Markdown bundled under solaire.web.assets.help_docs with manifest allowlist."""
 
 from __future__ import annotations
 
 import json
 import os
-import sys
 from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
-
-
-def _installation_root() -> Path:
-    if getattr(sys, "frozen", False):
-        return Path(sys._MEIPASS)
-    # src/solaire/web/help_docs.py -> repo root
-    return Path(__file__).resolve().parents[3]
 
 
 def get_solaire_doc_dir() -> Path:
@@ -23,7 +15,18 @@ def get_solaire_doc_dir() -> Path:
     override = os.environ.get("SOLAIRE_HELP_DOC_ROOT")
     if override:
         return Path(override).expanduser().resolve()
-    return (_installation_root() / "src" / "solaire_doc").resolve()
+
+    # Same package as this module: stable under site-packages, editable install, or PyInstaller.
+    pkg_dir = Path(__file__).resolve().parent / "assets" / "help_docs"
+    if (pkg_dir / "help-manifest.json").is_file():
+        return pkg_dir
+
+    # Legacy repo layout (e.g. partial checkout): src/solaire_doc next to solaire package.
+    legacy = Path(__file__).resolve().parents[2] / "solaire_doc"
+    if (legacy / "help-manifest.json").is_file():
+        return legacy
+
+    return pkg_dir
 
 
 def _load_manifest_raw() -> dict[str, Any]:
@@ -45,7 +48,7 @@ _ASSET_SUFFIXES = frozenset({".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp"})
 
 
 def resolve_help_asset(rel: str) -> Path:
-    """Return a file under solaire_doc/assets/ (for diagrams referenced from help Markdown)."""
+    """Return a file under help_docs/assets/ (for diagrams referenced from help Markdown)."""
     rel = rel.strip().replace("\\", "/").lstrip("/")
     if not rel or any(part == ".." for part in rel.split("/")):
         raise HTTPException(status_code=400, detail="无效资源路径")

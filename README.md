@@ -160,7 +160,7 @@ pixi run build-desktop
 1. Fork 本仓库并创建特性分支
 2. 确保代码通过现有测试：`pixi run test` 与 `pixi run test-web`，并完成必要的 i18n 国际化
 3. 提交 PR 并描述你的改动
-4. 在 solaire_doc中记录changelog
+4. 在 `src/solaire/web/assets/help_docs/changelog.md` 中记录 changelog
 
 ### 报告安全漏洞
 

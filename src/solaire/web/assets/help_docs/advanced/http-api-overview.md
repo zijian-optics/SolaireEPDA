@@ -78,7 +78,7 @@
 | 方法 | 路径 | 作用 |
 |------|------|------|
 | GET | `/api/health` | 健康检查 |
-| GET | `/api/help/index`、`/api/help/page/{id}`、`/api/help/asset/...` | 应用内手册（`{id}` 与 `src/solaire_doc/help-manifest.json` 中 `id` 一致） |
+| GET | `/api/help/index`、`/api/help/page/{id}`、`/api/help/asset/...` | 应用内手册（`{id}` 与包内 `help-manifest.json` 中 `id` 一致） |
 | GET | `/api/resource/{path}` | 项目 `resource/` 下静态文件（如插图） |
 
 ---

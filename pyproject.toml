@@ -45,4 +45,5 @@ where = ["src"]
 "solaire.web" = [
   "bundled_project_templates/**/*",
   "bundled_project_templates/math/.solaire/**/*",
+  "assets/help_docs/**/*",
 ]

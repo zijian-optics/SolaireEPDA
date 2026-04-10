@@ -18,4 +18,4 @@
 ## 与根目录 `docs/` 的关系
 
 - **`docs/`**：仓库内的开发说明、架构、计划、验收清单等，**不**作为应用内嵌正文的维护位置。
-- **`src/solaire_doc/`**：随应用发布的手册正文；修改此处 Markdown 即可更新产品内展示（具体加载方式见后端实现）。
+- **`src/solaire/web/assets/help_docs/`**（本目录）：随 Wheel / 嵌入式 Python 打包发布；修改此处 Markdown 即可更新产品内展示（由 `solaire.web.help_docs` 加载）。

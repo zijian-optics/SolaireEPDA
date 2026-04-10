@@ -156,7 +156,7 @@ For bugs or feature ideas, please [open an issue](https://github.com/zijian-opti
 1. Fork the repo and create a feature branch
 2. Make sure tests pass: `pixi run test` and `pixi run test-web`, and complete i18n where needed
 3. Open a PR describing your changes
-4. Record changelog in `solaire_doc`
+4. Record changelog in `src/solaire/web/assets/help_docs/changelog.md`
 
 ### Security
 
