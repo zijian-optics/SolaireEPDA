@@ -107,6 +107,10 @@ pixi run dev
 
 串联逻辑由 `scripts/dev-desktop.ps1` 作为 Tauri 的 `beforeDevCommand` 执行；首次启动前若 `:8000` 上仍有残留进程，脚本会尝试结束后再启动，避免端口占用。
 
+**桌面启动握手（策略 A：开发）**：`tauri dev` 仍假定本地服务在 `127.0.0.1:8000`（与上述脚本一致）；壳进程在健康检查通过后向前端广播 `backend-ready`，前端以事件为主、`get_backend_port` 非阻塞为辅，避免长时间阻塞。
+
+**桌面启动握手（发布包）**：嵌入式 Python 使用 `--port 0` 由操作系统分配端口；进程首行输出 `SOLAIRE_LISTEN_PORT=<端口>` 供 Rust 解析，随后对该端口执行 `/api/health` 校验；失败时广播 `backend-failed`，成功则写入端口并广播 `backend-ready`。
+
 为保证 `tauri dev` 下的热重载与重启稳定，桌面壳在开发模式中不会启用单实例拦截，也不会在关闭主窗体时隐藏到托盘；发布构建仍保留单实例与托盘行为，不受开发态设置影响。
 
 **可选（单独调试）**：若只想跑后端或前端，可另开终端执行 `pixi run dev-backend` 或 `pixi run dev-frontend`。此时不要再执行 `pixi run dev`，以免与固定端口冲突。

@@ -37,7 +37,7 @@ dev-backend = "python -m uvicorn solaire.web.app:app --app-dir src --host 127.0.
 dev-frontend = { cmd = "npm run dev -- --host localhost --port 5173 --strictPort", cwd = "web" }
 
 # ── 测试 & 类型检查 ──────────────────────────────────────
-test = "python -m pytest"
+test = "python -m pytest tests"
 test-web = { cmd = "npm test", cwd = "web" }
 typecheck = { cmd = "npx tsc --noEmit", cwd = "web" }
 

@@ -8,6 +8,96 @@ let apiBasePromise: Promise<string> | null = null;
 /** 生产构建首次打开时，Tauri 注入可能晚于首帧脚本，需短暂等待再判定是否在壳内。 */
 const TAURI_INJECT_WAIT_MS = 5000;
 
+/** 桌面壳内等待本地服务就绪（事件 + 非阻塞 invoke 竞态 + 超时）。 */
+const SHELL_BACKEND_WAIT_MS = 120_000;
+
+async function waitForShellBackendPort(): Promise<number> {
+  const { listen } = await import("@tauri-apps/api/event");
+  const { invoke } = await import("@tauri-apps/api/core");
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timeouts: ReturnType<typeof setTimeout>[] = [];
+    let unlistenReady: (() => void) | undefined;
+    let unlistenFail: (() => void) | undefined;
+
+    const cleanup = () => {
+      for (const t of timeouts) clearTimeout(t);
+      try {
+        unlistenReady?.();
+      } catch {
+        /* ignore */
+      }
+      try {
+        unlistenFail?.();
+      } catch {
+        /* ignore */
+      }
+    };
+
+    const fail = (msg: string) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error(msg));
+    };
+
+    const ok = (port: number) => {
+      if (settled) return;
+      if (!Number.isFinite(port) || port <= 0) {
+        fail(i18n.t("localServiceFailed", { ns: "common" }));
+        return;
+      }
+      settled = true;
+      cleanup();
+      resolve(port);
+    };
+
+    void (async () => {
+      try {
+        unlistenReady = await listen<unknown>("backend-ready", (event) => {
+          const p = event.payload;
+          let port = 0;
+          if (typeof p === "object" && p !== null && "port" in p) {
+            port = Number((p as { port: number }).port);
+          } else if (typeof p === "number") {
+            port = p;
+          }
+          if (port > 0) ok(port);
+        });
+
+        unlistenFail = await listen<{ message: string }>("backend-failed", (event) => {
+          const m = event.payload?.message;
+          if (typeof m === "string" && m.trim()) {
+            fail(m);
+          } else {
+            fail(i18n.t("localServiceFailed", { ns: "common" }));
+          }
+        });
+
+        try {
+          const port = await invoke<number>("get_backend_port");
+          if (port > 0) ok(port);
+        } catch {
+          /* 尚未就绪，依赖事件 */
+        }
+      } catch (e) {
+        fail(e instanceof Error ? e.message : String(e));
+      }
+    })();
+
+    timeouts.push(
+      setTimeout(() => {
+        fail(
+          i18n.t("localServiceStartTimeout", {
+            ns: "common",
+          }),
+        );
+      }, SHELL_BACKEND_WAIT_MS),
+    );
+  });
+}
+
 async function resolveApiBase(): Promise<string> {
   if (apiBaseResolved !== null) return apiBaseResolved;
 
@@ -17,9 +107,8 @@ async function resolveApiBase(): Promise<string> {
   }
 
   if (inShell) {
-    const { invoke } = await import("@tauri-apps/api/core");
     try {
-      const port = await invoke<number>("get_backend_port");
+      const port = await waitForShellBackendPort();
       apiBaseResolved = `http://127.0.0.1:${port}`;
       return apiBaseResolved;
     } catch (e) {

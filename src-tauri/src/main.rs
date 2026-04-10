@@ -1,13 +1,13 @@
 // Prevents extra console window on Windows in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::collections::HashSet;
 use std::fs;
 use std::fs::OpenOptions;
-use std::net::TcpListener;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -131,6 +131,9 @@ fn missing_icon_msg(lang: &str) -> &'static str {
 /// `/api/health` JSON 中用于识别本产品的字段值（与 FastAPI 一致）。
 const SOLAIRE_HEALTH_PRODUCT: &str = "sol_edu";
 
+/// Python `desktop_entry` 打印的首行协议前缀（与 `solaire/desktop_entry.py` 一致）。
+const HANDSHAKE_PREFIX: &str = "SOLAIRE_LISTEN_PORT=";
+
 fn python_log_path() -> PathBuf {
     std::env::temp_dir().join("solaire-desktop-python.log")
 }
@@ -150,10 +153,6 @@ fn read_log_tail(max_lines: usize) -> String {
     let lines: Vec<&str> = contents.lines().collect();
     let start = lines.len().saturating_sub(max_lines);
     lines[start..].join("\n")
-}
-
-fn is_port_available(port: u16) -> bool {
-    TcpListener::bind(("127.0.0.1", port)).is_ok()
 }
 
 fn append_log_context(msg: &str, lang: &str) -> String {
@@ -191,12 +190,11 @@ fn process_crashed_msg(port: u16, exit_code: Option<i32>, lang: &str) -> String 
     }
 }
 
-fn backend_port_timeout_msg(lang: &str) -> String {
-    let base = match lang {
-        "en" => "Local service port was not ready in time.",
-        _ => "本地服务端口长时间未就绪。",
-    };
-    append_log_context(base, lang)
+fn backend_port_not_ready_msg(lang: &str) -> String {
+    match lang {
+        "en" => "Local service address is not ready yet.".to_string(),
+        _ => "本地服务地址尚未就绪。".to_string(),
+    }
 }
 
 #[tauri::command]
@@ -204,15 +202,11 @@ fn get_backend_port(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
 ) -> Result<u16, String> {
-    let start = Instant::now();
-    while start.elapsed() < Duration::from_secs(120) {
-        let p = state.backend_port.load(Ordering::SeqCst);
-        if p != 0 {
-            return Ok(p);
-        }
-        std::thread::sleep(Duration::from_millis(50));
+    let p = state.backend_port.load(Ordering::SeqCst);
+    if p != 0 {
+        return Ok(p);
     }
-    Err(backend_port_timeout_msg(&read_locale_file(&app)))
+    Err(backend_port_not_ready_msg(&read_locale_file(&app)))
 }
 
 #[tauri::command]
@@ -335,13 +329,6 @@ fn resolve_embedded_python(_app: &tauri::AppHandle) -> Option<PathBuf> {
     None
 }
 
-fn pick_free_port() -> Result<u16, std::io::Error> {
-    let listener = TcpListener::bind("127.0.0.1:0")?;
-    let port = listener.local_addr()?.port();
-    drop(listener);
-    Ok(port)
-}
-
 fn wrong_health_msg(port: u16, lang: &str) -> String {
     match lang {
         "en" => format!(
@@ -451,91 +438,67 @@ fn wait_for_health(
     Err(append_log_context(&health_timeout_msg(port, lang), lang))
 }
 
-fn start_embedded_backend(py: &Path, lang: &str) -> Result<(u16, Option<Child>), String> {
-    truncate_python_log();
-
-    let mut ports: Vec<u16> = (8000..=8010).collect();
-    for _ in 0..4 {
-        if let Ok(p) = pick_free_port() {
-            ports.push(p);
-        }
-    }
-    let mut seen = HashSet::new();
-    ports.retain(|p| seen.insert(*p));
-
-    let (available, occupied): (Vec<u16>, Vec<u16>) =
-        ports.into_iter().partition(|p| is_port_available(*p));
-
-    agent_debug_log(
-        "H5",
-        "main.rs:start_embedded:port_scan",
-        "port_availability",
-        json!({ "available": available, "occupied": occupied }),
-    );
-
-    if available.is_empty() {
-        let msg = match lang {
-            "en" => format!(
-                "All candidate ports are occupied ({:?}). Please close conflicting programs and retry.",
-                occupied
-            ),
-            _ => format!(
-                "所有候选端口均被占用（{:?}），请关闭冲突程序后重试。",
-                occupied
-            ),
-        };
-        return Err(msg);
-    }
-
-    let mut last_err: Option<String> = None;
-    for (i, port) in available.iter().enumerate() {
-        let max_wait = if i == 0 {
-            Duration::from_secs(60)
-        } else {
-            Duration::from_secs(30)
-        };
-        let mut child = match spawn_python_backend(py, *port, lang) {
-            Ok(c) => c,
-            Err(e) => {
-                agent_debug_log(
-                    "H5",
-                    "main.rs:start_embedded:spawn_skip",
-                    "spawn_failed_try_next",
-                    json!({ "port": port, "err": e }),
-                );
-                last_err = Some(e);
-                continue;
-            }
-        };
-        match wait_for_health(*port, lang, max_wait, Some(&mut child)) {
-            Ok(()) => return Ok((*port, Some(child))),
-            Err(e) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                agent_debug_log(
-                    "H5",
-                    "main.rs:start_embedded:health_fail",
-                    "health_failed_try_next",
-                    json!({ "port": port, "err": e }),
-                );
-                last_err = Some(e);
-            }
-        }
-    }
-    let fallback_msg = match lang {
-        "en" => "Could not start the local SolEdu service.".to_string(),
-        _ => "无法启动 SolEdu 本地服务。".to_string(),
-    };
-    Err(last_err.unwrap_or_else(|| append_log_context(&fallback_msg, lang)))
+fn parse_handshake_line(line: &str) -> Result<u16, String> {
+    let line = line.trim();
+    let rest = line
+        .strip_prefix(HANDSHAKE_PREFIX)
+        .ok_or_else(|| "missing prefix".to_string())?;
+    rest.trim()
+        .parse::<u16>()
+        .map_err(|e| format!("port parse: {e}"))
 }
 
-fn close_splash(app: &tauri::AppHandle) {
-    if let Some(w) = app.get_webview_window("splash") {
-        let _ = w.close();
+fn read_handshake_port(
+    stdout: ChildStdout,
+    timeout: Duration,
+    lang: &str,
+) -> Result<(u16, BufReader<ChildStdout>), String> {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut reader = BufReader::new(stdout);
+        let mut line = String::new();
+        let outcome: Result<(String, BufReader<ChildStdout>), String> =
+            match reader.read_line(&mut line) {
+                Ok(0) => Err("unexpected EOF before handshake".to_string()),
+                Ok(_) => Ok((line, reader)),
+                Err(e) => Err(e.to_string()),
+            };
+        let _ = tx.send(outcome);
+    });
+
+    match rx.recv_timeout(timeout) {
+        Ok(Ok((line, reader))) => {
+            let port = parse_handshake_line(&line).map_err(|e| {
+                match lang {
+                    "en" => format!("Invalid handshake from local service ({e})."),
+                    _ => format!("本地服务握手无效（{e}）。"),
+                }
+            })?;
+            Ok((port, reader))
+        }
+        Ok(Err(e)) => Err(e),
+        Err(mpsc::RecvTimeoutError::Timeout) => Err(match lang {
+            "en" => "Timed out waiting for local service handshake.".to_string(),
+            _ => "等待本地服务握手超时。".to_string(),
+        }),
+        Err(mpsc::RecvTimeoutError::Disconnected) => Err(match lang {
+            "en" => "Local service process ended before handshake.".to_string(),
+            _ => "本地服务进程在握手完成前已退出。".to_string(),
+        }),
     }
 }
 
-fn spawn_python_backend(python_exe: &Path, port: u16, lang: &str) -> Result<Child, String> {
+fn tee_child_stdout_to_log(mut reader: BufReader<ChildStdout>, log_path: PathBuf) {
+    if let Ok(mut f) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+    {
+        let _ = std::io::copy(&mut reader, &mut f);
+    }
+}
+
+fn spawn_python_backend_dynamic(python_exe: &Path, lang: &str) -> Result<Child, String> {
     let work_dir = python_exe
         .parent()
         .ok_or_else(|| "invalid python path".to_string())?;
@@ -553,20 +516,52 @@ fn spawn_python_backend(python_exe: &Path, port: u16, lang: &str) -> Result<Chil
         .env("PYTHONUNBUFFERED", "1")
         .env("PYTHONNOUSERSITE", "1")
         .stdin(Stdio::null())
-        .stdout(Stdio::from(log.try_clone().map_err(|e| e.to_string())?))
+        .stdout(Stdio::piped())
         .stderr(Stdio::from(log))
-        .args([
-            "-m",
-            "solaire.desktop_entry",
-            "--port",
-            &port.to_string(),
-        ]);
+        .args(["-m", "solaire.desktop_entry", "--port", "0"]);
 
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
 
     cmd.spawn()
         .map_err(|e| spawn_sidecar_err(python_exe, &e, lang))
+}
+
+fn start_embedded_backend(py: &Path, lang: &str) -> Result<(u16, Option<Child>), String> {
+    truncate_python_log();
+
+    agent_debug_log(
+        "H5",
+        "main.rs:start_embedded",
+        "spawn_dynamic_port",
+        json!({}),
+    );
+
+    let mut child = spawn_python_backend_dynamic(py, lang)?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "local service: no stdout pipe".to_string())?;
+
+    let (port, reader) = read_handshake_port(stdout, Duration::from_secs(30), lang)?;
+
+    let log_path = python_log_path();
+    std::thread::spawn(move || tee_child_stdout_to_log(reader, log_path));
+
+    wait_for_health(
+        port,
+        lang,
+        Duration::from_secs(60),
+        Some(&mut child),
+    )?;
+
+    Ok((port, Some(child)))
+}
+
+fn close_splash(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("splash") {
+        let _ = w.close();
+    }
 }
 
 fn main() {
@@ -681,7 +676,7 @@ fn main() {
                             "apply_ui_without_dispatch_start",
                             json!({ "port": port }),
                         );
-                        // 先发布端口，避免前端 `get_backend_port` 长时间阻塞导致白屏。
+                        // 先发布端口，便于前端在收到事件前用 `get_backend_port` 非阻塞读取。
                         state_th.backend_port.store(port, Ordering::SeqCst);
                         *state_th.sidecar.lock().unwrap() = child;
 
@@ -705,12 +700,14 @@ fn main() {
 
                         close_splash(&h);
 
+                        let ready_payload = json!({ "port": port });
+                        let _ = h.emit("backend-ready", ready_payload);
+
                         if let Some(window) = h.get_webview_window("main") {
                             let _ = window.set_shadow(false);
                             let _ = window.set_background_color(Some(Color(248, 250, 252, 255)));
                             let _ = window.show();
                             let _ = window.set_focus();
-                            let _ = window.emit("backend-ready", port);
                         }
 
                         agent_debug_log(
@@ -876,6 +873,10 @@ fn main() {
                             "backend_health_failed",
                             json!({ "err": e }),
                         );
+                        let _ = handle_th.emit(
+                            "backend-failed",
+                            json!({ "message": e.clone() }),
+                        );
                         let h_close = handle_th.clone();
                         let r_close = handle_th.run_on_main_thread(move || {
                             close_splash(&h_close);
@@ -910,6 +911,14 @@ mod tests {
     use super::*;
     use std::io::{Read, Write};
     use std::net::TcpListener;
+
+    #[test]
+    fn parse_handshake_line_accepts_port() {
+        assert_eq!(
+            parse_handshake_line("SOLAIRE_LISTEN_PORT=54321\n").unwrap(),
+            54321
+        );
+    }
 
     #[test]
     fn wait_for_health_should_ignore_proxy_for_localhost() {
