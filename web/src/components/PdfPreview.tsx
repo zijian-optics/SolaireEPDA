@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Document, Page, pdfjs } from "react-pdf";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { ensureApiBase, resolveApiUrl } from "../api/client";
+import { cn } from "../lib/utils";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 
@@ -14,11 +15,21 @@ type Props = {
   className?: string;
 };
 
+const ZOOM_MIN = 0.35;
+const ZOOM_MAX = 3;
+
 export function PdfPreview({ apiPath, className }: Props) {
   const { t } = useTranslation(["compose", "common"]);
   const [fileUrl, setFileUrl] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [numPages, setNumPages] = useState(0);
+  const [zoom, setZoom] = useState(1);
+  const [boxWidth, setBoxWidth] = useState(() =>
+    typeof window !== "undefined" ? Math.min(900, Math.max(280, window.innerWidth - 120)) : 800,
+  );
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  const clampZoom = useCallback((z: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(z * 1000) / 1000)), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -26,6 +37,7 @@ export function PdfPreview({ apiPath, className }: Props) {
       setLoadError(null);
       setFileUrl(null);
       setNumPages(0);
+      setZoom(1);
       try {
         await ensureApiBase();
         const u = await resolveApiUrl(apiPath);
@@ -43,6 +55,35 @@ export function PdfPreview({ apiPath, className }: Props) {
       cancelled = true;
     };
   }, [apiPath]);
+
+  useEffect(() => {
+    if (!fileUrl) return;
+    const el = wrapRef.current;
+    if (!el) return;
+    const sync = () => {
+      const w = el.clientWidth;
+      if (w > 0) setBoxWidth(Math.min(900, Math.max(240, w - 8)));
+    };
+    sync();
+    const ro = new ResizeObserver(() => sync());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [fileUrl]);
+
+  useEffect(() => {
+    if (!fileUrl) return;
+    const el = wrapRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+      setZoom((z) => clampZoom(z * factor));
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [fileUrl, clampZoom]);
 
   if (loadError) {
     return (
@@ -62,8 +103,10 @@ export function PdfPreview({ apiPath, className }: Props) {
     );
   }
 
+  const pageWidth = Math.round(boxWidth * zoom);
+
   return (
-    <div className={className}>
+    <div ref={wrapRef} className={cn("w-full max-w-full", className)}>
       <Document
         file={fileUrl}
         loading={<p className="text-sm text-slate-500">{t("common:processing")}</p>}
@@ -76,7 +119,7 @@ export function PdfPreview({ apiPath, className }: Props) {
               key={i + 1}
               pageNumber={i + 1}
               className="shadow-md"
-              width={Math.min(900, typeof window !== "undefined" ? window.innerWidth - 80 : 800)}
+              width={pageWidth}
               renderTextLayer
               renderAnnotationLayer
             />
