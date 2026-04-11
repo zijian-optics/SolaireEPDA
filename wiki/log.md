@@ -1,5 +1,26 @@
 # 变更日志（开发者）
 
+## [2026-04-11] LaTeX对齐
+**新建文件**
+`web/src/lib/contentTokenizer.ts`内联了 KaTeX splitAtDelimiters 的状态机算法，统一解析：
+
+- $...$ 行内公式 → inlineMath token
+- $$...$$ / \[...\] / AMS 环境（align/cases/gather 等）→ displayMath token
+- Mermaid 围栏、图片占位符先转 sentinel 再还原，不会干扰公式解析
+- 允许 $ 跨行，与真实 TeX 行为一致
+`web/src/lib/latexCanon.ts` MathLive 语义宏标准化：\imaginaryI → \mathrm{i}，\exponentialE → \mathrm{e} 等，在公式写入存储前调用，消除 XeLaTeX 不认识的命令。
+
+`web/src/lib/katexRender.ts` 统一 KaTeX 渲染器：注入模板自定义宏（\dlim、\dint、\e、\i、\arccot），使用 strict: "warn" 收集 warning，throwOnError: false 降级而非抛错。
+
+`web/src/lib/mathLint.ts` 前端分级校验：正文裸 % → error，裸 _/^ → warning，$ 定界符不平衡 → error。利用 tokenizer 只扫描 text token，公式内的下划线/上标不误报。
+
+**重构文件**
+- `KatexText.tsx`：buildKatexHtml 现支持 $$ 显示公式，全面替换旧的 split("$") 奇偶法
+- `ContentWithPrimeBrush.tsx`：改用统一分词器，删除手动 VISUAL_EMBED_RE 正则逻辑
+- `LatexRichTextField.tsx`：编辑器新增 displayMath widget（块级居中），底部实时显示 lint 提示条（红色 error / 黄色 warning）
+- `MathInsertOverlay.tsx`：确认公式前自动 canonicalize
+**验证命令**: `npx tsc --noEmit` → 零报错 `npx vitest run` → 44 个测试全部通过
+
 ## [2026-04-11] BankWorkspace | insertSnippet 与 Strict Mode 兼容
 
 **改动摘要**：`insertSnippet` 改为接收 `(snippet, kind, saved)`，由调用方在 `setDetail` 外读出 `embedKindRef` / `embedSelectionRef` 后传入；`setDetail` 的 updater 内不再读写上述 ref。避免 React 18 Strict Mode 双次调用 updater 时第二次读空 ref 导致公式/Mermaid/图片插入在 dev 下丢失（生产构建无双次调用故不易复现）。
