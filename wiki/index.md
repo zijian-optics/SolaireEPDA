@@ -4,7 +4,7 @@
 
 ## 总览
 
-- [架构总览](architecture/overview.md) — 多技术栈布局、主入口与用户项目目录概念。
+- [架构总览](architecture/overview.md) — 多技术栈布局、主入口与用户项目目录概念；含桌面 Web 壳布局与保存快捷键说明。
 - [目录与锚点文件速查](architecture/file-map.md) — 顶层目录职责与关键配置文件/入口路径。
 
 ## 专题模块

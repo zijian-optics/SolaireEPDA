@@ -51,6 +51,7 @@ import { useAgentContext } from "../contexts/AgentContext";
 import { useToolBar } from "../contexts/ToolBarContext";
 import i18n from "../i18n/i18n";
 import { localeCompareStrings } from "../lib/locale";
+import { SOLAIRE_SAVE_EVENT } from "../lib/saveEvents";
 import { QUESTION_TYPE_OPTIONS } from "../lib/questionTypes";
 import { cn } from "../lib/utils";
 import { useTranslation } from "react-i18next";
@@ -851,6 +852,48 @@ export function GraphWorkspace({
     }
   };
 
+  const saveNodeEditsRef = useRef(saveNodeEdits);
+  saveNodeEditsRef.current = saveNodeEdits;
+
+  const graphDirty = useMemo(() => {
+    if (!selectedId || !selectedGraphNode) return false;
+    const n = selectedGraphNode;
+    const tagsEq =
+      [...splitCsv(draftTags)].sort((a, b) => localeCompareStrings(a, b)).join("\0") ===
+      [...(n.tags ?? [])].sort((a, b) => localeCompareStrings(a, b)).join("\0");
+    const aliasesEq =
+      [...splitCsv(draftAliases)].sort((a, b) => localeCompareStrings(a, b)).join("\0") ===
+      [...(n.aliases ?? [])].sort((a, b) => localeCompareStrings(a, b)).join("\0");
+    return (
+      draftName.trim() !== (n.canonical_name ?? "").trim() ||
+      draftKind !== ((n.node_kind ?? "concept") as "concept" | "skill" | "causal") ||
+      draftSubject.trim() !== (n.subject ?? "").trim() ||
+      draftLevel.trim() !== (n.level ?? "").trim() ||
+      (draftDesc.trim() || "") !== (n.description ?? "").trim() ||
+      !tagsEq ||
+      !aliasesEq
+    );
+  }, [
+    selectedId,
+    selectedGraphNode,
+    draftName,
+    draftKind,
+    draftSubject,
+    draftLevel,
+    draftDesc,
+    draftTags,
+    draftAliases,
+  ]);
+
+  useEffect(() => {
+    const onSave = () => {
+      if (!selectedId || !graphDirty || busy) return;
+      void saveNodeEditsRef.current();
+    };
+    window.addEventListener(SOLAIRE_SAVE_EVENT, onSave);
+    return () => window.removeEventListener(SOLAIRE_SAVE_EVENT, onSave);
+  }, [selectedId, graphDirty, busy]);
+
   const addTaxonomyValue = async (kind: "subject" | "level", value: string) => {
     const v = value.trim();
     if (!v) return;
@@ -1242,6 +1285,17 @@ export function GraphWorkspace({
     );
     const right: ReactNode = (
       <div className="flex flex-wrap items-center gap-2">
+        {graphDirty ? (
+          <span className="text-[11px] text-amber-700">{t("common:unsavedHint")}</span>
+        ) : null}
+        <button
+          type="button"
+          className="rounded border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+          disabled={busy || !selectedId || !graphDirty}
+          onClick={() => void saveNodeEditsRef.current()}
+        >
+          {t("saveChanges")}
+        </button>
         <button
           type="button"
           className="rounded border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-800 hover:bg-slate-50"
@@ -1269,6 +1323,8 @@ export function GraphWorkspace({
     filteredKindCounts,
     setToolBar,
     clearToolBar,
+    graphDirty,
+    busy,
   ]);
 
   return (

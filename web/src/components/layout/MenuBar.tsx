@@ -15,6 +15,7 @@ type Props = {
   onOpenProject: () => void;
   onOpenRecentPath: (path: string) => Promise<void>;
   onCloseProject: () => void;
+  onFileSave: () => void;
   onPreferences: () => void;
   onGoWelcome: () => void;
   setPage: (p: AppPage) => void;
@@ -106,6 +107,7 @@ export function MenuBar({
   onOpenProject,
   onOpenRecentPath,
   onCloseProject,
+  onFileSave,
   onPreferences,
   onGoWelcome,
   setPage,
@@ -163,6 +165,9 @@ export function MenuBar({
             ))
           )}
           <div className="my-1 border-t border-slate-100" role="separator" />
+          <MenuItem onClick={onFileSave} disabled={!projectRoot}>
+            {t("menu.fileSave")}
+          </MenuItem>
           <MenuItem onClick={onPreferences}>{t("menu.filePreferences")}</MenuItem>
           <MenuItem onClick={onCloseProject} disabled={!projectRoot}>
             {t("menu.fileCloseProject")}

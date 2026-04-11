@@ -24,6 +24,7 @@ import { LogWorkspace } from "./pages/LogWorkspace";
 import { SettingsWorkspace } from "./pages/SettingsWorkspace";
 import { WelcomePage } from "./pages/WelcomePage";
 import { apiGet, apiPost } from "./api/client";
+import { dispatchSolaireSave } from "./lib/saveEvents";
 import { cn } from "./lib/utils";
 import { isTauriShell } from "./lib/tauriEnv";
 import type { AppPage } from "./app/appPages";
@@ -63,6 +64,17 @@ function AppShell() {
   useEffect(() => {
     void refreshInfo();
   }, [refreshInfo]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        dispatchSolaireSave();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const openProjectPicker = useCallback(async () => {
     setErr(null);
@@ -209,6 +221,7 @@ function AppShell() {
                 onOpenProject={() => void openProjectPicker()}
                 onOpenRecentPath={openRecentPath}
                 onCloseProject={() => void closeProject()}
+                onFileSave={() => dispatchSolaireSave()}
                 onPreferences={() => setPage("settings")}
                 onGoWelcome={() => void closeProject()}
                 setPage={setPage}

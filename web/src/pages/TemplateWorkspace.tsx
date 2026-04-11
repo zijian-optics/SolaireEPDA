@@ -7,6 +7,7 @@ import { TabPanel, type TabItem } from "../components/layout/TabPanel";
 import { useAgentContext } from "../contexts/AgentContext";
 import { useToolBar } from "../contexts/ToolBarContext";
 import i18n from "../i18n/i18n";
+import { SOLAIRE_SAVE_EVENT } from "../lib/saveEvents";
 import { cn } from "../lib/utils";
 
 type TemplateSectionRow = {
@@ -767,15 +768,12 @@ export function TemplateWorkspace({ onError }: { onError: (s: string | null) => 
   }, [t, busy, path, dirty, tab, yamlDump, setToolBar, clearToolBar]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-        e.preventDefault();
-        if (!path || !dirty) return;
-        void saveRef.current();
-      }
+    const onSave = () => {
+      if (!path || !dirty) return;
+      void saveRef.current();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener(SOLAIRE_SAVE_EVENT, onSave);
+    return () => window.removeEventListener(SOLAIRE_SAVE_EVENT, onSave);
   }, [path, dirty]);
 
   return (

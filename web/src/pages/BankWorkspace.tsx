@@ -28,6 +28,7 @@ import { TabPanel, type TabItem } from "../components/layout/TabPanel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import i18n from "../i18n/i18n";
 import { localeCompareStrings } from "../lib/locale";
+import { SOLAIRE_SAVE_EVENT } from "../lib/saveEvents";
 import { cn } from "../lib/utils";
 import { collapseGroupRowsForList } from "../lib/groupQuestions";
 import { QUESTION_TYPE_OPTIONS } from "../lib/questionTypes";
@@ -946,20 +947,17 @@ export function BankWorkspace({
   }, [workView]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-        e.preventDefault();
-        if (!selectedId || !detail || !dirty) return;
-        if (workView === "source") {
-          void saveRawYamlRef.current();
-        } else {
-          void saveFormRef.current();
-        }
+    const onSave = () => {
+      if (!selectedId || !detail || !dirty) return;
+      if (workView === "source") {
+        void saveRawYamlRef.current();
+      } else {
+        void saveFormRef.current();
       }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [selectedId, detail, dirty, workView, editorTab]);
+    window.addEventListener(SOLAIRE_SAVE_EVENT, onSave);
+    return () => window.removeEventListener(SOLAIRE_SAVE_EVENT, onSave);
+  }, [selectedId, detail, dirty, workView]);
 
   const tabItems: TabItem[] = useMemo(
     () =>

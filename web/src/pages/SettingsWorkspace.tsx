@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { FolderInput, Loader2, Save, Trash2 } from "lucide-react";
 import {
@@ -15,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { useAgentContext } from "../contexts/AgentContext";
 import { changeAppLanguage } from "../i18n/changeLanguage";
 import type { AppLang } from "../i18n/tauriLocale";
+import { SOLAIRE_SAVE_EVENT } from "../lib/saveEvents";
 
 export function SettingsWorkspace({
   onError,
@@ -70,6 +71,8 @@ export function SettingsWorkspace({
     void load();
   }, [load]);
 
+  const handleSaveRef = useRef<() => Promise<void>>(async () => {});
+
   const handleSave = async () => {
     if (!data?.persist_available) return;
     setSaving(true);
@@ -94,6 +97,17 @@ export function SettingsWorkspace({
       setSaving(false);
     }
   };
+
+  handleSaveRef.current = handleSave;
+
+  useEffect(() => {
+    const onSave = () => {
+      if (settingsTab !== "model" || !data?.persist_available || saving) return;
+      void handleSaveRef.current();
+    };
+    window.addEventListener(SOLAIRE_SAVE_EVENT, onSave);
+    return () => window.removeEventListener(SOLAIRE_SAVE_EVENT, onSave);
+  }, [settingsTab, data?.persist_available, saving]);
 
   const handleClearSecret = async () => {
     if (!data?.persist_available) return;
