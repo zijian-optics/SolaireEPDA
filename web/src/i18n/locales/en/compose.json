@@ -102,5 +102,17 @@
   "texNoticeReady": "PDF export tools were detected on this PC.",
   "texNoticeOpenGuide": "Open official installer page",
   "texNoticeOneClick": "One-click install (Windows)",
-  "texNoticeRecheck": "Check again"
+  "texNoticeRecheck": "Check again",
+  "subViewSearch": "Question search",
+  "subViewConfig": "Paper setup",
+  "subViewExamPreview": "Paper preview",
+  "subViewSearchHint": "On small screens, search here; on wide screens the left column shows the same list.",
+  "historySidebarTitle": "Drafts & exports",
+  "historyDraftEmpty": "No drafts yet",
+  "historyExamEmpty": "No exported papers yet",
+  "pdfVariantLabel": "Version",
+  "pdfVariantStudent": "Student",
+  "pdfVariantTeacher": "Teacher",
+  "openPdfExternal": "Open with system viewer",
+  "examPreviewEmpty": "Pick an exported paper on the left, or export one first."
 }

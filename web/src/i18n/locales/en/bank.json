@@ -79,5 +79,10 @@
   "defaultSubject": "Mathematics",
   "latexStemPh": "(Stem; math supported)",
   "sharedMaterialDefault": "(Shared material)\n",
-  "defaultTarget": "Default"
+  "defaultTarget": "Default",
+  "workViewFields": "Fields",
+  "workViewPreview": "Preview",
+  "workViewSource": "Source",
+  "closeTabConfirm": "This tab has unsaved changes. Close anyway?",
+  "switchTabDiscard": "You have unsaved changes. Switch anyway and discard them?"
 }

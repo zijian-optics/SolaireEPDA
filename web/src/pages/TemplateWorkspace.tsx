@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import yaml from "js-yaml";
 import { ChevronDown, ChevronUp, Plus, Save, Trash2 } from "lucide-react";
-import { apiGet, apiPost, apiPut } from "../api/client";
+import { apiDelete, apiGet, apiPost, apiPut } from "../api/client";
+import { TabPanel, type TabItem } from "../components/layout/TabPanel";
 import { useAgentContext } from "../contexts/AgentContext";
+import { useToolBar } from "../contexts/ToolBarContext";
 import i18n from "../i18n/i18n";
 import { cn } from "../lib/utils";
 
@@ -350,8 +352,11 @@ const FALLBACK_LATEX_BASES: LatexBasesResponse = {
 export function TemplateWorkspace({ onError }: { onError: (s: string | null) => void }) {
   const { t } = useTranslation("template");
   const { setPageContext } = useAgentContext();
+  const { setToolBar, clearToolBar } = useToolBar();
   const [templates, setTemplates] = useState<TemplateListRow[]>([]);
   const [path, setPath] = useState("");
+  const [openTabs, setOpenTabs] = useState<string[]>([]);
+  const baselineYamlRef = useRef<Record<string, string>>({});
   const [draft, setDraft] = useState<Draft>(() => createDefaultDraft());
   const [yamlTab, setYamlTab] = useState("");
   const [tab, setTab] = useState<"visual" | "yaml">("visual");
@@ -404,7 +409,11 @@ export function TemplateWorkspace({ onError }: { onError: (s: string | null) => 
     onError(null);
     void refreshList()
       .then((list) => {
-        setPath((prev) => prev || (list[0]?.path ?? ""));
+        const first = list[0]?.path ?? "";
+        setPath((prev) => prev || first);
+        if (first) {
+          setOpenTabs((prev) => (prev.length ? prev : [first]));
+        }
       })
       .catch((e: Error) => onError(e.message));
   }, [onError, refreshList]);
@@ -427,6 +436,7 @@ export function TemplateWorkspace({ onError }: { onError: (s: string | null) => 
     ])
       .then(([raw, parsed]) => {
         setYamlTab(raw.yaml);
+        baselineYamlRef.current[path] = raw.yaml;
         setLayoutBuiltinKeys(parsed.layout_builtin_keys);
         setDraft(draftFromParsed(parsed));
       })
@@ -517,6 +527,52 @@ export function TemplateWorkspace({ onError }: { onError: (s: string | null) => 
     return yaml.dump(cleaned, { lineWidth: 120, noRefs: true });
   }, [draft, metadataUi.fields, editorDefaults, layoutBuiltinKeySet]);
 
+  const dirty = useMemo(() => {
+    if (!path) return false;
+    const base = baselineYamlRef.current[path];
+    if (base === undefined) return false;
+    const current = tab === "yaml" ? yamlTab : yamlDump;
+    return current !== base;
+  }, [path, tab, yamlTab, yamlDump]);
+
+  const trySelectPath = useCallback(
+    (next: string | null) => {
+      if (next === path) return true;
+      if (dirty && !window.confirm(t("switchDiscard"))) {
+        return false;
+      }
+      setPath(next ?? "");
+      return true;
+    },
+    [path, dirty, t],
+  );
+
+  const openOrFocusTemplate = useCallback(
+    (p: string) => {
+      if (!trySelectPath(p)) return;
+      setOpenTabs((prev) => (prev.includes(p) ? prev : [...prev, p]));
+    },
+    [trySelectPath],
+  );
+
+  const closeTemplateTab = useCallback(
+    (p: string) => {
+      if (p === path && dirty && !window.confirm(t("closeTabConfirm"))) {
+        return;
+      }
+      setOpenTabs((prev) => {
+        const next = prev.filter((x) => x !== p);
+        if (path === p) {
+          const fb = next[next.length - 1] ?? "";
+          setPath(fb);
+        }
+        return next;
+      });
+      delete baselineYamlRef.current[p];
+    },
+    [path, dirty, t],
+  );
+
   async function save() {
     if (!path) {
       return;
@@ -533,10 +589,35 @@ export function TemplateWorkspace({ onError }: { onError: (s: string | null) => 
         apiGet<TemplateParsedResponse>(`/api/templates/parsed?path=${q}`),
       ]);
       setYamlTab(raw.yaml);
+      baselineYamlRef.current[path] = raw.yaml;
       setLayoutBuiltinKeys(parsed.layout_builtin_keys);
       setDraft(draftFromParsed(parsed));
       await refreshList();
       setMsg(t("saved"));
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteCurrent() {
+    if (!path) return;
+    if (!window.confirm(t("deleteConfirm", { path }))) return;
+    onError(null);
+    setBusy(true);
+    try {
+      const q = encodeURIComponent(path);
+      await apiDelete<{ ok: boolean }>(`/api/templates/raw?path=${q}`);
+      delete baselineYamlRef.current[path];
+      setOpenTabs((prev) => {
+        const next = prev.filter((x) => x !== path);
+        const fb = next[next.length - 1] ?? "";
+        setPath(fb);
+        return next;
+      });
+      await refreshList();
+      setMsg(t("deleted"));
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -555,6 +636,7 @@ export function TemplateWorkspace({ onError }: { onError: (s: string | null) => 
       );
       await refreshList();
       setPath(r.path);
+      setOpenTabs((prev) => (prev.includes(r.path) ? prev : [...prev, r.path]));
       setNewName("");
       setMsg(t("created"));
     } catch (e) {
@@ -609,29 +691,122 @@ export function TemplateWorkspace({ onError }: { onError: (s: string | null) => 
     }));
   }
 
+  const tabItems: TabItem[] = useMemo(
+    () =>
+      openTabs.map((p) => {
+        const short = p.includes("/") ? p.split("/").pop() ?? p : p;
+        return { id: p, label: short, dirty: p === path && dirty, closable: true };
+      }),
+    [openTabs, path, dirty],
+  );
+
+  const saveRef = useRef(save);
+  saveRef.current = save;
+
+  useEffect(() => {
+    const left: ReactNode = (
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+          disabled={busy}
+          onClick={() => void createNew()}
+        >
+          <Plus className="mr-1 inline h-4 w-4" />
+          {t("create")}
+        </button>
+        <button
+          type="button"
+          className="rounded-md border border-red-200 bg-white px-2.5 py-1 text-xs font-medium text-red-800 hover:bg-red-50 disabled:opacity-50"
+          disabled={busy || !path}
+          onClick={() => void deleteCurrent()}
+        >
+          {t("deleteFile")}
+        </button>
+      </div>
+    );
+    const right: ReactNode = path ? (
+      <div className="flex flex-wrap items-center gap-2">
+        {dirty ? <span className="text-[11px] text-amber-700">{t("unsavedHint")}</span> : null}
+        <button
+          type="button"
+          className={cn(
+            "rounded-md px-2.5 py-1 text-xs",
+            tab === "visual" ? "bg-slate-900 text-white" : "border border-slate-300 bg-white",
+          )}
+          onClick={() => setTab("visual")}
+        >
+          {t("visual")}
+        </button>
+        <button
+          type="button"
+          className={cn(
+            "rounded-md px-2.5 py-1 text-xs",
+            tab === "yaml" ? "bg-slate-900 text-white" : "border border-slate-300 bg-white",
+          )}
+          onClick={() => {
+            setYamlTab(yamlDump);
+            setTab("yaml");
+          }}
+        >
+          {t("editSource")}
+        </button>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 rounded-md bg-emerald-700 px-2.5 py-1 text-xs font-medium text-white disabled:opacity-50"
+          disabled={busy || !dirty}
+          onClick={() => void saveRef.current()}
+        >
+          <Save className="h-3.5 w-3.5" />
+          {t("save")}
+        </button>
+      </div>
+    ) : null;
+    setToolBar({ left, right });
+    return () => clearToolBar();
+  }, [t, busy, path, dirty, tab, yamlDump, setToolBar, clearToolBar]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+        e.preventDefault();
+        if (!path || !dirty) return;
+        void saveRef.current();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [path, dirty]);
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="shrink-0 border-b border-slate-200 bg-white px-4 py-3">
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="text-xs font-medium text-slate-600">
-            {t("pickFile")}
-            <select
-              className="mt-1 block min-w-[240px] rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-              value={path}
-              onChange={(e) => setPath(e.target.value)}
-            >
-              {templates.map((t) => (
-                <option key={t.path} value={t.path}>
-                  {t.id} — {t.path}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="flex items-end gap-2">
-            <label className="text-xs font-medium text-slate-600">
+      <div className="flex min-h-0 flex-1 flex-row">
+        <aside className="flex w-full max-w-[14rem] shrink-0 flex-col border-r border-slate-200 bg-white">
+          <div className="border-b border-slate-100 p-2">
+            <h2 className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{t("fileList")}</h2>
+          </div>
+          <ul className="min-h-0 flex-1 overflow-auto p-1">
+            {templates.map((tpl) => (
+              <li key={tpl.path}>
+                <button
+                  type="button"
+                  className={cn(
+                    "mb-0.5 w-full rounded-md px-2 py-1.5 text-left text-xs",
+                    path === tpl.path ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100",
+                  )}
+                  onClick={() => openOrFocusTemplate(tpl.path)}
+                >
+                  <span className="block font-medium">{tpl.id}</span>
+                  <span className="block truncate font-mono text-[10px] opacity-80">{tpl.path}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="border-t border-slate-100 p-2">
+            <label className="block text-[10px] font-medium text-slate-600">
               {t("newFileName")}
               <input
-                className="mt-1 block w-40 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                className="mt-0.5 w-full rounded border border-slate-300 px-1.5 py-1 text-xs"
                 placeholder={t("newFilePh")}
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
@@ -639,53 +814,33 @@ export function TemplateWorkspace({ onError }: { onError: (s: string | null) => 
             </label>
             <button
               type="button"
-              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium"
+              className="mt-2 w-full rounded-md border border-slate-300 bg-slate-50 py-1 text-xs font-medium disabled:opacity-50"
               disabled={busy}
               onClick={() => void createNew()}
             >
-              <Plus className="mr-1 inline h-4 w-4" />
+              <Plus className="mr-1 inline h-3.5 w-3.5" />
               {t("create")}
             </button>
           </div>
-          <div className="ml-auto flex items-center gap-2">
-            <button
-              type="button"
-              className={cn(
-                "rounded-md px-3 py-1.5 text-sm",
-                tab === "visual" ? "bg-slate-900 text-white" : "border border-slate-300 bg-white",
-              )}
-              onClick={() => setTab("visual")}
-            >
-              {t("visual")}
-            </button>
-            <button
-              type="button"
-              className={cn(
-                "rounded-md px-3 py-1.5 text-sm",
-                tab === "yaml" ? "bg-slate-900 text-white" : "border border-slate-300 bg-white",
-              )}
-              onClick={() => {
-                setYamlTab(yamlDump);
-                setTab("yaml");
-              }}
-            >
-              {t("editSource")}
-            </button>
-            <button
-              type="button"
-              className="inline-flex items-center gap-1 rounded-md bg-emerald-700 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-              disabled={busy || !path}
-              onClick={() => void save()}
-            >
-              <Save className="h-4 w-4" />
-              {t("save")}
-            </button>
-          </div>
-        </div>
-        {msg && <p className="mt-2 text-sm text-emerald-700">{msg}</p>}
-      </div>
+        </aside>
 
-      <div className="min-h-0 flex-1 overflow-auto p-4">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <TabPanel
+            tabs={tabItems}
+            activeId={path || null}
+            onSelect={(id) => {
+              if (trySelectPath(id)) {
+                /* path updated */
+              }
+            }}
+            onClose={closeTemplateTab}
+            onCloseOthers={() => {
+              if (!path) return;
+              setOpenTabs([path]);
+            }}
+          />
+          <div className="min-h-0 flex-1 overflow-auto p-4">
+        {msg && <p className="mb-2 text-sm text-emerald-700">{msg}</p>}
         {tab === "yaml" ? (
           <textarea
             className="h-[min(70vh,800px)] w-full rounded-lg border border-slate-300 bg-slate-50 p-3 font-mono text-sm"
@@ -1196,6 +1351,8 @@ export function TemplateWorkspace({ onError }: { onError: (s: string | null) => 
             </section>
           </div>
         )}
+          </div>
+        </div>
       </div>
     </div>
   );

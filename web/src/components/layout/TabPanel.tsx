@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { X } from "lucide-react";
 import { cn } from "../../lib/utils";
 
@@ -18,6 +19,7 @@ type Props = {
 };
 
 export function TabPanel({ tabs, activeId, onSelect, onClose, onCloseOthers, className }: Props) {
+  const { t } = useTranslation("common");
   if (tabs.length === 0) {
     return null;
   }
@@ -54,7 +56,7 @@ export function TabPanel({ tabs, activeId, onSelect, onClose, onCloseOthers, cla
               <button
                 type="button"
                 className="ml-0.5 shrink-0 rounded p-0.5 text-slate-400 opacity-0 hover:bg-slate-200 hover:text-slate-700 group-hover:opacity-100"
-                aria-label="关闭"
+                aria-label={t("close")}
                 onClick={(e) => {
                   e.stopPropagation();
                   onClose(tab.id);
@@ -72,7 +74,7 @@ export function TabPanel({ tabs, activeId, onSelect, onClose, onCloseOthers, cla
           className="ml-auto shrink-0 px-2 text-[10px] text-slate-500 hover:text-slate-800"
           onClick={onCloseOthers}
         >
-          关闭其他
+          {t("closeOtherTabs")}
         </button>
       ) : null}
     </div>

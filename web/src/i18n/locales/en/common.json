@@ -19,5 +19,7 @@
   "connectingLocalService": "Connecting to local service…",
   "localServiceStartTimeout": "Timed out waiting for the local service. Please try again. If it persists, check the diagnostic log.",
   "localServiceFailed": "Could not start the local service",
-  "couldNotReachLocalService": "Could not reach the local service"
+  "couldNotReachLocalService": "Could not reach the local service",
+  "unsavedHint": "Unsaved changes",
+  "closeOtherTabs": "Close other tabs"
 }

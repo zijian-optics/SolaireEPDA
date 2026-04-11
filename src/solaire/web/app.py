@@ -851,6 +851,17 @@ def template_raw_get(path: str = Query(..., min_length=1, description="e.g. temp
     return {"path": path.strip().replace("\\", "/"), "yaml": text}
 
 
+@app.delete("/api/templates/raw")
+def template_raw_delete(path: str = Query(..., min_length=1, description="e.g. templates/demo.yaml")) -> dict[str, Any]:
+    """Delete a template file under templates/."""
+    root = _require_root()
+    p = _resolve_under_templates(root, path)
+    if not p.is_file():
+        raise HTTPException(status_code=404, detail=f"File not found: {path}")
+    p.unlink()
+    return {"ok": True}
+
+
 @app.put("/api/templates/raw")
 def template_raw_put(body: TemplateRawFileBody) -> dict[str, Any]:
     root = _require_root()

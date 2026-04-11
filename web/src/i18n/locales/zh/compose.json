@@ -102,5 +102,17 @@
   "texNoticeReady": "本机已检测到导出试卷所需的排版组件。",
   "texNoticeOpenGuide": "打开官方安装页",
   "texNoticeOneClick": "一键安装（Windows）",
-  "texNoticeRecheck": "重新检测"
+  "texNoticeRecheck": "重新检测",
+  "subViewSearch": "题库检索",
+  "subViewConfig": "组卷配置",
+  "subViewExamPreview": "试卷浏览",
+  "subViewSearchHint": "小屏幕下在此检索题目；宽屏下左侧栏同步显示。",
+  "historySidebarTitle": "历史与草稿",
+  "historyDraftEmpty": "暂无草稿",
+  "historyExamEmpty": "暂无已导出试卷",
+  "pdfVariantLabel": "版本",
+  "pdfVariantStudent": "学生版",
+  "pdfVariantTeacher": "教师版",
+  "openPdfExternal": "用系统程序打开",
+  "examPreviewEmpty": "请从左侧选择一份已导出试卷，或先导出试卷。"
 }
