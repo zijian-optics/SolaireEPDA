@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { BookOpen, Boxes, Cpu, Info, LayoutGrid } from "lucide-react";
 import welcomeLogo from "../assets/welcome-logo.png";
 import { AgentSidebar } from "../components/AgentSidebar";
 import { ExtensionsPanel } from "../components/ExtensionsPanel";
 import { ModelConfigPane } from "../components/welcome/ModelConfigPane";
+import { useAgentContext } from "../contexts/AgentContext";
 import { cn } from "../lib/utils";
 import { IntroPane } from "./welcome/IntroPane";
 import { ProjectPane } from "./welcome/ProjectPane";
@@ -25,11 +26,16 @@ type Props = {
 
 export function WelcomePage({ onProjectReady, onError }: Props) {
   const { t } = useTranslation(["welcome", "app"]);
+  const { setSidebarOpen } = useAgentContext();
   const [tab, setTab] = useState<WelcomeTab>("intro");
 
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [setSidebarOpen]);
+
   return (
-    <div className="flex h-full min-h-0 min-w-0 w-full bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-slate-100">
-      <aside className="flex w-[min(22%,280px)] shrink-0 flex-col border-r border-slate-700/80 bg-slate-950/50 p-4">
+    <div className="relative flex h-full min-h-0 min-w-0 w-full flex-1 flex-row bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-slate-100">
+      <aside className="flex w-64 max-w-[min(100%,280px)] shrink-0 flex-col border-r border-slate-700/80 bg-slate-950/50 p-4">
         <div className="mb-6 flex flex-col gap-3 border-b border-slate-700/60 pb-4">
           <div className="flex max-w-[10rem] items-center justify-center rounded-xl p-2">
             <img src={welcomeLogo} alt="" className="h-auto w-full object-contain object-center" aria-hidden />
@@ -62,8 +68,7 @@ export function WelcomePage({ onProjectReady, onError }: Props) {
         </div>
       </aside>
 
-      <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-        <AgentSidebar projectBound={false} mode="overlay" />
+      <div className="relative z-10 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <header className="shrink-0 border-b border-slate-700/50 px-8 py-6">
           <h1 className="text-2xl font-semibold tracking-tight text-white">{t("welcome:title")}</h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-400">{t("welcome:subtitle")}</p>
@@ -79,6 +84,7 @@ export function WelcomePage({ onProjectReady, onError }: Props) {
           )}
         </div>
       </div>
+      <AgentSidebar projectBound={false} mode="overlay" />
     </div>
   );
 }

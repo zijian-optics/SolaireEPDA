@@ -13,28 +13,30 @@ export function AgentSidebar({
   const { sidebarOpen, setSidebarOpen } = useAgentContext();
 
   if (mode === "overlay") {
-    /** 单一根节点，避免在 flex 父级下与兄弟并列多个绝对层导致布局异常 */
+    /**
+     * 仅在打开时挂载侧栏与蒙层。关闭时若保留白底 aside + translate-x-full，在部分 WebView 下
+     * 仍可能露出一条白边或挤压 flex 视觉区域；不挂载则不占绘制、不参与布局。
+     */
     return (
       <div className="pointer-events-none absolute inset-0 z-[40]">
         {sidebarOpen ? (
-          <button
-            type="button"
-            className="pointer-events-auto absolute inset-0 z-[35] bg-slate-900/20 lg:bg-slate-900/10"
-            aria-label="关闭助手"
-            onClick={() => setSidebarOpen(false)}
-          />
+          <>
+            <button
+              type="button"
+              className="pointer-events-auto absolute inset-0 z-[35] bg-slate-900/20 lg:bg-slate-900/10"
+              aria-label="关闭助手"
+              onClick={() => setSidebarOpen(false)}
+            />
+            <aside
+              className="pointer-events-auto absolute bottom-0 right-0 top-0 z-[40] flex max-h-full w-[min(22rem,100%)] max-w-full min-w-0 flex-col overflow-hidden border-l border-slate-200 bg-white shadow-2xl"
+              aria-hidden={false}
+            >
+              <div className="flex h-full min-h-0 w-full min-w-0 flex-col">
+                <AgentChatPanel projectBound={projectBound} onRequestCollapse={() => setSidebarOpen(false)} />
+              </div>
+            </aside>
+          </>
         ) : null}
-        <aside
-          className={cn(
-            "pointer-events-auto absolute bottom-0 right-0 top-0 z-[40] flex overflow-hidden border-l border-slate-200 bg-white shadow-2xl transition-transform duration-200 ease-out",
-            sidebarOpen ? "w-[min(22rem,100%)] translate-x-0" : "w-[min(22rem,100%)] translate-x-full pointer-events-none",
-          )}
-          aria-hidden={!sidebarOpen}
-        >
-          <div className="flex h-full w-full min-w-0 flex-col">
-            <AgentChatPanel projectBound={projectBound} onRequestCollapse={() => setSidebarOpen(false)} />
-          </div>
-        </aside>
       </div>
     );
   }
@@ -47,8 +49,10 @@ export function AgentSidebar({
       )}
       aria-hidden={!sidebarOpen}
     >
-      <div className="flex h-full w-full min-w-0 flex-col">
-        <AgentChatPanel projectBound={projectBound} onRequestCollapse={() => setSidebarOpen(false)} />
+      <div className="flex h-full min-h-0 w-full min-w-0 flex-col">
+        {sidebarOpen ? (
+          <AgentChatPanel projectBound={projectBound} onRequestCollapse={() => setSidebarOpen(false)} />
+        ) : null}
       </div>
     </div>
   );
