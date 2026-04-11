@@ -9,7 +9,6 @@ import type { AppPage } from "../../app/appPages";
 type RecentItem = { name: string; path: string; last_opened: string };
 
 type Props = {
-  brandLabel: string;
   projectRoot: string | null;
   onNewProject: () => void;
   onOpenProject: () => void;
@@ -101,7 +100,6 @@ function MenuItem({
 }
 
 export function MenuBar({
-  brandLabel,
   projectRoot,
   onNewProject,
   onOpenProject,
@@ -139,16 +137,7 @@ export function MenuBar({
 
   return (
     <header className="flex shrink-0 items-center gap-1 border-b border-slate-200 bg-white px-2 py-1">
-      <div className="flex min-w-0 items-center gap-2 px-2">
-        <span className="truncate text-sm font-semibold text-slate-800">{brandLabel}</span>
-        {projectRoot ? (
-          <span className="hidden max-w-[min(40vw,28rem)] truncate text-xs text-slate-500 md:inline" title={projectRoot}>
-            {t("header.project")}
-            <span className="font-medium text-slate-700">{projectRoot}</span>
-          </span>
-        ) : null}
-      </div>
-      <nav className="flex flex-1 items-center gap-0.5">
+      <nav className="flex flex-1 items-center gap-0.5 px-1">
         <MenuDropdown label={t("menu.file")}>
           <MenuItem onClick={onNewProject}>{t("menu.fileNew")}</MenuItem>
           <MenuItem onClick={onOpenProject}>{t("menu.fileOpen")}</MenuItem>

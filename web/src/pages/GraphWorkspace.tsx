@@ -46,7 +46,7 @@ import {
   nodeBoxSizeFromMaterialCount,
   removeNodeOverlaps,
 } from "../graph/layoutGraph";
-import { DAGRE_GRAPH, FORCE_DEFAULT, MATERIAL_BOX, OVERLAP_DEFAULT } from "../graph/layoutParams";
+import { OVERLAP_DEFAULT } from "../graph/layoutParams";
 import { useAgentContext } from "../contexts/AgentContext";
 import { useToolBar } from "../contexts/ToolBarContext";
 import i18n from "../i18n/i18n";
@@ -340,7 +340,6 @@ export function GraphWorkspace({
     causal: true,
   });
   const [subjectFilter, setSubjectFilter] = useState<Record<string, boolean>>({});
-  const [canvasPanelExpanded, setCanvasPanelExpanded] = useState(true);
   const [maintenancePanelExpanded, setMaintenancePanelExpanded] = useState(true);
   const { setPageContext } = useAgentContext();
 
@@ -1403,55 +1402,6 @@ export function GraphWorkspace({
             <div className="flex h-full items-center justify-center text-sm text-slate-500">{t("loading")}</div>
           ) : (
             <>
-              {canvasPanelExpanded ? (
-              <div className="pointer-events-auto absolute left-2 top-2 z-10 max-h-[min(70vh,520px)] w-[min(100%-1rem,440px)] overflow-auto rounded-lg border border-slate-200 bg-white/95 p-2 text-[11px] shadow-md backdrop-blur">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="font-medium text-slate-800">{t("canvasTitle")}</div>
-                  <button
-                    type="button"
-                    className="shrink-0 rounded border border-slate-300 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-800 hover:bg-slate-100"
-                    onClick={() => setCanvasPanelExpanded(false)}
-                    title={t("collapseToolbar")}
-                  >
-                    {t("collapse")}
-                  </button>
-                </div>
-                <div className="mt-1.5 text-slate-600">
-                  <span>{t("layoutIntro")}</span>
-                </div>
-                {import.meta.env.DEV ? (
-                  <details className="mt-2 rounded border border-dashed border-slate-200 bg-slate-50/90 p-1.5 text-[10px] text-slate-600">
-                    <summary className="cursor-pointer select-none font-medium text-slate-700">
-                      {t("layoutParams")}
-                    </summary>
-                    <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono text-[9px] leading-tight">
-                      {JSON.stringify(
-                        {
-                          dagre: DAGRE_GRAPH,
-                          force: FORCE_DEFAULT,
-                          materialBox: MATERIAL_BOX,
-                          overlap: OVERLAP_DEFAULT,
-                        },
-                        null,
-                        2,
-                      )}
-                    </pre>
-                  </details>
-                ) : null}
-                <div className="mt-2 border-t border-slate-100 pt-2 text-slate-500">{t("canvasStyleNote")}</div>
-              </div>
-              ) : (
-                <div className="pointer-events-auto absolute left-2 top-2 z-10">
-                  <button
-                    type="button"
-                    className="rounded-lg border border-slate-200 bg-white/95 px-2 py-1 text-[11px] font-medium text-slate-800 shadow-md backdrop-blur hover:bg-slate-50"
-                    onClick={() => setCanvasPanelExpanded(true)}
-                    title={t("expandToolbar")}
-                  >
-                    {t("expandTools")}
-                  </button>
-                </div>
-              )}
               <ReactFlow
                 nodes={nodesForRender}
                 edges={edgesForRender}

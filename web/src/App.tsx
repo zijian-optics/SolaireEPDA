@@ -158,9 +158,6 @@ function AppShell() {
         ) : (
           <>
             <aside className="flex w-[4.25rem] shrink-0 flex-col border-r border-slate-800 bg-slate-900">
-              <div className="flex h-12 items-center justify-center border-b border-slate-800 text-xs font-semibold tracking-tight text-slate-100">
-                {t("app:brand")}
-              </div>
               <nav className="flex flex-1 flex-col gap-1 p-2">
                 <div className="flex flex-1 flex-col gap-1">
                   <SidebarNavButton
@@ -223,7 +220,6 @@ function AppShell() {
 
             <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
               <MenuBar
-                brandLabel={t("app:brand")}
                 projectRoot={info.root}
                 onNewProject={() => setNewProjectOpen(true)}
                 onOpenProject={() => void openProjectPicker()}
