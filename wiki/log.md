@@ -1,5 +1,13 @@
 # 变更日志（开发者）
 
+## [2026-04-11] LatexRichTextField | 清理未使用代码以通过 tsc
+
+**改动摘要**：删除未引用的 `ANY_WIDGET_SELECTOR` 常量，以及从未调用的 `setCaretFromSerializedOffset`（与 `getSerializedCaretOffset` 对称的光标还原逻辑；若日后需要从隐藏 textarea 同步选区回可视化编辑器，可再实现并接入）。
+
+**验证命令**：`cd web && npm run build`。
+
+**结果要点**：`tsc -b` 与 `vite build` 通过。
+
 ## [2026-04-11] LatexRichTextField | 类 Overleaf 可视化编辑器（公式 + Mermaid + 图片）
 
 **改动摘要**：完整重写 `web/src/components/LatexRichTextField.tsx`，实现类似 Overleaf Visual Editor 的体验，统一处理三种嵌入类型：

@@ -23,7 +23,6 @@ import { initMermaid } from "../lib/mermaidInit";
 const MATH_WIDGET_CLASS = "lrt-math-widget";
 const MERMAID_WIDGET_CLASS = "lrt-mermaid-widget";
 const IMAGE_WIDGET_CLASS = "lrt-image-widget";
-const ANY_WIDGET_SELECTOR = `.${MATH_WIDGET_CLASS},.${MERMAID_WIDGET_CLASS},.${IMAGE_WIDGET_CLASS}`;
 
 /* ═══════════════════ utility functions ═══════════════════ */
 
@@ -308,76 +307,6 @@ function getSerializedCaretOffset(root: HTMLElement, range: Range): number {
   }
   for (const c of root.childNodes) if (walk(c)) break;
   return total;
-}
-
-function setCaretFromSerializedOffset(root: HTMLElement, offset: number): void {
-  const sel = window.getSelection();
-  if (!sel) return;
-  let remaining = Math.max(0, offset);
-  let placed = false;
-  function walk(n: Node): boolean {
-    if (placed) return true;
-    if (n.nodeType === Node.TEXT_NODE) {
-      const len = (n.textContent ?? "").length;
-      if (remaining <= len) {
-        const r = document.createRange();
-        r.setStart(n, remaining);
-        r.collapse(true);
-        sel.removeAllRanges();
-        sel.addRange(r);
-        placed = true;
-        return true;
-      }
-      remaining -= len;
-      return false;
-    }
-    if (n.nodeType !== Node.ELEMENT_NODE) return false;
-    const el = n as HTMLElement;
-    if (isWidget(el)) {
-      const tokenLen = widgetSerializedLength(el);
-      if (remaining <= 0) {
-        const r = document.createRange();
-        r.setStartBefore(el);
-        r.collapse(true);
-        sel.removeAllRanges();
-        sel.addRange(r);
-        placed = true;
-        return true;
-      }
-      if (remaining < tokenLen) {
-        const r = document.createRange();
-        r.setStartAfter(el);
-        r.collapse(true);
-        sel.removeAllRanges();
-        sel.addRange(r);
-        placed = true;
-        return true;
-      }
-      remaining -= tokenLen;
-      return false;
-    }
-    if (el.tagName === "BR") {
-      if (remaining <= 0) {
-        const r = document.createRange();
-        r.setStartBefore(el);
-        r.collapse(true);
-        sel.removeAllRanges();
-        sel.addRange(r);
-        placed = true;
-        return true;
-      }
-      remaining -= 1;
-      return false;
-    }
-    for (const c of el.childNodes) if (walk(c)) return true;
-    return false;
-  }
-  for (const c of root.childNodes) if (walk(c)) return;
-  const r = document.createRange();
-  r.selectNodeContents(root);
-  r.collapse(false);
-  sel.removeAllRanges();
-  sel.addRange(r);
 }
 
 /* ═══════════════════ Toolbar data ═══════════════════ */
