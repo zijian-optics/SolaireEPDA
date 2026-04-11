@@ -5,41 +5,33 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
-import katex from "katex";
-import "katex/dist/katex.min.css";
 import { MathfieldElement } from "mathlive";
 import "mathlive";
 import "mathlive/fonts.css";
 import mermaid from "mermaid";
 
 import { resourceApiUrl } from "../api/client";
+import { tokenizeContent, type ContentToken } from "../lib/contentTokenizer";
+import { canonicalizeLatex } from "../lib/latexCanon";
+import { renderMathToHtmlSimple } from "../lib/katexRender";
+import { lintMathContent, type MathLintResult } from "../lib/mathLint";
 import { initMermaid } from "../lib/mermaidInit";
 
 /* ═══════════════════ constants ═══════════════════ */
 
 const MATH_WIDGET_CLASS = "lrt-math-widget";
+const DISPLAY_MATH_WIDGET_CLASS = "lrt-display-math-widget";
 const MERMAID_WIDGET_CLASS = "lrt-mermaid-widget";
 const IMAGE_WIDGET_CLASS = "lrt-image-widget";
 
 /* ═══════════════════ utility functions ═══════════════════ */
 
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function renderMathHtml(latex: string): string {
-  try {
-    return katex.renderToString(latex, { throwOnError: false, displayMode: false });
-  } catch {
-    return `<span class="katex-error">${escapeHtml("$" + latex + "$")}</span>`;
-  }
+function renderMathHtml(latex: string, displayMode = false): string {
+  return renderMathToHtmlSimple(latex, displayMode);
 }
 
 async function renderMermaidToElement(source: string, container: HTMLElement) {
@@ -56,37 +48,11 @@ async function renderMermaidToElement(source: string, container: HTMLElement) {
 
 /* ═══════════════════ Tokenizer ═══════════════════ */
 
-type Token =
-  | { type: "text"; content: string }
-  | { type: "math"; latex: string }
-  | { type: "mermaid"; source: string; raw: string }
-  | { type: "image"; kind: string; path: string; raw: string };
-
-const TOKEN_RE =
-  /```mermaid\s*\n([\s\S]*?)```|:::((?:PRIMEBRUSH|MERMAID|EMBED)_IMG):([^:]+):::|\$([^$\n]+?)\$/g;
+/** 统一分词器的别名，供编辑器使用。 */
+type Token = ContentToken;
 
 function tokenize(value: string): Token[] {
-  TOKEN_RE.lastIndex = 0;
-  const tokens: Token[] = [];
-  let lastIdx = 0;
-  let match: RegExpExecArray | null;
-  while ((match = TOKEN_RE.exec(value)) !== null) {
-    if (match.index > lastIdx) {
-      tokens.push({ type: "text", content: value.slice(lastIdx, match.index) });
-    }
-    if (match[1] != null) {
-      tokens.push({ type: "mermaid", source: match[1], raw: match[0] });
-    } else if (match[2] != null) {
-      tokens.push({ type: "image", kind: `${match[2]}_IMG`, path: match[3] ?? "", raw: match[0] });
-    } else if (match[4] != null) {
-      tokens.push({ type: "math", latex: match[4] });
-    }
-    lastIdx = TOKEN_RE.lastIndex;
-  }
-  if (lastIdx < value.length) {
-    tokens.push({ type: "text", content: value.slice(lastIdx) });
-  }
-  return tokens;
+  return tokenizeContent(value);
 }
 
 /* ═══════════════════ DOM builders ═══════════════════ */
@@ -99,8 +65,22 @@ function createMathWidget(latex: string): HTMLSpanElement {
   span.dataset.latex = latex;
   span.setAttribute("role", "button");
   span.title = "点击编辑公式";
-  span.innerHTML = renderMathHtml(latex);
+  span.innerHTML = renderMathHtml(latex, false);
   return span;
+}
+
+/** 显示公式 widget（$$...$$），块级居中渲染。 */
+function createDisplayMathWidget(latex: string): HTMLDivElement {
+  const div = document.createElement("div");
+  div.className = `${DISPLAY_MATH_WIDGET_CLASS} my-1.5 w-full cursor-pointer rounded border border-transparent bg-blue-50/60 px-2 py-1 text-center transition-colors hover:border-blue-300 hover:bg-blue-100`;
+  div.contentEditable = "false";
+  div.tabIndex = -1;
+  div.dataset.latex = latex;
+  div.dataset.displayMath = "true";
+  div.setAttribute("role", "button");
+  div.title = "点击编辑公式（显示模式）";
+  div.innerHTML = renderMathHtml(latex, true);
+  return div;
 }
 
 function createMermaidWidget(source: string): HTMLDivElement {
@@ -169,8 +149,10 @@ function buildEditorDom(root: HTMLElement, value: string): void {
         if (i > 0) root.appendChild(document.createElement("br"));
         if (lines[i]) root.appendChild(document.createTextNode(lines[i]));
       }
-    } else if (token.type === "math") {
+    } else if (token.type === "inlineMath") {
       root.appendChild(createMathWidget(token.latex));
+    } else if (token.type === "displayMath") {
+      root.appendChild(createDisplayMathWidget(token.latex));
     } else if (token.type === "mermaid") {
       root.appendChild(createMermaidWidget(token.source));
     } else if (token.type === "image") {
@@ -195,6 +177,10 @@ function serializeEditor(root: HTMLElement): string {
     const el = n as HTMLElement;
     if (el.classList.contains(MATH_WIDGET_CLASS)) {
       out += `$${el.dataset.latex ?? ""}$`;
+      return;
+    }
+    if (el.classList.contains(DISPLAY_MATH_WIDGET_CLASS)) {
+      out += `$$${el.dataset.latex ?? ""}$$`;
       return;
     }
     if (el.classList.contains(MERMAID_WIDGET_CLASS)) {
@@ -224,6 +210,9 @@ function widgetSerializedLength(el: HTMLElement): number {
   if (el.classList.contains(MATH_WIDGET_CLASS)) {
     return `$${el.dataset.latex ?? ""}$`.length;
   }
+  if (el.classList.contains(DISPLAY_MATH_WIDGET_CLASS)) {
+    return `$$${el.dataset.latex ?? ""}$$`.length;
+  }
   if (el.classList.contains(MERMAID_WIDGET_CLASS)) {
     const src = el.dataset.mermaidSource ?? "";
     return ("```mermaid\n" + src + "\n```").length;
@@ -239,6 +228,7 @@ function widgetSerializedLength(el: HTMLElement): number {
 function isWidget(el: HTMLElement): boolean {
   return (
     el.classList.contains(MATH_WIDGET_CLASS) ||
+    el.classList.contains(DISPLAY_MATH_WIDGET_CLASS) ||
     el.classList.contains(MERMAID_WIDGET_CLASS) ||
     el.classList.contains(IMAGE_WIDGET_CLASS)
   );
@@ -434,6 +424,9 @@ export function LatexRichTextField({
 
   const minH = `${Math.max(6, minRows * 1.45)}rem`;
 
+  /* ─── Lint ─── */
+  const lintResults = useMemo<MathLintResult[]>(() => lintMathContent(value), [value]);
+
   /* ─── Hidden textarea sync ─── */
 
   const syncHiddenSelection = useCallback(() => {
@@ -505,10 +498,12 @@ export function LatexRichTextField({
     const popup = mathPopupStateRef.current;
     if (!popup) return;
     if (confirm && mfRef.current) {
-      const latex = mfRef.current.getValue("latex").trim();
+      const rawLatex = mfRef.current.getValue("latex").trim();
+      const latex = canonicalizeLatex(rawLatex);
+      const isDisplay = popup.widget.classList.contains(DISPLAY_MATH_WIDGET_CLASS);
       if (latex) {
         popup.widget.dataset.latex = latex;
-        popup.widget.innerHTML = renderMathHtml(latex);
+        popup.widget.innerHTML = renderMathHtml(latex, isDisplay);
       } else if (popup.isNew) {
         popup.widget.remove();
       }
@@ -802,6 +797,12 @@ export function LatexRichTextField({
       openMathPopup(mathW, mathW.dataset.latex ?? "", false);
       return;
     }
+    const dispMathW = t.closest?.(`.${DISPLAY_MATH_WIDGET_CLASS}`) as HTMLElement | null;
+    if (dispMathW && editorRef.current?.contains(dispMathW)) {
+      e.preventDefault();
+      openMathPopup(dispMathW, dispMathW.dataset.latex ?? "", false);
+      return;
+    }
     const mmdW = t.closest?.(`.${MERMAID_WIDGET_CLASS}`) as HTMLElement | null;
     if (mmdW && editorRef.current?.contains(mmdW)) {
       e.preventDefault();
@@ -1049,6 +1050,28 @@ export function LatexRichTextField({
           placeholder={placeholder}
           spellCheck={false}
         />
+      )}
+
+      {/* ── Lint 提示条 ── */}
+      {lintResults.length > 0 && (
+        <div className="mt-0.5 space-y-0.5">
+          {lintResults.map((r, i) => (
+            <div
+              key={`${r.code}-${i}`}
+              className={`flex items-start gap-1.5 rounded px-2 py-1 text-[11px] leading-snug ${
+                r.severity === "error"
+                  ? "bg-red-50 text-red-700"
+                  : "bg-amber-50 text-amber-700"
+              }`}
+              role="alert"
+            >
+              <span className="mt-px shrink-0 font-bold">
+                {r.severity === "error" ? "✕" : "⚠"}
+              </span>
+              <span>{r.message}</span>
+            </div>
+          ))}
+        </div>
       )}
 
       {/* ═══ Math editing popup ═══ */}

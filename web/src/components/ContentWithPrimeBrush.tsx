@@ -2,9 +2,17 @@ import { useEffect, useRef, type ReactNode } from "react";
 import mermaid from "mermaid";
 
 import { resourceApiUrl } from "../api/client";
+import { tokenizeContent } from "../lib/contentTokenizer";
 import { initMermaid } from "../lib/mermaidInit";
-import { VISUAL_EMBED_RE } from "../lib/stripVisualEmbeds";
-import { buildKatexHtml } from "./KatexText";
+import { renderMathToHtmlSimple } from "../lib/katexRender";
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
 
 function MermaidFencePreview({ body }: { body: string }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -38,57 +46,87 @@ function MermaidFencePreview({ body }: { body: string }) {
 
 /**
  * KaTeX + `:::PRIMEBRUSH_IMG` / `:::MERMAID_IMG` / `:::EMBED_IMG` 占位图 + 源码围栏 `` ```mermaid `` 实时渲染。
+ *
+ * 使用统一分词器 `tokenizeContent`，支持：
+ *   - 行内公式 `$...$` → 行内渲染
+ *   - 显示公式 `$$...$$` / AMS 环境 → 居中块级渲染
+ *   - Mermaid 围栏 → 实时 SVG 渲染
+ *   - 图片占位 → `<img>` 元素
  */
 export function ContentWithPrimeBrush({ text, className }: { text: string; className?: string }) {
+  const tokens = tokenizeContent(text);
   const nodes: ReactNode[] = [];
-  let last = 0;
   let key = 0;
-  VISUAL_EMBED_RE.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = VISUAL_EMBED_RE.exec(text)) !== null) {
-    if (m.index > last) {
-      const seg = text.slice(last, m.index);
-      nodes.push(
-        <span
-          key={key++}
-          // eslint-disable-next-line react/no-danger
-          dangerouslySetInnerHTML={{ __html: buildKatexHtml(seg) }}
-        />,
-      );
-    }
-    if (m[1] != null && m[1] !== "") {
-      const rel = (m[2] ?? "").trim();
-      nodes.push(
-        <img
-          key={key++}
-          className="my-2 max-h-72 max-w-full object-contain"
-          src={resourceApiUrl(rel)}
-          alt=""
-        />,
-      );
-    } else {
-      nodes.push(<MermaidFencePreview key={key++} body={m[3] ?? ""} />);
-    }
-    last = m.index + m[0].length;
-  }
-  if (last < text.length) {
-    const seg = text.slice(last);
-    nodes.push(
-      <span
-        key={key++}
-        // eslint-disable-next-line react/no-danger
-        dangerouslySetInnerHTML={{ __html: buildKatexHtml(seg) }}
-      />,
-    );
-  }
-  if (nodes.length === 0) {
+
+  // 若完全没有非文本内容，直接用单个 dangerouslySetInnerHTML 节点（避免多余 DOM 包装）
+  const hasNonText = tokens.some((t) => t.type !== "text");
+
+  if (!hasNonText) {
+    const html = tokens
+      .map((t) => (t.type === "text" ? escapeHtml(t.content).replace(/\n/g, "<br/>") : ""))
+      .join("");
     return (
       <div
         className={className}
         // eslint-disable-next-line react/no-danger
-        dangerouslySetInnerHTML={{ __html: buildKatexHtml(text) }}
+        dangerouslySetInnerHTML={{ __html: html }}
       />
     );
   }
+
+  for (const token of tokens) {
+    switch (token.type) {
+      case "text": {
+        const html = escapeHtml(token.content).replace(/\n/g, "<br/>");
+        nodes.push(
+          <span
+            key={key++}
+            // eslint-disable-next-line react/no-danger
+            dangerouslySetInnerHTML={{ __html: html }}
+          />,
+        );
+        break;
+      }
+      case "inlineMath": {
+        const html = renderMathToHtmlSimple(token.latex, false);
+        nodes.push(
+          <span
+            key={key++}
+            // eslint-disable-next-line react/no-danger
+            dangerouslySetInnerHTML={{ __html: html }}
+          />,
+        );
+        break;
+      }
+      case "displayMath": {
+        const html = renderMathToHtmlSimple(token.latex, true);
+        nodes.push(
+          <div
+            key={key++}
+            className="my-1 overflow-x-auto text-center"
+            // eslint-disable-next-line react/no-danger
+            dangerouslySetInnerHTML={{ __html: html }}
+          />,
+        );
+        break;
+      }
+      case "image": {
+        const rel = token.path.trim();
+        nodes.push(
+          <img
+            key={key++}
+            className="my-2 max-h-72 max-w-full object-contain"
+            src={resourceApiUrl(rel)}
+            alt=""
+          />,
+        );
+        break;
+      }
+      case "mermaid":
+        nodes.push(<MermaidFencePreview key={key++} body={token.source} />);
+        break;
+    }
+  }
+
   return <div className={className}>{nodes}</div>;
 }

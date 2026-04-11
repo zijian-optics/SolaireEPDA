@@ -1,7 +1,6 @@
-import katex from "katex";
-import "katex/dist/katex.min.css";
-
+import { tokenizeContent } from "../lib/contentTokenizer";
 import { fixUnbalancedInlineMathDelimiters, stripVisualEmbeds } from "../lib/stripVisualEmbeds";
+import { renderMathToHtmlSimple } from "../lib/katexRender";
 import { cn } from "../lib/utils";
 
 function escapeHtml(s: string): string {
@@ -12,25 +11,44 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-/** Plain text + `$...$` inline math → HTML string (for composition with PrimeBrush imgs). */
+/**
+ * 将含 `$...$` / `$$...$$` / AMS 环境的文本渲染为 HTML 字符串。
+ *
+ * 使用统一状态机分词器（tokenizeContent），支持：
+ *   - 行内公式 `$...$` → displayMode: false
+ *   - 显示公式 `$$...$$` / `\[...\]` / AMS 环境 → displayMode: true
+ *   - 图片占位 / Mermaid 占位：原样输出占位字符串（给 ContentWithPrimeBrush 处理）
+ */
 export function buildKatexHtml(text: string): string {
-  const parts = text.split("$");
-  const html: string[] = [];
-  for (let i = 0; i < parts.length; i++) {
-    if (i % 2 === 0) {
-      html.push(escapeHtml(parts[i]).replace(/\n/g, "<br/>"));
-    } else {
-      try {
-        html.push(katex.renderToString(parts[i], { throwOnError: false, displayMode: false }));
-      } catch {
-        html.push(`<span class="katex-error">${escapeHtml("$" + parts[i] + "$")}</span>`);
-      }
+  const tokens = tokenizeContent(text);
+  const parts: string[] = [];
+
+  for (const token of tokens) {
+    switch (token.type) {
+      case "text":
+        parts.push(escapeHtml(token.content).replace(/\n/g, "<br/>"));
+        break;
+      case "inlineMath":
+        parts.push(renderMathToHtmlSimple(token.latex, false));
+        break;
+      case "displayMath":
+        parts.push(renderMathToHtmlSimple(token.latex, true));
+        break;
+      case "mermaid":
+        // buildKatexHtml 仅处理纯文本+公式；围栏块原样保留（ContentWithPrimeBrush 会处理）
+        parts.push(escapeHtml(token.raw));
+        break;
+      case "image":
+        // 同上，占位符原样保留
+        parts.push(escapeHtml(token.raw));
+        break;
     }
   }
-  return html.join("");
+
+  return parts.join("");
 }
 
-/** Renders plain text with `$...$` inline math via KaTeX. */
+/** Renders plain text with `$...$` and `$$...$$` math via KaTeX. */
 export function KatexText({ text, className }: { text: string; className?: string }) {
   return (
     <div
@@ -41,7 +59,7 @@ export function KatexText({ text, className }: { text: string; className?: strin
   );
 }
 
-/** 文字 + `$...$` 公式；去掉图片 / Mermaid / PrimeBrush 占位后再 KaTeX（用于列表摘要等）。 */
+/** 文字 + 公式摘要预览；去掉图片 / Mermaid / PrimeBrush 占位后再渲染（用于列表摘要等）。 */
 export function KatexPlainPreview({ text, className }: { text: string; className?: string }) {
   const cleaned = fixUnbalancedInlineMathDelimiters(stripVisualEmbeds(text));
   const html = buildKatexHtml(cleaned);
