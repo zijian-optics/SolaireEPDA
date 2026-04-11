@@ -5,6 +5,7 @@ import {
   type RefObject,
   type SetStateAction,
   useMemo,
+  useRef,
 } from "react";
 import { useTranslation } from "react-i18next";
 import { ImagePlus } from "lucide-react";
@@ -12,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { QUESTION_TYPE_OPTIONS } from "../lib/questionTypes";
 import type { EmbedKind } from "../lib/bankEditorEmbedKinds";
 import { ChoiceOptionsFields } from "./ChoiceOptionsFields";
+import { LatexRichTextField } from "./LatexRichTextField";
 
 export type QuestionJson = {
   id: string;
@@ -87,6 +89,48 @@ export type BankQuestionEditorPanelProps = {
 
 function giFieldId(i: number, f: "content" | "answer" | "analysis") {
   return `bank-gi-${i}-${f}`;
+}
+
+type GiLatexMemberField = "answer" | "analysis";
+
+function BankGiLatexField({
+  memberIndex,
+  field,
+  label,
+  value,
+  minRows,
+  onChange,
+  beginMermaidEmbed,
+  beginImageEmbed,
+  busy,
+}: {
+  memberIndex: number;
+  field: GiLatexMemberField;
+  label: string;
+  value: string;
+  minRows: number;
+  onChange: (next: string) => void;
+  beginMermaidEmbed: BankQuestionEditorPanelProps["beginMermaidEmbed"];
+  beginImageEmbed: BankQuestionEditorPanelProps["beginImageEmbed"];
+  busy: boolean;
+}) {
+  const textAreaRef = useRef<HTMLTextAreaElement>(null);
+  const syncId = giFieldId(memberIndex, field);
+  return (
+    <div className="block">
+      <span className="text-xs font-medium text-slate-600">{label}</span>
+      <LatexRichTextField
+        textAreaRef={textAreaRef}
+        syncTextAreaId={syncId}
+        minRows={minRows}
+        value={value}
+        onChange={onChange}
+        onRequestMermaid={(sel) => beginMermaidEmbed({ k: "gi", i: memberIndex, f: field }, sel)}
+        onRequestImage={(sel) => beginImageEmbed({ k: "gi", i: memberIndex, f: field }, sel)}
+        busy={busy}
+      />
+    </div>
+  );
 }
 
 export function BankQuestionEditorPanel({
@@ -446,114 +490,45 @@ export function BankQuestionEditorPanel({
                         idPrefix={`bank-opt-gi-${i}`}
                         busy={busy}
                         makeEmbedKind={(key) => ({ k: "gio", i, key })}
-                        beginMathEmbed={beginMathEmbed}
                         beginMermaidEmbed={beginMermaidEmbed}
                         beginImageEmbed={beginImageEmbed}
                       />
                     </div>
                   )}
-                  <div className="mt-2 block">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-xs font-medium text-slate-600">{t("components:bankEditor.fieldAnswer")}</span>
-                      <div className="flex shrink-0 flex-wrap gap-1">
-                        <button
-                          type="button"
-                          className="rounded border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50"
-                          onClick={() => {
-                            const el = document.getElementById(giFieldId(i, "answer")) as HTMLTextAreaElement | null;
-                            beginMathEmbed({ k: "gi", i, f: "answer" }, el ? { start: el.selectionStart, end: el.selectionEnd } : null);
-                          }}
-                        >
-                          {t("components:bankEditor.insertMath")}
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50"
-                          onClick={() => {
-                            const el = document.getElementById(giFieldId(i, "answer")) as HTMLTextAreaElement | null;
-                            beginMermaidEmbed({ k: "gi", i, f: "answer" }, el ? { start: el.selectionStart, end: el.selectionEnd } : null);
-                          }}
-                        >
-                          {t("components:bankEditor.insertDiagram")}
-                        </button>
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-0.5 rounded border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                          disabled={busy}
-                          title={t("components:bankEditor.insertImageTitle")}
-                          onClick={() => {
-                            const el = document.getElementById(giFieldId(i, "answer")) as HTMLTextAreaElement | null;
-                            beginImageEmbed({ k: "gi", i, f: "answer" }, el ? { start: el.selectionStart, end: el.selectionEnd } : null);
-                          }}
-                        >
-                          <ImagePlus className="h-3.5 w-3.5" aria-hidden />
-                          <span className="hidden sm:inline">{t("components:bankEditor.image")}</span>
-                        </button>
-                      </div>
-                    </div>
-                    <textarea
-                      id={giFieldId(i, "answer")}
-                      className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 font-mono text-sm"
-                      rows={2}
+                  <div className="mt-2">
+                    <BankGiLatexField
+                      memberIndex={i}
+                      field="answer"
+                      label={t("components:bankEditor.fieldAnswer")}
                       value={it.answer}
-                      onChange={(e) => {
+                      minRows={2}
+                      onChange={(next) => {
                         const items = [...qg.items];
-                        items[i] = { ...items[i], answer: e.target.value };
-                        const q = memberIdx === i ? { ...detail.question, answer: e.target.value } : detail.question;
+                        items[i] = { ...items[i], answer: next };
+                        const q = memberIdx === i ? { ...detail.question, answer: next } : detail.question;
                         setDetail({ ...detail, question_group: { ...qg, items }, question: q });
                       }}
+                      beginMermaidEmbed={beginMermaidEmbed}
+                      beginImageEmbed={beginImageEmbed}
+                      busy={busy}
                     />
                   </div>
-                  <div className="mt-2 block">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-xs font-medium text-slate-600">{t("components:bankEditor.fieldAnalysis")}</span>
-                      <div className="flex shrink-0 flex-wrap gap-1">
-                        <button
-                          type="button"
-                          className="rounded border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50"
-                          onClick={() => {
-                            const el = document.getElementById(giFieldId(i, "analysis")) as HTMLTextAreaElement | null;
-                            beginMathEmbed({ k: "gi", i, f: "analysis" }, el ? { start: el.selectionStart, end: el.selectionEnd } : null);
-                          }}
-                        >
-                          {t("components:bankEditor.insertMath")}
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50"
-                          onClick={() => {
-                            const el = document.getElementById(giFieldId(i, "analysis")) as HTMLTextAreaElement | null;
-                            beginMermaidEmbed({ k: "gi", i, f: "analysis" }, el ? { start: el.selectionStart, end: el.selectionEnd } : null);
-                          }}
-                        >
-                          {t("components:bankEditor.insertDiagram")}
-                        </button>
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-0.5 rounded border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                          disabled={busy}
-                          title={t("components:bankEditor.insertImageTitle")}
-                          onClick={() => {
-                            const el = document.getElementById(giFieldId(i, "analysis")) as HTMLTextAreaElement | null;
-                            beginImageEmbed({ k: "gi", i, f: "analysis" }, el ? { start: el.selectionStart, end: el.selectionEnd } : null);
-                          }}
-                        >
-                          <ImagePlus className="h-3.5 w-3.5" aria-hidden />
-                          <span className="hidden sm:inline">{t("components:bankEditor.image")}</span>
-                        </button>
-                      </div>
-                    </div>
-                    <textarea
-                      id={giFieldId(i, "analysis")}
-                      className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 font-mono text-sm"
-                      rows={2}
+                  <div className="mt-2">
+                    <BankGiLatexField
+                      memberIndex={i}
+                      field="analysis"
+                      label={t("components:bankEditor.fieldAnalysis")}
                       value={it.analysis ?? ""}
-                      onChange={(e) => {
+                      minRows={2}
+                      onChange={(next) => {
                         const items = [...qg.items];
-                        items[i] = { ...items[i], analysis: e.target.value };
-                        const q = memberIdx === i ? { ...detail.question, analysis: e.target.value } : detail.question;
+                        items[i] = { ...items[i], analysis: next };
+                        const q = memberIdx === i ? { ...detail.question, analysis: next } : detail.question;
                         setDetail({ ...detail, question_group: { ...qg, items }, question: q });
                       }}
+                      beginMermaidEmbed={beginMermaidEmbed}
+                      beginImageEmbed={beginImageEmbed}
+                      busy={busy}
                     />
                   </div>
                 </div>
@@ -600,53 +575,15 @@ export function BankQuestionEditorPanel({
                 </select>
               </label>
               <div className="block">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-xs font-medium text-slate-600">{t("components:bankEditor.contentLatex")}</span>
-                  <div className="flex shrink-0 flex-wrap gap-1">
-                    <button
-                      type="button"
-                      className="rounded border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50"
-                      onClick={() => {
-                        const el = contentRef.current;
-                        const sel = el ? { start: el.selectionStart, end: el.selectionEnd } : null;
-                        beginMathEmbed({ k: "q", f: "content" }, sel);
-                      }}
-                    >
-                      {t("components:bankEditor.insertMath")}
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50"
-                      onClick={() => {
-                        const el = contentRef.current;
-                        const sel = el ? { start: el.selectionStart, end: el.selectionEnd } : null;
-                        beginMermaidEmbed({ k: "q", f: "content" }, sel);
-                      }}
-                    >
-                      {t("components:bankEditor.insertDiagram")}
-                    </button>
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-0.5 rounded border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                      disabled={busy}
-                      title={t("components:bankEditor.insertImageTitle")}
-                      onClick={() => {
-                        const el = contentRef.current;
-                        const sel = el ? { start: el.selectionStart, end: el.selectionEnd } : null;
-                        beginImageEmbed({ k: "q", f: "content" }, sel);
-                      }}
-                    >
-                      <ImagePlus className="h-3.5 w-3.5" aria-hidden />
-                      <span className="hidden sm:inline">{t("components:bankEditor.image")}</span>
-                    </button>
-                  </div>
-                </div>
-                <textarea
-                  ref={contentRef as LegacyRef<HTMLTextAreaElement>}
-                  className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 font-mono text-sm"
-                  rows={6}
+                <span className="text-xs font-medium text-slate-600">{t("components:bankEditor.contentLatex")}</span>
+                <LatexRichTextField
+                  textAreaRef={contentRef}
+                  minRows={6}
                   value={detail.question.content}
-                  onChange={(e) => setDetail({ ...detail, question: { ...detail.question, content: e.target.value } })}
+                  onChange={(next) => setDetail({ ...detail, question: { ...detail.question, content: next } })}
+                  onRequestMermaid={(sel) => beginMermaidEmbed({ k: "q", f: "content" }, sel)}
+                  onRequestImage={(sel) => beginImageEmbed({ k: "q", f: "content" }, sel)}
+                  busy={busy}
                 />
               </div>
               {detail.question.type === "choice" && (
@@ -657,110 +594,33 @@ export function BankQuestionEditorPanel({
                     idPrefix="bank-opt-q"
                     busy={busy}
                     makeEmbedKind={(key) => ({ k: "qo", key })}
-                    beginMathEmbed={beginMathEmbed}
                     beginMermaidEmbed={beginMermaidEmbed}
                     beginImageEmbed={beginImageEmbed}
                   />
                 </div>
               )}
               <div className="block">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-xs font-medium text-slate-600">{t("components:bankEditor.fieldAnswer")}</span>
-                  <div className="flex shrink-0 flex-wrap gap-1">
-                    <button
-                      type="button"
-                      className="rounded border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50"
-                      onClick={() => {
-                        const el = answerRef.current;
-                        const sel = el ? { start: el.selectionStart, end: el.selectionEnd } : null;
-                        beginMathEmbed({ k: "q", f: "answer" }, sel);
-                      }}
-                    >
-                      {t("components:bankEditor.insertMath")}
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50"
-                      onClick={() => {
-                        const el = answerRef.current;
-                        const sel = el ? { start: el.selectionStart, end: el.selectionEnd } : null;
-                        beginMermaidEmbed({ k: "q", f: "answer" }, sel);
-                      }}
-                    >
-                      {t("components:bankEditor.insertDiagram")}
-                    </button>
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-0.5 rounded border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                      disabled={busy}
-                      title={t("components:bankEditor.insertImageTitle")}
-                      onClick={() => {
-                        const el = answerRef.current;
-                        const sel = el ? { start: el.selectionStart, end: el.selectionEnd } : null;
-                        beginImageEmbed({ k: "q", f: "answer" }, sel);
-                      }}
-                    >
-                      <ImagePlus className="h-3.5 w-3.5" aria-hidden />
-                      <span className="hidden sm:inline">{t("components:bankEditor.image")}</span>
-                    </button>
-                  </div>
-                </div>
-                <textarea
-                  ref={answerRef as LegacyRef<HTMLTextAreaElement>}
-                  className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 font-mono text-sm"
-                  rows={2}
+                <span className="text-xs font-medium text-slate-600">{t("components:bankEditor.fieldAnswer")}</span>
+                <LatexRichTextField
+                  textAreaRef={answerRef}
+                  minRows={3}
                   value={detail.question.answer}
-                  onChange={(e) => setDetail({ ...detail, question: { ...detail.question, answer: e.target.value } })}
+                  onChange={(next) => setDetail({ ...detail, question: { ...detail.question, answer: next } })}
+                  onRequestMermaid={(sel) => beginMermaidEmbed({ k: "q", f: "answer" }, sel)}
+                  onRequestImage={(sel) => beginImageEmbed({ k: "q", f: "answer" }, sel)}
+                  busy={busy}
                 />
               </div>
               <div className="block">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-xs font-medium text-slate-600">{t("components:bankEditor.fieldAnalysis")}</span>
-                  <div className="flex shrink-0 flex-wrap gap-1">
-                    <button
-                      type="button"
-                      className="rounded border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50"
-                      onClick={() => {
-                        const el = analysisRef.current;
-                        const sel = el ? { start: el.selectionStart, end: el.selectionEnd } : null;
-                        beginMathEmbed({ k: "q", f: "analysis" }, sel);
-                      }}
-                    >
-                      {t("components:bankEditor.insertMath")}
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50"
-                      onClick={() => {
-                        const el = analysisRef.current;
-                        const sel = el ? { start: el.selectionStart, end: el.selectionEnd } : null;
-                        beginMermaidEmbed({ k: "q", f: "analysis" }, sel);
-                      }}
-                    >
-                      {t("components:bankEditor.insertDiagram")}
-                    </button>
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-0.5 rounded border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                      disabled={busy}
-                      title={t("components:bankEditor.insertImageTitle")}
-                      onClick={() => {
-                        const el = analysisRef.current;
-                        const sel = el ? { start: el.selectionStart, end: el.selectionEnd } : null;
-                        beginImageEmbed({ k: "q", f: "analysis" }, sel);
-                      }}
-                    >
-                      <ImagePlus className="h-3.5 w-3.5" aria-hidden />
-                      <span className="hidden sm:inline">{t("components:bankEditor.image")}</span>
-                    </button>
-                  </div>
-                </div>
-                <textarea
-                  ref={analysisRef as LegacyRef<HTMLTextAreaElement>}
-                  className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 font-mono text-sm"
-                  rows={3}
+                <span className="text-xs font-medium text-slate-600">{t("components:bankEditor.fieldAnalysis")}</span>
+                <LatexRichTextField
+                  textAreaRef={analysisRef}
+                  minRows={3}
                   value={detail.question.analysis}
-                  onChange={(e) => setDetail({ ...detail, question: { ...detail.question, analysis: e.target.value } })}
+                  onChange={(next) => setDetail({ ...detail, question: { ...detail.question, analysis: next } })}
+                  onRequestMermaid={(sel) => beginMermaidEmbed({ k: "q", f: "analysis" }, sel)}
+                  onRequestImage={(sel) => beginImageEmbed({ k: "q", f: "analysis" }, sel)}
+                  busy={busy}
                 />
               </div>
               <div>

@@ -3,6 +3,8 @@ import { MathfieldElement } from "mathlive";
 import "mathlive";
 import "mathlive/fonts.css";
 
+import { canonicalizeLatex } from "../lib/latexCanon";
+
 type MathInsertOverlayProps = {
   open: boolean;
   onClose: () => void;
@@ -49,7 +51,8 @@ export function MathInsertOverlay({ open, onClose, onConfirm }: MathInsertOverla
     if (!mf) {
       return;
     }
-    const latex = mf.getValue("latex").trim();
+    const rawLatex = mf.getValue("latex").trim();
+    const latex = canonicalizeLatex(rawLatex);
     if (!latex) {
       return;
     }

@@ -1721,7 +1721,7 @@ export function GraphWorkspace({
                         />
                       </td>
                       <td className="p-2 font-mono">{it.qualified_id}</td>
-                      <td className="p-2">{it.type}</td>
+                      <td className="p-2">{t(`lib:questionTypes.${it.type}`, { defaultValue: it.type })}</td>
                       <td className="max-w-xs truncate p-2 text-slate-600">{it.content_preview}</td>
                     </tr>
                   ))}

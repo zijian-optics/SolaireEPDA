@@ -10,6 +10,13 @@
 ## 开发模式（`tauri dev`）
 
 - `scripts/dev-desktop.ps1` 固定拉起 `127.0.0.1:8000`；Tauri 无嵌入式 Python 时仅对该端口做健康检查，同样广播 `backend-ready` / `backend-failed`。
+- Rust 侧对 `/api/health` 的**最长轮询等待**默认 **120 秒**（与前端壳等待一致）；冷启动导入常超过旧默认 30 秒。可用环境变量 `SOLAIRE_BACKEND_HEALTH_WAIT_SECS`（10～600）覆盖。健康检查使用的 `reqwest` 客户端显式 `no_proxy()`，避免系统代理干扰本机回环。
+
+### 为何会出现「健康检查超时」与日志里大量 200 看似矛盾？
+
+- **握手门槛**：Rust 在 `RunEvent::Ready` 后的后台线程里，对 `http://127.0.0.1:8000/api/health` 轮询最多 **30 秒**，且要求 JSON 中 `status == "ok"` 且 `product == "sol_edu"`。其它业务接口返回 200 **不能替代**该检查。
+- **弹窗「最近日志」来源**：失败时附加的尾日志来自 `%TEMP%\solaire-desktop-python.log` 的**最后 25 行**（嵌入式子进程 stdout 的落盘）。开发模式用 `beforeDevCommand` 起的 Uvicorn **通常不会**往该文件写访问日志；若仍出现多行 `INFO … 200`，多为**旧内容残留**或其它写入来源，**不宜**当作「本次 Rust 健康检查期间」的实时证据。
+- **「未找到嵌入式 Python…pixi run dev-backend」**：在无嵌入式分支里，**任意**健康等待失败都会在错误文案末尾拼接该提示（固定开发指引），**并不表示**又单独检测了一遍「是否找到嵌入式 Python」。
 
 ## 前端
 

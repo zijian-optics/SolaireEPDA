@@ -1,15 +1,16 @@
 {
   "questionTypes": {
-    "choice": "choice · 选择",
-    "fill": "fill · 填空",
-    "judge": "judge · 判断",
-    "short_answer": "short_answer · 简答（要点给分）",
-    "reasoning": "reasoning · 推理（计算、证明等）",
-    "essay": "essay · 论述"
+    "choice": "选择题",
+    "fill": "填空题",
+    "judge": "判断题",
+    "short_answer": "简答题（要点给分）",
+    "reasoning": "推理题（计算、证明等）",
+    "essay": "论述题",
+    "group": "题组"
   },
   "groupInnerTypes": {
-    "choice": "choice · 选择",
-    "fill": "fill · 填空",
-    "judge": "judge · 判断"
+    "choice": "选择题",
+    "fill": "填空题",
+    "judge": "判断题"
   }
 }
