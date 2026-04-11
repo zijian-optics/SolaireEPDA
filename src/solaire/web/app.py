@@ -433,7 +433,7 @@ def api_help_page(page_id: str) -> dict[str, Any]:
 
 @app.get("/api/help/asset/{rel_path:path}")
 def api_help_asset(rel_path: str) -> FileResponse:
-    """Static files under src/solaire_doc/assets/ (e.g. PrimeBrush example SVGs)."""
+    """手册内嵌静态资源（如 PrimeBrush 示例 SVG），位于 help_docs/assets/。"""
     target = help_docs.resolve_help_asset(rel_path)
     mt = "image/svg+xml" if target.suffix.lower() == ".svg" else None
     return FileResponse(target, media_type=mt)

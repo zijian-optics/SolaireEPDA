@@ -12,7 +12,7 @@
 
 - 业务规则以 `exam_compiler` 为准，Web 层负责编排与交互。
 - API 统一走 `/api/*`，错误返回遵循 `{"detail":"..."}`。
-- 帮助文档统一从 `src/solaire_doc/` 读取并发布。
+- 帮助文档统一从 `src/solaire/web/assets/help_docs/` 读取并随 `solaire.web` 打包发布。
 
 ## 常见开发入口
 

@@ -40,9 +40,9 @@ pixi run build-desktop
 
 `pixi run dev` 等同于 `npm run tauri:dev`，Tauri 会自动执行 `scripts/dev-desktop.ps1`，该脚本负责：
 
-1. 检测并（重）启动 Uvicorn 后端（`127.0.0.1:8000`）
-2. 等待后端健康检查通过（最多 45 秒）
-3. 启动 Vite 开发服务器（`127.0.0.1:5173`）并打开 Tauri 窗口
+1. 若 `127.0.0.1:8000` 上仍有监听进程则尝试结束，避免残留占用
+2. 后台启动 Uvicorn（`127.0.0.1:8000`，带 `--reload`）
+3. 前台启动 Vite（`127.0.0.1:5173`）；Tauri 在应用就绪后对 `8000` 做 `/api/health` 检查，并通过 `backend-ready` 事件通知前端
 
 开发模式使用当前源码的 Python 环境，**不**使用 `src-tauri/runtime/python` 内的嵌入式解释器。
 
@@ -64,6 +64,8 @@ pixi run build-desktop
 5. `npm run tauri:build` 产出 MSI 安装包
 
 > 打包前**必须**成功完成 `stage-python-runtime.ps1`，否则安装包内嵌入式 Python 不完整，本地服务无法启动。
+
+发布包运行时，本地服务端口由操作系统动态分配（非固定 `8000`）；Rust 解析子进程首行 `SOLAIRE_LISTEN_PORT=<端口>` 后再做健康检查。排查时可查看 `%TEMP%\solaire-desktop-python.log`（含 Uvicorn 输出）。
 
 ---
 

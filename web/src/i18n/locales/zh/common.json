@@ -15,5 +15,9 @@
   "collapseHint": "点击收起",
   "filter": "筛选",
   "networkError": "网络错误：{{detail}}",
-  "noResponseStream": "无响应流"
+  "noResponseStream": "无响应流",
+  "connectingLocalService": "正在连接本地服务…",
+  "localServiceStartTimeout": "等待本地服务就绪超时，请稍后重试。若问题持续，可查看诊断日志。",
+  "localServiceFailed": "本地服务未能启动",
+  "couldNotReachLocalService": "无法连接本地服务"
 }
