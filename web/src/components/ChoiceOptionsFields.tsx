@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ImagePlus } from "lucide-react";
 import type { EmbedKind } from "../lib/bankEditorEmbedKinds";
+import { LatexRichTextField } from "./LatexRichTextField";
 
 const DEFAULT_KEYS = ["A", "B", "C", "D"] as const;
 
@@ -28,10 +28,65 @@ export type ChoiceOptionsFieldsProps = {
   idPrefix: string;
   busy?: boolean;
   makeEmbedKind: (optionKey: string) => EmbedKind;
-  beginMathEmbed: (kind: EmbedKind, sel: { start: number; end: number } | null) => void;
   beginMermaidEmbed: (kind: EmbedKind, sel: { start: number; end: number } | null) => void;
   beginImageEmbed: (kind: EmbedKind, sel: { start: number; end: number } | null) => void;
 };
+
+function ChoiceOptionRow({
+  optionKey,
+  value,
+  idPrefix,
+  busy,
+  makeEmbedKind,
+  beginMermaidEmbed,
+  beginImageEmbed,
+  onChange,
+  onRemove,
+  removable,
+}: {
+  optionKey: string;
+  value: string;
+  idPrefix: string;
+  busy: boolean;
+  makeEmbedKind: (optionKey: string) => EmbedKind;
+  beginMermaidEmbed: ChoiceOptionsFieldsProps["beginMermaidEmbed"];
+  beginImageEmbed: ChoiceOptionsFieldsProps["beginImageEmbed"];
+  onChange: (next: string) => void;
+  onRemove: () => void;
+  removable: boolean;
+}) {
+  const { t } = useTranslation("components");
+  const textAreaRef = useRef<HTMLTextAreaElement>(null);
+  const syncId = `${idPrefix}-${optionKey}`;
+  return (
+    <div className="block">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-xs font-medium text-slate-600">
+          <span className="font-mono">{optionKey}</span>
+        </span>
+        {removable && (
+          <button
+            type="button"
+            className="shrink-0 rounded border border-red-200 px-2 py-0.5 text-[11px] text-red-700 hover:bg-red-50"
+            onClick={onRemove}
+          >
+            {t("choiceFields.remove")}
+          </button>
+        )}
+      </div>
+      <LatexRichTextField
+        textAreaRef={textAreaRef}
+        syncTextAreaId={syncId}
+        minRows={2}
+        value={value}
+        onChange={onChange}
+        onRequestMermaid={(sel) => beginMermaidEmbed(makeEmbedKind(optionKey), sel)}
+        onRequestImage={(sel) => beginImageEmbed(makeEmbedKind(optionKey), sel)}
+        busy={busy}
+      />
+    </div>
+  );
+}
 
 export function ChoiceOptionsFields({
   options,
@@ -39,7 +94,6 @@ export function ChoiceOptionsFields({
   idPrefix,
   busy = false,
   makeEmbedKind,
-  beginMathEmbed,
   beginMermaidEmbed,
   beginImageEmbed,
 }: ChoiceOptionsFieldsProps) {
@@ -80,68 +134,21 @@ export function ChoiceOptionsFields({
   return (
     <div className="space-y-2">
       <p className="text-xs font-medium text-slate-600">{t("choiceFields.optionsLatex")}</p>
-      <div className="space-y-2">
+      <div className="space-y-3">
         {keys.map((key) => (
-          <div key={key} className="rounded-md border border-slate-200 bg-white p-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="font-mono text-xs font-semibold text-slate-700">{key}</span>
-              <div className="flex shrink-0 flex-wrap gap-1">
-                <button
-                  type="button"
-                  className="rounded border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50"
-                  onClick={() => {
-                    const el = document.getElementById(`${idPrefix}-${key}`) as HTMLTextAreaElement | null;
-                    const sel = el ? { start: el.selectionStart, end: el.selectionEnd } : null;
-                    beginMathEmbed(makeEmbedKind(key), sel);
-                  }}
-                >
-                  {t("choiceFields.insertMath")}
-                </button>
-                <button
-                  type="button"
-                  className="rounded border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50"
-                  onClick={() => {
-                    const el = document.getElementById(`${idPrefix}-${key}`) as HTMLTextAreaElement | null;
-                    const sel = el ? { start: el.selectionStart, end: el.selectionEnd } : null;
-                    beginMermaidEmbed(makeEmbedKind(key), sel);
-                  }}
-                >
-                  {t("choiceFields.insertDiagram")}
-                </button>
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-0.5 rounded border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                  disabled={busy}
-                  title={t("bankEditor.insertImageTitle")}
-                  aria-label={t("bankEditor.insertImageTitle")}
-                  onClick={() => {
-                    const el = document.getElementById(`${idPrefix}-${key}`) as HTMLTextAreaElement | null;
-                    const sel = el ? { start: el.selectionStart, end: el.selectionEnd } : null;
-                    beginImageEmbed(makeEmbedKind(key), sel);
-                  }}
-                >
-                  <ImagePlus className="h-3.5 w-3.5" aria-hidden />
-                  <span className="hidden sm:inline">{t("choiceFields.image")}</span>
-                </button>
-                {!DEFAULT_KEYS.includes(key as (typeof DEFAULT_KEYS)[number]) && (
-                  <button
-                    type="button"
-                    className="rounded border border-red-200 px-2 py-0.5 text-[11px] text-red-700 hover:bg-red-50"
-                    onClick={() => removeKey(key)}
-                  >
-                    {t("choiceFields.remove")}
-                  </button>
-                )}
-              </div>
-            </div>
-            <textarea
-              id={`${idPrefix}-${key}`}
-              className="mt-1 w-full rounded border border-slate-300 px-2 py-1.5 font-mono text-sm"
-              rows={2}
-              value={options[key] ?? ""}
-              onChange={(e) => updateKey(key, e.target.value)}
-            />
-          </div>
+          <ChoiceOptionRow
+            key={key}
+            optionKey={key}
+            value={options[key] ?? ""}
+            idPrefix={idPrefix}
+            busy={busy}
+            makeEmbedKind={makeEmbedKind}
+            beginMermaidEmbed={beginMermaidEmbed}
+            beginImageEmbed={beginImageEmbed}
+            onChange={(next) => updateKey(key, next)}
+            onRemove={() => removeKey(key)}
+            removable={!DEFAULT_KEYS.includes(key as (typeof DEFAULT_KEYS)[number])}
+          />
         ))}
       </div>
       <button

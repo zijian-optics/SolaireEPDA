@@ -361,6 +361,8 @@ export type LatexRichTextFieldProps = {
   value: string;
   onChange: (next: string) => void;
   textAreaRef: RefObject<HTMLTextAreaElement | null>;
+  /** 赋给同步用隐藏 textarea，便于外部按 id 定位选区（如题库插入片段） */
+  syncTextAreaId?: string;
   className?: string;
   minRows?: number;
   placeholder?: string;
@@ -390,6 +392,7 @@ export function LatexRichTextField({
   value,
   onChange,
   textAreaRef,
+  syncTextAreaId,
   className = "",
   minRows = 4,
   placeholder,
@@ -849,6 +852,7 @@ export function LatexRichTextField({
       {/* hidden textarea for external selection sync */}
       <textarea
         ref={textAreaRef as LegacyRef<HTMLTextAreaElement>}
+        id={syncTextAreaId}
         className="sr-only"
         aria-hidden
         tabIndex={-1}
