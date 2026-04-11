@@ -1,5 +1,13 @@
 # 变更日志（开发者）
 
+## [2026-04-11] BankWorkspace | insertSnippet 与 Strict Mode 兼容
+
+**改动摘要**：`insertSnippet` 改为接收 `(snippet, kind, saved)`，由调用方在 `setDetail` 外读出 `embedKindRef` / `embedSelectionRef` 后传入；`setDetail` 的 updater 内不再读写上述 ref。避免 React 18 Strict Mode 双次调用 updater 时第二次读空 ref 导致公式/Mermaid/图片插入在 dev 下丢失（生产构建无双次调用故不易复现）。
+
+**验证命令**：`cd web && npx tsc --noEmit`。
+
+**结果要点**：TypeScript 检查通过。
+
 ## [2026-04-11] LatexRichTextField | 清理未使用代码以通过 tsc
 
 **改动摘要**：删除未引用的 `ANY_WIDGET_SELECTOR` 常量，以及从未调用的 `setCaretFromSerializedOffset`（与 `getSerializedCaretOffset` 对称的光标还原逻辑；若日后需要从隐藏 textarea 同步选区回可视化编辑器，可再实现并接入）。

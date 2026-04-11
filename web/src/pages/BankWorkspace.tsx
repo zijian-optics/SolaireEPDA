@@ -164,142 +164,139 @@ export function BankWorkspace({
     imageInputRef.current?.click();
   }, []);
 
-  const insertSnippet = useCallback((snippet: string) => {
-    setDetail((d) => {
-      if (!d) {
-        return d;
-      }
-      const kind = embedKindRef.current;
-      embedKindRef.current = null;
-      const saved = embedSelectionRef.current;
-      embedSelectionRef.current = null;
-      if (!kind) {
-        return d;
-      }
-
-      if (kind.k === "qo") {
-        const key = kind.key;
-        const opts = { ...(d.question.options ?? {}) };
-        const prev = opts[key] ?? "";
-        const start = saved?.start ?? prev.length;
-        const end = saved?.end ?? prev.length;
-        const next = prev.slice(0, start) + snippet + prev.slice(end);
-        const pos = start + snippet.length;
-        opts[key] = next;
-        requestAnimationFrame(() => {
-          const ta = document.getElementById(`bank-opt-q-${key}`) as HTMLTextAreaElement | null;
-          if (ta) {
-            ta.focus();
-            ta.setSelectionRange(pos, pos);
-          }
-        });
-        return { ...d, question: { ...d.question, options: opts } };
-      }
-
-      if (kind.k === "gio" && d.question_group) {
-        const { i, key } = kind;
-        const g = d.question_group;
-        const items = [...g.items];
-        const row = { ...items[i] };
-        const opts = { ...(row.options ?? {}) };
-        const prev = opts[key] ?? "";
-        const start = saved?.start ?? prev.length;
-        const end = saved?.end ?? prev.length;
-        const next = prev.slice(0, start) + snippet + prev.slice(end);
-        const pos = start + snippet.length;
-        opts[key] = next;
-        items[i] = { ...row, options: opts };
-        const m = d.question.id.match(/__(\d{2})$/);
-        const midx = m ? parseInt(m[1], 10) - 1 : -1;
-        let q = d.question;
-        if (midx === i) {
-          q = { ...q, options: opts };
+  /** kind / saved 必须由调用方传入，勿在 updater 内读 ref，否则 React 18 Strict Mode 会双次调用 updater 导致第二次读空 ref、插入丢失。 */
+  const insertSnippet = useCallback(
+    (snippet: string, kind: EmbedKind, saved: { start: number; end: number } | null) => {
+      setDetail((d) => {
+        if (!d) {
+          return d;
         }
-        requestAnimationFrame(() => {
-          const ta = document.getElementById(`bank-opt-gi-${i}-${key}`) as HTMLTextAreaElement | null;
-          if (ta) {
-            ta.focus();
-            ta.setSelectionRange(pos, pos);
-          }
-        });
-        return { ...d, question_group: { ...g, items }, question: q };
-      }
 
-      if (kind.k === "q") {
-        const key = kind.f;
-        const ref = kind.f === "content" ? contentRef : kind.f === "answer" ? answerRef : analysisRef;
-        const prev = d.question[key];
-        const start = saved?.start ?? prev.length;
-        const end = saved?.end ?? prev.length;
-        const next = prev.slice(0, start) + snippet + prev.slice(end);
-        const pos = start + snippet.length;
-        requestAnimationFrame(() => {
-          const ta = ref.current;
-          if (ta) {
-            ta.focus();
-            ta.setSelectionRange(pos, pos);
-          }
-        });
-        return { ...d, question: { ...d.question, [key]: next } };
-      }
-
-      if (kind.k === "gm" && d.question_group) {
-        const prev = d.question_group.material;
-        const start = saved?.start ?? prev.length;
-        const end = saved?.end ?? prev.length;
-        const next = prev.slice(0, start) + snippet + prev.slice(end);
-        const pos = start + snippet.length;
-        requestAnimationFrame(() => {
-          const ta = materialGroupRef.current;
-          if (ta) {
-            ta.focus();
-            ta.setSelectionRange(pos, pos);
-          }
-        });
-        return {
-          ...d,
-          question_group: { ...d.question_group, material: next },
-          question: { ...d.question, group_material: next },
-        };
-      }
-
-      if (kind.k === "gi" && d.question_group) {
-        const { i, f } = kind;
-        const g = d.question_group;
-        const items = [...g.items];
-        const row = { ...items[i] };
-        const prev = (row[f] as string) ?? "";
-        const start = saved?.start ?? prev.length;
-        const end = saved?.end ?? prev.length;
-        const next = prev.slice(0, start) + snippet + prev.slice(end);
-        const pos = start + snippet.length;
-        (row as { content: string; answer: string; analysis: string })[f] = next;
-        items[i] = row;
-        const m = d.question.id.match(/__(\d{2})$/);
-        const midx = m ? parseInt(m[1], 10) - 1 : -1;
-        let q = d.question;
-        if (midx === i) {
-          if (f === "content") {
-            q = { ...q, content: next };
-          } else if (f === "answer") {
-            q = { ...q, answer: next };
-          } else {
-            q = { ...q, analysis: next };
-          }
+        if (kind.k === "qo") {
+          const key = kind.key;
+          const opts = { ...(d.question.options ?? {}) };
+          const prev = opts[key] ?? "";
+          const start = saved?.start ?? prev.length;
+          const end = saved?.end ?? prev.length;
+          const next = prev.slice(0, start) + snippet + prev.slice(end);
+          const pos = start + snippet.length;
+          opts[key] = next;
+          requestAnimationFrame(() => {
+            const ta = document.getElementById(`bank-opt-q-${key}`) as HTMLTextAreaElement | null;
+            if (ta) {
+              ta.focus();
+              ta.setSelectionRange(pos, pos);
+            }
+          });
+          return { ...d, question: { ...d.question, options: opts } };
         }
-        requestAnimationFrame(() => {
-          const ta = document.getElementById(`bank-gi-${i}-${f}`) as HTMLTextAreaElement | null;
-          if (ta) {
-            ta.focus();
-            ta.setSelectionRange(pos, pos);
-          }
-        });
-        return { ...d, question_group: { ...g, items }, question: q };
-      }
 
-      return d;
-    });
-  }, []);
+        if (kind.k === "gio" && d.question_group) {
+          const { i, key } = kind;
+          const g = d.question_group;
+          const items = [...g.items];
+          const row = { ...items[i] };
+          const opts = { ...(row.options ?? {}) };
+          const prev = opts[key] ?? "";
+          const start = saved?.start ?? prev.length;
+          const end = saved?.end ?? prev.length;
+          const next = prev.slice(0, start) + snippet + prev.slice(end);
+          const pos = start + snippet.length;
+          opts[key] = next;
+          items[i] = { ...row, options: opts };
+          const m = d.question.id.match(/__(\d{2})$/);
+          const midx = m ? parseInt(m[1], 10) - 1 : -1;
+          let q = d.question;
+          if (midx === i) {
+            q = { ...q, options: opts };
+          }
+          requestAnimationFrame(() => {
+            const ta = document.getElementById(`bank-opt-gi-${i}-${key}`) as HTMLTextAreaElement | null;
+            if (ta) {
+              ta.focus();
+              ta.setSelectionRange(pos, pos);
+            }
+          });
+          return { ...d, question_group: { ...g, items }, question: q };
+        }
+
+        if (kind.k === "q") {
+          const key = kind.f;
+          const ref = kind.f === "content" ? contentRef : kind.f === "answer" ? answerRef : analysisRef;
+          const prev = d.question[key];
+          const start = saved?.start ?? prev.length;
+          const end = saved?.end ?? prev.length;
+          const next = prev.slice(0, start) + snippet + prev.slice(end);
+          const pos = start + snippet.length;
+          requestAnimationFrame(() => {
+            const ta = ref.current;
+            if (ta) {
+              ta.focus();
+              ta.setSelectionRange(pos, pos);
+            }
+          });
+          return { ...d, question: { ...d.question, [key]: next } };
+        }
+
+        if (kind.k === "gm" && d.question_group) {
+          const prev = d.question_group.material;
+          const start = saved?.start ?? prev.length;
+          const end = saved?.end ?? prev.length;
+          const next = prev.slice(0, start) + snippet + prev.slice(end);
+          const pos = start + snippet.length;
+          requestAnimationFrame(() => {
+            const ta = materialGroupRef.current;
+            if (ta) {
+              ta.focus();
+              ta.setSelectionRange(pos, pos);
+            }
+          });
+          return {
+            ...d,
+            question_group: { ...d.question_group, material: next },
+            question: { ...d.question, group_material: next },
+          };
+        }
+
+        if (kind.k === "gi" && d.question_group) {
+          const { i, f } = kind;
+          const g = d.question_group;
+          const items = [...g.items];
+          const row = { ...items[i] };
+          const prev = (row[f] as string) ?? "";
+          const start = saved?.start ?? prev.length;
+          const end = saved?.end ?? prev.length;
+          const next = prev.slice(0, start) + snippet + prev.slice(end);
+          const pos = start + snippet.length;
+          (row as { content: string; answer: string; analysis: string })[f] = next;
+          items[i] = row;
+          const m = d.question.id.match(/__(\d{2})$/);
+          const midx = m ? parseInt(m[1], 10) - 1 : -1;
+          let q = d.question;
+          if (midx === i) {
+            if (f === "content") {
+              q = { ...q, content: next };
+            } else if (f === "answer") {
+              q = { ...q, answer: next };
+            } else {
+              q = { ...q, analysis: next };
+            }
+          }
+          requestAnimationFrame(() => {
+            const ta = document.getElementById(`bank-gi-${i}-${f}`) as HTMLTextAreaElement | null;
+            if (ta) {
+              ta.focus();
+              ta.setSelectionRange(pos, pos);
+            }
+          });
+          return { ...d, question_group: { ...g, items }, question: q };
+        }
+
+        return d;
+      });
+    },
+    [],
+  );
 
   const onImageFileSelected = useCallback(
     async (e: ChangeEvent<HTMLInputElement>) => {
@@ -317,8 +314,9 @@ export function BankWorkspace({
         fd.append("file", file);
         const enc = encodeURIComponent(detail.qualified_id);
         const r = await apiPostFormData<{ marker: string }>(`/api/bank/items/${enc}/image`, fd);
-        embedKindRef.current = kind;
-        insertSnippet(r.marker);
+        const saved = embedSelectionRef.current;
+        embedSelectionRef.current = null;
+        insertSnippet(r.marker, kind, saved);
       } catch (err) {
         onError(err instanceof Error ? err.message : String(err));
       } finally {
@@ -1336,7 +1334,11 @@ export function BankWorkspace({
         embedSelectionRef.current = null;
       }}
       onConfirm={(snippet) => {
-        insertSnippet(snippet);
+        const k = embedKindRef.current;
+        const sel = embedSelectionRef.current;
+        embedKindRef.current = null;
+        embedSelectionRef.current = null;
+        if (k) insertSnippet(snippet, k, sel);
       }}
     />
     <MermaidEditorModal
@@ -1347,7 +1349,11 @@ export function BankWorkspace({
         embedSelectionRef.current = null;
       }}
       onConfirm={(fencedBlock) => {
-        insertSnippet(fencedBlock);
+        const k = embedKindRef.current;
+        const sel = embedSelectionRef.current;
+        embedKindRef.current = null;
+        embedSelectionRef.current = null;
+        if (k) insertSnippet(fencedBlock, k, sel);
       }}
     />
     </>
