@@ -1,5 +1,21 @@
 # 变更日志（开发者）
 
+## [2026-04-11] LatexRichTextField | 类 Overleaf 可视化编辑器重写
+
+**改动摘要**：完整重写 `web/src/components/LatexRichTextField.tsx`，实现类似 Overleaf Visual Editor 的体验：
+
+- **正则分词器**：用 `/\$([^$\n]+?)\$/g` 替代脆弱的 `split("$")`，未匹配的单 `$` 不再破坏渲染。
+- **内置工具栏**：可视化/源码模式切换；插入公式按钮；分数、根号、上下标快捷键；希腊字母与运算符下拉面板。
+- **`$` 键直接进入公式编辑**：键入 `$` 或按 `Ctrl+M` 即刻创建公式节点并弹出 MathLive 编辑器。
+- **单击编辑公式**：渲染后的公式单击即可打开 MathLive 浮动弹窗（Enter 确认 / Esc 取消）。
+- **源码模式**：切换后显示原始 `$...$` 文本的 `<textarea>`，可自由编辑。
+
+同步更新 `BankQuestionEditorPanel.tsx`，移除 content 字段冗余的外部「插入公式」按钮。
+
+**验证命令**：`cd web && npx tsc --noEmit && npx vite build`。
+
+**结果要点**：TypeScript 与 Vite 构建均通过，无类型错误。
+
 ## [2026-04-11] 桌面开发握手 | 超时弹窗与 200 日志的解读
 
 **改动摘要**：在 `wiki/modules/desktop-startup.md` 补充说明：`/api/health` 与业务 200 的差异、`solaire-desktop-python.log` 尾日志在开发模式下可能不代表本次握手、以及 `sidecar_dev_hint` 文案含义。

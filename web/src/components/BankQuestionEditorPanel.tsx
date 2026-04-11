@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { QUESTION_TYPE_OPTIONS } from "../lib/questionTypes";
 import type { EmbedKind } from "../lib/bankEditorEmbedKinds";
 import { ChoiceOptionsFields } from "./ChoiceOptionsFields";
+import { LatexRichTextField } from "./LatexRichTextField";
 
 export type QuestionJson = {
   id: string;
@@ -609,17 +610,6 @@ export function BankQuestionEditorPanel({
                       onClick={() => {
                         const el = contentRef.current;
                         const sel = el ? { start: el.selectionStart, end: el.selectionEnd } : null;
-                        beginMathEmbed({ k: "q", f: "content" }, sel);
-                      }}
-                    >
-                      {t("components:bankEditor.insertMath")}
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50"
-                      onClick={() => {
-                        const el = contentRef.current;
-                        const sel = el ? { start: el.selectionStart, end: el.selectionEnd } : null;
                         beginMermaidEmbed({ k: "q", f: "content" }, sel);
                       }}
                     >
@@ -641,12 +631,11 @@ export function BankQuestionEditorPanel({
                     </button>
                   </div>
                 </div>
-                <textarea
-                  ref={contentRef as LegacyRef<HTMLTextAreaElement>}
-                  className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 font-mono text-sm"
-                  rows={6}
+                <LatexRichTextField
+                  textAreaRef={contentRef}
+                  minRows={6}
                   value={detail.question.content}
-                  onChange={(e) => setDetail({ ...detail, question: { ...detail.question, content: e.target.value } })}
+                  onChange={(next) => setDetail({ ...detail, question: { ...detail.question, content: next } })}
                 />
               </div>
               {detail.question.type === "choice" && (
