@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { ApiError, apiDelete, apiGet, apiPost, apiPut } from "../api/client";
@@ -651,6 +651,9 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
     setSelectedRight(null);
   }
 
+  const startNewCompositionRef = useRef(startNewComposition);
+  startNewCompositionRef.current = startNewComposition;
+
   function onLoadCompositionSelect(value: string) {
     if (!value) {
       return;
@@ -673,6 +676,17 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
   useEffect(() => {
     const left: ReactNode = (
       <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          className="rounded-md bg-slate-900 px-2.5 py-1 text-xs font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+          disabled={busy}
+          onClick={() => {
+            startNewCompositionRef.current();
+            setComposeSubView("config");
+          }}
+        >
+          {t("compose:newPaper")}
+        </button>
         <button
           type="button"
           className={cn(
@@ -767,22 +781,11 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
       ) : null}
 
       <div className="flex min-h-0 flex-1 flex-row">
-        <aside className="flex w-[min(100%,280px)] shrink-0 flex-col border-r border-slate-200 bg-slate-50">
-          <div className="border-b border-slate-200 bg-white px-3 py-2">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        <aside className="flex w-[min(100%,140px)] shrink-0 flex-col border-r border-slate-200 bg-slate-50">
+          <div className="shrink-0 border-b border-slate-200 bg-white px-2 py-2">
+            <h2 className="text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">
               {t("compose:historySidebarTitle")}
             </h2>
-            <button
-              type="button"
-              className="mt-2 w-full rounded-md bg-slate-900 px-2 py-1.5 text-xs font-medium text-white hover:bg-slate-800 disabled:opacity-50"
-              disabled={busy}
-              onClick={() => {
-                startNewComposition();
-                setComposeSubView("config");
-              }}
-            >
-              {t("compose:newPaper")}
-            </button>
           </div>
           <div className="min-h-0 flex-1 space-y-3 overflow-auto p-2">
             <div>
