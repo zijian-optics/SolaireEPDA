@@ -43,7 +43,7 @@ export default function App() {
 
 function AppShell() {
   const { t } = useTranslation(["app", "common", "welcome"]);
-  const { toggleSidebar, sidebarOpen } = useAgentContext();
+  const { toggleSidebar, sidebarOpen, setSidebarOpen } = useAgentContext();
   const { left: toolBarLeft, right: toolBarRight } = useToolBar();
   const [page, setPage] = useState<AppPage>("compose");
   const [info, setInfo] = useState<ProjectInfo | null>(null);
@@ -66,15 +66,24 @@ function AppShell() {
   }, [refreshInfo]);
 
   useEffect(() => {
+    if (!info?.bound) {
+      setSidebarOpen(false);
+    }
+  }, [info?.bound, setSidebarOpen]);
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
         dispatchSolaireSave();
       }
+      if (e.key === "Escape" && sidebarOpen) {
+        setSidebarOpen(false);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [sidebarOpen, setSidebarOpen]);
 
   const openProjectPicker = useCallback(async () => {
     setErr(null);
@@ -141,11 +150,10 @@ function AppShell() {
     >
       <DesktopTitleBar />
 
-      <div className="flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1">
         {!info?.bound ? (
           <div className="relative min-h-0 min-w-0 flex-1">
             <WelcomePage onProjectReady={() => void refreshInfo()} onError={(msg) => setErr(msg)} />
-            <AgentSidebar projectBound={false} mode="overlay" />
           </div>
         ) : (
           <>
@@ -295,11 +303,11 @@ function AppShell() {
                   {page === "analysis" && <AnalysisWorkspace />}
                   {page === "log" && <LogWorkspace />}
                 </main>
-                <AgentSidebar projectBound={info?.bound ?? false} mode="overlay" />
               </div>
             </div>
           </>
         )}
+        <AgentSidebar projectBound={Boolean(info?.bound)} mode="overlay" />
       </div>
     </div>
   );

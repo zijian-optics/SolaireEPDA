@@ -13,19 +13,20 @@ export function AgentSidebar({
   const { sidebarOpen, setSidebarOpen } = useAgentContext();
 
   if (mode === "overlay") {
+    /** 单一根节点，避免在 flex 父级下与兄弟并列多个绝对层导致布局异常 */
     return (
-      <>
+      <div className="pointer-events-none absolute inset-0 z-[40]">
         {sidebarOpen ? (
           <button
             type="button"
-            className="absolute inset-0 z-[35] bg-slate-900/20 lg:hidden"
+            className="pointer-events-auto absolute inset-0 z-[35] bg-slate-900/20 lg:bg-slate-900/10"
             aria-label="关闭助手"
             onClick={() => setSidebarOpen(false)}
           />
         ) : null}
         <aside
           className={cn(
-            "absolute bottom-0 right-0 top-0 z-[40] flex overflow-hidden border-l border-slate-200 bg-white shadow-2xl transition-transform duration-200 ease-out",
+            "pointer-events-auto absolute bottom-0 right-0 top-0 z-[40] flex overflow-hidden border-l border-slate-200 bg-white shadow-2xl transition-transform duration-200 ease-out",
             sidebarOpen ? "w-[min(22rem,calc(100vw-4.25rem))] translate-x-0" : "w-[min(22rem,calc(100vw-4.25rem))] translate-x-full pointer-events-none",
           )}
           aria-hidden={!sidebarOpen}
@@ -34,7 +35,7 @@ export function AgentSidebar({
             <AgentChatPanel projectBound={projectBound} onRequestCollapse={() => setSidebarOpen(false)} />
           </div>
         </aside>
-      </>
+      </div>
     );
   }
 
