@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Minus, Square, SquareStack, X } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -14,7 +14,7 @@ function titleBarButtonClass(extra?: string) {
   );
 }
 
-export function DesktopTitleBar() {
+export function DesktopTitleBar({ menu }: { menu?: ReactNode } = {}) {
   const { t } = useTranslation(["app"]);
   const [maximized, setMaximized] = useState(false);
 
@@ -60,7 +60,12 @@ export function DesktopTitleBar() {
           void appWindow.toggleMaximize();
         }}
       >
-        <span className="truncate text-xs font-semibold tracking-tight text-slate-200">{t("app:brand")}</span>
+        <span className="shrink-0 truncate text-xs font-semibold tracking-tight text-slate-200">{t("app:brand")}</span>
+        {menu ? (
+          <div className="flex min-w-0 items-center" data-tauri-drag-region="false">
+            {menu}
+          </div>
+        ) : null}
       </div>
       <div className="flex shrink-0" data-tauri-drag-region="false">
         <button

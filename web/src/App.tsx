@@ -148,7 +148,25 @@ function AppShell() {
         isTauriShell() && "box-border overflow-hidden rounded-lg",
       )}
     >
-      <DesktopTitleBar />
+      <DesktopTitleBar
+        menu={
+          isTauriShell() && info?.bound ? (
+            <MenuBar
+              variant="titlebar"
+              projectRoot={info.root}
+              onNewProject={() => setNewProjectOpen(true)}
+              onOpenProject={() => void openProjectPicker()}
+              onOpenRecentPath={openRecentPath}
+              onCloseProject={() => void closeProject()}
+              onFileSave={() => dispatchSolaireSave()}
+              onPreferences={() => setPage("settings")}
+              onGoWelcome={() => void closeProject()}
+              setPage={setPage}
+              toggleAssistant={() => toggleSidebar()}
+            />
+          ) : undefined
+        }
+      />
 
       <div className="relative flex min-h-0 flex-1">
         {!info?.bound ? (
@@ -219,18 +237,20 @@ function AppShell() {
             </aside>
 
             <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-              <MenuBar
-                projectRoot={info.root}
-                onNewProject={() => setNewProjectOpen(true)}
-                onOpenProject={() => void openProjectPicker()}
-                onOpenRecentPath={openRecentPath}
-                onCloseProject={() => void closeProject()}
-                onFileSave={() => dispatchSolaireSave()}
-                onPreferences={() => setPage("settings")}
-                onGoWelcome={() => void closeProject()}
-                setPage={setPage}
-                toggleAssistant={() => toggleSidebar()}
-              />
+              {!isTauriShell() ? (
+                <MenuBar
+                  projectRoot={info.root}
+                  onNewProject={() => setNewProjectOpen(true)}
+                  onOpenProject={() => void openProjectPicker()}
+                  onOpenRecentPath={openRecentPath}
+                  onCloseProject={() => void closeProject()}
+                  onFileSave={() => dispatchSolaireSave()}
+                  onPreferences={() => setPage("settings")}
+                  onGoWelcome={() => void closeProject()}
+                  setPage={setPage}
+                  toggleAssistant={() => toggleSidebar()}
+                />
+              ) : null}
               <NewProjectDialog
                 open={newProjectOpen}
                 onOpenChange={setNewProjectOpen}
