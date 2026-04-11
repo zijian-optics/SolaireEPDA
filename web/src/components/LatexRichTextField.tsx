@@ -13,10 +13,17 @@ import "katex/dist/katex.min.css";
 import { MathfieldElement } from "mathlive";
 import "mathlive";
 import "mathlive/fonts.css";
+import mermaid from "mermaid";
+
+import { resourceApiUrl } from "../api/client";
+import { initMermaid } from "../lib/mermaidInit";
 
 /* ═══════════════════ constants ═══════════════════ */
 
 const MATH_WIDGET_CLASS = "lrt-math-widget";
+const MERMAID_WIDGET_CLASS = "lrt-mermaid-widget";
+const IMAGE_WIDGET_CLASS = "lrt-image-widget";
+const ANY_WIDGET_SELECTOR = `.${MATH_WIDGET_CLASS},.${MERMAID_WIDGET_CLASS},.${IMAGE_WIDGET_CLASS}`;
 
 /* ═══════════════════ utility functions ═══════════════════ */
 
@@ -36,21 +43,46 @@ function renderMathHtml(latex: string): string {
   }
 }
 
-/* ── Regex-based tokenizer (robust against unmatched $) ── */
+async function renderMermaidToElement(source: string, container: HTMLElement) {
+  try {
+    initMermaid();
+    const id = `lrt-mmd-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const { svg } = await mermaid.render(id, source.trim());
+    container.innerHTML = svg;
+  } catch {
+    container.textContent = "图表语法有误";
+    container.classList.add("text-amber-600");
+  }
+}
 
-type Token = { type: "text"; content: string } | { type: "math"; latex: string };
+/* ═══════════════════ Tokenizer ═══════════════════ */
+
+type Token =
+  | { type: "text"; content: string }
+  | { type: "math"; latex: string }
+  | { type: "mermaid"; source: string; raw: string }
+  | { type: "image"; kind: string; path: string; raw: string };
+
+const TOKEN_RE =
+  /```mermaid\s*\n([\s\S]*?)```|:::((?:PRIMEBRUSH|MERMAID|EMBED)_IMG):([^:]+):::|\$([^$\n]+?)\$/g;
 
 function tokenize(value: string): Token[] {
-  const regex = /\$([^$\n]+?)\$/g;
+  TOKEN_RE.lastIndex = 0;
   const tokens: Token[] = [];
   let lastIdx = 0;
   let match: RegExpExecArray | null;
-  while ((match = regex.exec(value)) !== null) {
+  while ((match = TOKEN_RE.exec(value)) !== null) {
     if (match.index > lastIdx) {
       tokens.push({ type: "text", content: value.slice(lastIdx, match.index) });
     }
-    tokens.push({ type: "math", latex: match[1] });
-    lastIdx = regex.lastIndex;
+    if (match[1] != null) {
+      tokens.push({ type: "mermaid", source: match[1], raw: match[0] });
+    } else if (match[2] != null) {
+      tokens.push({ type: "image", kind: `${match[2]}_IMG`, path: match[3] ?? "", raw: match[0] });
+    } else if (match[4] != null) {
+      tokens.push({ type: "math", latex: match[4] });
+    }
+    lastIdx = TOKEN_RE.lastIndex;
   }
   if (lastIdx < value.length) {
     tokens.push({ type: "text", content: value.slice(lastIdx) });
@@ -58,7 +90,7 @@ function tokenize(value: string): Token[] {
   return tokens;
 }
 
-/* ── DOM builder ── */
+/* ═══════════════════ DOM builders ═══════════════════ */
 
 function createMathWidget(latex: string): HTMLSpanElement {
   const span = document.createElement("span");
@@ -72,6 +104,62 @@ function createMathWidget(latex: string): HTMLSpanElement {
   return span;
 }
 
+function createMermaidWidget(source: string): HTMLDivElement {
+  const div = document.createElement("div");
+  div.className = `${MERMAID_WIDGET_CLASS} my-1.5 block w-full cursor-pointer rounded-lg border border-emerald-200 bg-emerald-50/50 p-2 transition-colors hover:border-emerald-300 hover:bg-emerald-50`;
+  div.contentEditable = "false";
+  div.tabIndex = -1;
+  div.dataset.mermaidSource = source;
+  div.setAttribute("role", "button");
+  div.title = "点击编辑图表";
+
+  const header = document.createElement("div");
+  header.className = "flex items-center gap-1.5 text-[11px] text-emerald-700";
+  header.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg><span class="font-medium">Mermaid 图表</span><span class="text-emerald-500 text-[10px]">点击编辑</span>`;
+  div.appendChild(header);
+
+  const preview = document.createElement("div");
+  preview.className = "mt-1.5 max-h-48 overflow-auto rounded bg-white/80 p-1 text-[10px] text-slate-400";
+  preview.textContent = "渲染中…";
+  div.appendChild(preview);
+  void renderMermaidToElement(source, preview);
+
+  return div;
+}
+
+function createImageWidget(kind: string, path: string): HTMLSpanElement {
+  const span = document.createElement("span");
+  span.className = `${IMAGE_WIDGET_CLASS} my-1 inline-block max-w-full cursor-pointer rounded-lg border border-violet-200 bg-violet-50/50 p-1.5 align-top transition-colors hover:border-violet-300 hover:bg-violet-50`;
+  span.contentEditable = "false";
+  span.tabIndex = -1;
+  span.dataset.imageKind = kind;
+  span.dataset.imagePath = path;
+  span.setAttribute("role", "button");
+  span.title = "点击查看图片";
+
+  const img = document.createElement("img");
+  img.src = resourceApiUrl(path.trim());
+  img.alt = "";
+  img.className = "max-h-40 max-w-full rounded object-contain";
+  img.onerror = () => {
+    img.style.display = "none";
+    const fallback = document.createElement("span");
+    fallback.className = "text-xs text-violet-500";
+    fallback.textContent = `图片: ${path.trim()}`;
+    span.appendChild(fallback);
+  };
+  span.appendChild(img);
+
+  const label = document.createElement("div");
+  label.className = "mt-1 text-[10px] text-violet-500 truncate";
+  label.textContent = path.trim().split("/").pop() ?? "图片";
+  span.appendChild(label);
+
+  return span;
+}
+
+/* ═══════════════════ buildEditorDom ═══════════════════ */
+
 function buildEditorDom(root: HTMLElement, value: string): void {
   root.innerHTML = "";
   const tokens = tokenize(value);
@@ -82,8 +170,12 @@ function buildEditorDom(root: HTMLElement, value: string): void {
         if (i > 0) root.appendChild(document.createElement("br"));
         if (lines[i]) root.appendChild(document.createTextNode(lines[i]));
       }
-    } else {
+    } else if (token.type === "math") {
       root.appendChild(createMathWidget(token.latex));
+    } else if (token.type === "mermaid") {
+      root.appendChild(createMermaidWidget(token.source));
+    } else if (token.type === "image") {
+      root.appendChild(createImageWidget(token.kind, token.path));
     }
   }
   if (root.childNodes.length === 0) {
@@ -91,7 +183,7 @@ function buildEditorDom(root: HTMLElement, value: string): void {
   }
 }
 
-/* ── Serializer ── */
+/* ═══════════════════ Serializer ═══════════════════ */
 
 function serializeEditor(root: HTMLElement): string {
   let out = "";
@@ -106,6 +198,17 @@ function serializeEditor(root: HTMLElement): string {
       out += `$${el.dataset.latex ?? ""}$`;
       return;
     }
+    if (el.classList.contains(MERMAID_WIDGET_CLASS)) {
+      const src = el.dataset.mermaidSource ?? "";
+      out += "```mermaid\n" + src + "\n```";
+      return;
+    }
+    if (el.classList.contains(IMAGE_WIDGET_CLASS)) {
+      const kind = el.dataset.imageKind ?? "EMBED_IMG";
+      const path = el.dataset.imagePath ?? "";
+      out += `:::${kind}:${path}:::`;
+      return;
+    }
     if (el.tagName === "BR") {
       out += "\n";
       return;
@@ -116,16 +219,38 @@ function serializeEditor(root: HTMLElement): string {
   return out;
 }
 
-/* ── Caret utilities ── */
+/* ═══════════════════ Caret utilities ═══════════════════ */
+
+function widgetSerializedLength(el: HTMLElement): number {
+  if (el.classList.contains(MATH_WIDGET_CLASS)) {
+    return `$${el.dataset.latex ?? ""}$`.length;
+  }
+  if (el.classList.contains(MERMAID_WIDGET_CLASS)) {
+    const src = el.dataset.mermaidSource ?? "";
+    return ("```mermaid\n" + src + "\n```").length;
+  }
+  if (el.classList.contains(IMAGE_WIDGET_CLASS)) {
+    const kind = el.dataset.imageKind ?? "EMBED_IMG";
+    const path = el.dataset.imagePath ?? "";
+    return `:::${kind}:${path}:::`.length;
+  }
+  return 0;
+}
+
+function isWidget(el: HTMLElement): boolean {
+  return (
+    el.classList.contains(MATH_WIDGET_CLASS) ||
+    el.classList.contains(MERMAID_WIDGET_CLASS) ||
+    el.classList.contains(IMAGE_WIDGET_CLASS)
+  );
+}
 
 function serializedLengthOfNode(n: Node | undefined | null): number {
   if (!n) return 0;
   if (n.nodeType === Node.TEXT_NODE) return (n.textContent ?? "").length;
   if (n.nodeType !== Node.ELEMENT_NODE) return 0;
   const el = n as HTMLElement;
-  if (el.classList.contains(MATH_WIDGET_CLASS)) {
-    return `$${el.dataset.latex ?? ""}$`.length;
-  }
+  if (isWidget(el)) return widgetSerializedLength(el);
   if (el.tagName === "BR") return 1;
   let len = 0;
   for (const c of el.childNodes) len += serializedLengthOfNode(c);
@@ -156,22 +281,25 @@ function getSerializedCaretOffset(root: HTMLElement, range: Range): number {
     }
     if (n.nodeType !== Node.ELEMENT_NODE) return false;
     const el = n as HTMLElement;
-    if (el.classList.contains(MATH_WIDGET_CLASS)) {
-      const token = `$${el.dataset.latex ?? ""}$`;
+    if (isWidget(el)) {
+      const wLen = widgetSerializedLength(el);
       if (range.startContainer === el || el.contains(range.startContainer)) {
         if (range.startContainer === el && range.startOffset === 0) {
           /* before widget */
         } else {
-          total += token.length;
+          total += wLen;
         }
         done = true;
         return true;
       }
-      total += token.length;
+      total += wLen;
       return false;
     }
     if (el.tagName === "BR") {
-      if (range.startContainer === el) { done = true; return true; }
+      if (range.startContainer === el) {
+        done = true;
+        return true;
+      }
       total += 1;
       return false;
     }
@@ -205,8 +333,8 @@ function setCaretFromSerializedOffset(root: HTMLElement, offset: number): void {
     }
     if (n.nodeType !== Node.ELEMENT_NODE) return false;
     const el = n as HTMLElement;
-    if (el.classList.contains(MATH_WIDGET_CLASS)) {
-      const tokenLen = `$${el.dataset.latex ?? ""}$`.length;
+    if (isWidget(el)) {
+      const tokenLen = widgetSerializedLength(el);
       if (remaining <= 0) {
         const r = document.createRange();
         r.setStartBefore(el);
@@ -252,7 +380,7 @@ function setCaretFromSerializedOffset(root: HTMLElement, offset: number): void {
   sel.addRange(r);
 }
 
-/* ═══════════════════ Toolbar helpers ═══════════════════ */
+/* ═══════════════════ Toolbar data ═══════════════════ */
 
 const SYMBOL_GROUPS: { label: string; symbols: { label: string; latex: string }[] }[] = [
   {
@@ -307,12 +435,26 @@ export type LatexRichTextFieldProps = {
   className?: string;
   minRows?: number;
   placeholder?: string;
+  onRequestMermaid?: (sel: { start: number; end: number } | null) => void;
+  onRequestImage?: (sel: { start: number; end: number } | null) => void;
+  busy?: boolean;
 };
 
 type MathPopupState = {
   widget: HTMLElement;
   latex: string;
   isNew: boolean;
+} | null;
+
+type MermaidPopupState = {
+  widget: HTMLElement;
+  source: string;
+} | null;
+
+type ImagePopupState = {
+  widget: HTMLElement;
+  kind: string;
+  path: string;
 } | null;
 
 export function LatexRichTextField({
@@ -322,6 +464,9 @@ export function LatexRichTextField({
   className = "",
   minRows = 4,
   placeholder,
+  onRequestMermaid,
+  onRequestImage,
+  busy = false,
 }: LatexRichTextFieldProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const lastEmittedRef = useRef<string | null>(null);
@@ -330,18 +475,34 @@ export function LatexRichTextField({
   onChangeRef.current = onChange;
 
   const [mode, setMode] = useState<"visual" | "source">("visual");
-  const [mathPopup, setMathPopup] = useState<MathPopupState>(null);
-  const [popupPos, setPopupPos] = useState({ top: 0, left: 0 });
   const [symbolsOpen, setSymbolsOpen] = useState(false);
   const symbolsBtnRef = useRef<HTMLButtonElement>(null);
+
+  /* popup state */
+  const [mathPopup, setMathPopup] = useState<MathPopupState>(null);
+  const [mathPopupPos, setMathPopupPos] = useState({ top: 0, left: 0 });
   const mathPopupHostRef = useRef<HTMLDivElement>(null);
   const mfRef = useRef<MathfieldElement | null>(null);
   const mathPopupStateRef = useRef<MathPopupState>(null);
   mathPopupStateRef.current = mathPopup;
 
+  const [mermaidPopup, setMermaidPopup] = useState<MermaidPopupState>(null);
+  const [mermaidPopupPos, setMermaidPopupPos] = useState({ top: 0, left: 0 });
+  const [mermaidDraft, setMermaidDraft] = useState("");
+  const mermaidPreviewRef = useRef<HTMLDivElement>(null);
+  const mermaidPopupStateRef = useRef<MermaidPopupState>(null);
+  mermaidPopupStateRef.current = mermaidPopup;
+
+  const [imagePopup, setImagePopup] = useState<ImagePopupState>(null);
+  const [imagePopupPos, setImagePopupPos] = useState({ top: 0, left: 0 });
+  const imagePopupStateRef = useRef<ImagePopupState>(null);
+  imagePopupStateRef.current = imagePopup;
+
+  const anyPopupOpen = !!(mathPopup || mermaidPopup || imagePopup);
+
   const minH = `${Math.max(6, minRows * 1.45)}rem`;
 
-  /* ── Hidden textarea sync ── */
+  /* ─── Hidden textarea sync ─── */
 
   const syncHiddenSelection = useCallback(() => {
     const root = editorRef.current;
@@ -362,7 +523,7 @@ export function LatexRichTextField({
     ta.setSelectionRange(Math.min(start, end), Math.max(start, end));
   }, [textAreaRef]);
 
-  /* ── Emit changes ── */
+  /* ─── Emit changes ─── */
 
   const emitFromEditor = useCallback(() => {
     const root = editorRef.current;
@@ -372,7 +533,7 @@ export function LatexRichTextField({
     onChangeRef.current(next);
   }, []);
 
-  /* ── Rebuild editor from prop ── */
+  /* ─── Rebuild editor from prop ─── */
 
   useLayoutEffect(() => {
     if (mode !== "visual") return;
@@ -384,7 +545,7 @@ export function LatexRichTextField({
     lastEmittedRef.current = value;
   }, [value, mode]);
 
-  /* ── Selection tracking ── */
+  /* ─── Selection tracking ─── */
 
   useEffect(() => {
     const onSel = () => {
@@ -399,47 +560,39 @@ export function LatexRichTextField({
     return () => document.removeEventListener("selectionchange", onSel);
   }, [syncHiddenSelection]);
 
-  /* ── Math popup ── */
+  /* ═══════════════════ MATH POPUP ═══════════════════ */
 
-  const openMathPopup = useCallback(
-    (widget: HTMLElement, latex: string, isNew: boolean) => {
-      const rect = widget.getBoundingClientRect();
-      const vw = window.innerWidth;
-      const left = Math.min(rect.left, vw - 340);
-      setPopupPos({ top: rect.bottom + 6, left: Math.max(8, left) });
-      setMathPopup({ widget, latex, isNew });
-    },
-    [],
-  );
+  const openMathPopup = useCallback((widget: HTMLElement, latex: string, isNew: boolean) => {
+    const rect = widget.getBoundingClientRect();
+    const vw = window.innerWidth;
+    setMathPopupPos({ top: rect.bottom + 6, left: Math.max(8, Math.min(rect.left, vw - 340)) });
+    setMathPopup({ widget, latex, isNew });
+  }, []);
 
-  const closeMathPopup = useCallback(
-    (confirm: boolean) => {
-      const popup = mathPopupStateRef.current;
-      if (!popup) return;
-      if (confirm && mfRef.current) {
-        const latex = mfRef.current.getValue("latex").trim();
-        if (latex) {
-          popup.widget.dataset.latex = latex;
-          popup.widget.innerHTML = renderMathHtml(latex);
-        } else if (popup.isNew) {
-          popup.widget.remove();
-        }
-      } else if (!confirm && popup.isNew) {
+  const closeMathPopup = useCallback((confirm: boolean) => {
+    const popup = mathPopupStateRef.current;
+    if (!popup) return;
+    if (confirm && mfRef.current) {
+      const latex = mfRef.current.getValue("latex").trim();
+      if (latex) {
+        popup.widget.dataset.latex = latex;
+        popup.widget.innerHTML = renderMathHtml(latex);
+      } else if (popup.isNew) {
         popup.widget.remove();
       }
-      setMathPopup(null);
-      mfRef.current = null;
-
-      const root = editorRef.current;
-      if (root) {
-        const next = serializeEditor(root);
-        lastEmittedRef.current = next;
-        onChangeRef.current(next);
-        root.focus();
-      }
-    },
-    [],
-  );
+    } else if (!confirm && popup.isNew) {
+      popup.widget.remove();
+    }
+    setMathPopup(null);
+    mfRef.current = null;
+    const root = editorRef.current;
+    if (root) {
+      const next = serializeEditor(root);
+      lastEmittedRef.current = next;
+      onChangeRef.current(next);
+      root.focus();
+    }
+  }, []);
 
   useEffect(() => {
     if (!mathPopup || !mathPopupHostRef.current) return;
@@ -450,24 +603,15 @@ export function LatexRichTextField({
     host.innerHTML = "";
     host.appendChild(mf);
     mfRef.current = mf;
-
     requestAnimationFrame(() => {
       if (mathPopup.latex) mf.setValue(mathPopup.latex);
       mf.focus();
     });
-
     const handleMfKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        closeMathPopup(true);
-      }
-      if (e.key === "Escape") {
-        e.preventDefault();
-        closeMathPopup(false);
-      }
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); closeMathPopup(true); }
+      if (e.key === "Escape") { e.preventDefault(); closeMathPopup(false); }
     };
     mf.addEventListener("keydown", handleMfKey);
-
     return () => {
       mf.removeEventListener("keydown", handleMfKey);
       mfRef.current = null;
@@ -475,22 +619,99 @@ export function LatexRichTextField({
     };
   }, [mathPopup, closeMathPopup]);
 
-  useEffect(() => {
-    if (!mathPopup) return;
-    const handler = (e: MouseEvent) => {
-      const popup = document.getElementById("lrt-math-popup");
-      if (popup && !popup.contains(e.target as Node)) {
-        closeMathPopup(true);
+  /* ═══════════════════ MERMAID POPUP ═══════════════════ */
+
+  const openMermaidPopup = useCallback((widget: HTMLElement, source: string) => {
+    const rect = widget.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const left = Math.max(8, Math.min(rect.left, vw - 500));
+    const top = rect.bottom + 6 + 420 > vh ? Math.max(8, rect.top - 426) : rect.bottom + 6;
+    setMermaidPopupPos({ top, left });
+    setMermaidDraft(source);
+    setMermaidPopup({ widget, source });
+  }, []);
+
+  const closeMermaidPopup = useCallback((confirm: boolean) => {
+    const popup = mermaidPopupStateRef.current;
+    if (!popup) return;
+    if (confirm) {
+      const src = mermaidDraft.trim();
+      popup.widget.dataset.mermaidSource = src;
+      const preview = popup.widget.querySelector(".mt-1\\.5") as HTMLElement | null;
+      if (preview) {
+        preview.textContent = "渲染中…";
+        preview.classList.remove("text-amber-600");
+        void renderMermaidToElement(src, preview);
       }
+    }
+    setMermaidPopup(null);
+    const root = editorRef.current;
+    if (root) {
+      const next = serializeEditor(root);
+      lastEmittedRef.current = next;
+      onChangeRef.current(next);
+      root.focus();
+    }
+  }, [mermaidDraft]);
+
+  useEffect(() => {
+    if (!mermaidPopup || !mermaidPreviewRef.current) return;
+    const el = mermaidPreviewRef.current;
+    el.textContent = "渲染中…";
+    el.classList.remove("text-amber-600");
+    const timer = setTimeout(() => void renderMermaidToElement(mermaidDraft, el), 400);
+    return () => clearTimeout(timer);
+  }, [mermaidDraft, mermaidPopup]);
+
+  /* ═══════════════════ IMAGE POPUP ═══════════════════ */
+
+  const openImagePopup = useCallback((widget: HTMLElement, kind: string, path: string) => {
+    const rect = widget.getBoundingClientRect();
+    const vw = window.innerWidth;
+    setImagePopupPos({ top: rect.bottom + 6, left: Math.max(8, Math.min(rect.left, vw - 340)) });
+    setImagePopup({ widget, kind, path });
+  }, []);
+
+  const closeImagePopup = useCallback(() => {
+    setImagePopup(null);
+    editorRef.current?.focus();
+  }, []);
+
+  const removeImageWidget = useCallback(() => {
+    const popup = imagePopupStateRef.current;
+    if (!popup) return;
+    popup.widget.remove();
+    setImagePopup(null);
+    const root = editorRef.current;
+    if (root) {
+      const next = serializeEditor(root);
+      lastEmittedRef.current = next;
+      onChangeRef.current(next);
+      root.focus();
+    }
+  }, []);
+
+  /* ═══════════════════ Outside-click dismiss ═══════════════════ */
+
+  useEffect(() => {
+    if (!anyPopupOpen) return;
+    const handler = (e: MouseEvent) => {
+      const mathEl = document.getElementById("lrt-math-popup");
+      const mermaidEl = document.getElementById("lrt-mermaid-popup");
+      const imageEl = document.getElementById("lrt-image-popup");
+      if (mathEl && !mathEl.contains(e.target as Node)) closeMathPopup(true);
+      if (mermaidEl && !mermaidEl.contains(e.target as Node)) closeMermaidPopup(true);
+      if (imageEl && !imageEl.contains(e.target as Node)) closeImagePopup();
     };
     const timer = setTimeout(() => document.addEventListener("mousedown", handler), 50);
     return () => {
       clearTimeout(timer);
       document.removeEventListener("mousedown", handler);
     };
-  }, [mathPopup, closeMathPopup]);
+  }, [anyPopupOpen, closeMathPopup, closeMermaidPopup, closeImagePopup]);
 
-  /* ── Insert math at cursor ── */
+  /* ═══════════════════ Insert helpers ═══════════════════ */
 
   const insertMathAtCursor = useCallback(() => {
     if (mode !== "visual") return;
@@ -500,11 +721,9 @@ export function LatexRichTextField({
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0) return;
     const range = sel.getRangeAt(0);
-
     const widget = createMathWidget("");
     range.deleteContents();
     range.insertNode(widget);
-
     const after = document.createTextNode("\u200B");
     widget.after(after);
     const nr = document.createRange();
@@ -512,7 +731,6 @@ export function LatexRichTextField({
     nr.collapse(true);
     sel.removeAllRanges();
     sel.addRange(nr);
-
     openMathPopup(widget, "", true);
   }, [mode, openMathPopup]);
 
@@ -525,11 +743,9 @@ export function LatexRichTextField({
       const sel = window.getSelection();
       if (!sel || sel.rangeCount === 0) return;
       const range = sel.getRangeAt(0);
-
       const widget = createMathWidget(template);
       range.deleteContents();
       range.insertNode(widget);
-
       const after = document.createTextNode("\u200B");
       widget.after(after);
       const nr = document.createRange();
@@ -537,13 +753,24 @@ export function LatexRichTextField({
       nr.collapse(true);
       sel.removeAllRanges();
       sel.addRange(nr);
-
       openMathPopup(widget, template, true);
     },
     [mode, openMathPopup],
   );
 
-  /* ── Event handlers ── */
+  const handleRequestMermaid = useCallback(() => {
+    const ta = textAreaRef.current;
+    const sel = ta ? { start: ta.selectionStart, end: ta.selectionEnd } : null;
+    onRequestMermaid?.(sel);
+  }, [textAreaRef, onRequestMermaid]);
+
+  const handleRequestImage = useCallback(() => {
+    const ta = textAreaRef.current;
+    const sel = ta ? { start: ta.selectionStart, end: ta.selectionEnd } : null;
+    onRequestImage?.(sel);
+  }, [textAreaRef, onRequestImage]);
+
+  /* ═══════════════════ Event handlers ═══════════════════ */
 
   const handleInput = () => {
     if (composingRef.current) return;
@@ -552,7 +779,7 @@ export function LatexRichTextField({
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (mathPopup) return;
+    if (anyPopupOpen) return;
     const root = editorRef.current;
     if (!root) return;
     const sel = window.getSelection();
@@ -587,7 +814,7 @@ export function LatexRichTextField({
       const { startContainer, startOffset } = range;
       if (startContainer.nodeType === Node.TEXT_NODE && startOffset === 0) {
         const prev = startContainer.previousSibling;
-        if (prev instanceof HTMLElement && prev.classList.contains(MATH_WIDGET_CLASS)) {
+        if (prev instanceof HTMLElement && isWidget(prev)) {
           e.preventDefault();
           prev.remove();
           emitFromEditor();
@@ -597,7 +824,7 @@ export function LatexRichTextField({
       }
       if (startContainer === root && startOffset > 0) {
         const prev = root.childNodes[startOffset - 1];
-        if (prev instanceof HTMLElement && prev.classList.contains(MATH_WIDGET_CLASS)) {
+        if (prev instanceof HTMLElement && isWidget(prev)) {
           e.preventDefault();
           prev.remove();
           emitFromEditor();
@@ -611,7 +838,7 @@ export function LatexRichTextField({
       const { startContainer, startOffset } = range;
       if (startContainer === root) {
         const next = root.childNodes[startOffset];
-        if (next instanceof HTMLElement && next.classList.contains(MATH_WIDGET_CLASS)) {
+        if (next instanceof HTMLElement && isWidget(next)) {
           e.preventDefault();
           next.remove();
           emitFromEditor();
@@ -623,7 +850,7 @@ export function LatexRichTextField({
         const text = startContainer.textContent ?? "";
         if (startOffset === text.length) {
           const next = startContainer.nextSibling;
-          if (next instanceof HTMLElement && next.classList.contains(MATH_WIDGET_CLASS)) {
+          if (next instanceof HTMLElement && isWidget(next)) {
             e.preventDefault();
             next.remove();
             emitFromEditor();
@@ -636,13 +863,26 @@ export function LatexRichTextField({
 
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const t = e.target as HTMLElement | null;
-    const widget = t?.closest?.(`.${MATH_WIDGET_CLASS}`) as HTMLElement | null;
-    if (widget && editorRef.current?.contains(widget)) {
+    if (!t) return;
+    const mathW = t.closest?.(`.${MATH_WIDGET_CLASS}`) as HTMLElement | null;
+    if (mathW && editorRef.current?.contains(mathW)) {
       e.preventDefault();
-      openMathPopup(widget, widget.dataset.latex ?? "", false);
+      openMathPopup(mathW, mathW.dataset.latex ?? "", false);
       return;
     }
-    if (editorRef.current?.contains(e.target as Node)) syncHiddenSelection();
+    const mmdW = t.closest?.(`.${MERMAID_WIDGET_CLASS}`) as HTMLElement | null;
+    if (mmdW && editorRef.current?.contains(mmdW)) {
+      e.preventDefault();
+      openMermaidPopup(mmdW, mmdW.dataset.mermaidSource ?? "");
+      return;
+    }
+    const imgW = t.closest?.(`.${IMAGE_WIDGET_CLASS}`) as HTMLElement | null;
+    if (imgW && editorRef.current?.contains(imgW)) {
+      e.preventDefault();
+      openImagePopup(imgW, imgW.dataset.imageKind ?? "EMBED_IMG", imgW.dataset.imagePath ?? "");
+      return;
+    }
+    if (editorRef.current?.contains(t)) syncHiddenSelection();
   };
 
   const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
@@ -651,27 +891,22 @@ export function LatexRichTextField({
     document.execCommand("insertText", false, text);
   };
 
-  /* ── Mode switching ── */
+  /* ─── Mode switching ─── */
 
   const switchToVisual = useCallback(() => {
     lastEmittedRef.current = null;
     setMode("visual");
   }, []);
+  const switchToSource = useCallback(() => setMode("source"), []);
 
-  const switchToSource = useCallback(() => {
-    setMode("source");
-  }, []);
-
-  /* ── Close symbols dropdown on outside click ── */
+  /* ─── Close symbols dropdown on outside click ─── */
 
   useEffect(() => {
     if (!symbolsOpen) return;
     const handler = (e: MouseEvent) => {
       if (symbolsBtnRef.current && !symbolsBtnRef.current.contains(e.target as Node)) {
         const dropdown = document.getElementById("lrt-symbols-dropdown");
-        if (dropdown && !dropdown.contains(e.target as Node)) {
-          setSymbolsOpen(false);
-        }
+        if (dropdown && !dropdown.contains(e.target as Node)) setSymbolsOpen(false);
       }
     };
     document.addEventListener("mousedown", handler);
@@ -727,8 +962,6 @@ export function LatexRichTextField({
           <span className="ml-0.5 text-[10px]">公式</span>
         </button>
 
-        <div className="mx-1 h-4 w-px bg-slate-300" />
-
         {/* quick math templates */}
         <button
           type="button"
@@ -766,8 +999,6 @@ export function LatexRichTextField({
         >
           x<sub>n</sub>
         </button>
-
-        <div className="mx-1 h-4 w-px bg-slate-300" />
 
         {/* symbols dropdown */}
         <div className="relative">
@@ -813,8 +1044,36 @@ export function LatexRichTextField({
           )}
         </div>
 
+        <div className="mx-1 h-4 w-px bg-slate-300" />
+
+        {/* insert mermaid */}
+        {onRequestMermaid && (
+          <button
+            type="button"
+            className="rounded px-1.5 py-0.5 text-[11px] font-medium text-slate-600 transition-colors hover:bg-white hover:text-emerald-700 hover:shadow-sm disabled:opacity-40"
+            disabled={mode !== "visual" || busy}
+            onClick={handleRequestMermaid}
+            title="插入流程图 / Mermaid 图表"
+          >
+            <span className="mr-0.5">📊</span>图表
+          </button>
+        )}
+
+        {/* insert image */}
+        {onRequestImage && (
+          <button
+            type="button"
+            className="rounded px-1.5 py-0.5 text-[11px] font-medium text-slate-600 transition-colors hover:bg-white hover:text-violet-700 hover:shadow-sm disabled:opacity-40"
+            disabled={mode !== "visual" || busy}
+            onClick={handleRequestImage}
+            title="插入图片"
+          >
+            <span className="mr-0.5">🖼️</span>图片
+          </button>
+        )}
+
         <div className="ml-auto text-[10px] text-slate-400">
-          <kbd className="rounded border border-slate-200 bg-slate-50 px-1">$</kbd> 插入公式
+          <kbd className="rounded border border-slate-200 bg-slate-50 px-1">$</kbd> 公式
         </div>
       </div>
 
@@ -859,13 +1118,9 @@ export function LatexRichTextField({
         />
       )}
 
-      {/* ── Math editing popup ── */}
+      {/* ═══ Math editing popup ═══ */}
       {mathPopup && (
-        <div
-          id="lrt-math-popup"
-          className="fixed z-50"
-          style={{ top: popupPos.top, left: popupPos.left }}
-        >
+        <div id="lrt-math-popup" className="fixed z-50" style={{ top: mathPopupPos.top, left: mathPopupPos.left }}>
           <div className="w-80 rounded-lg border border-slate-200 bg-white p-3 shadow-2xl ring-1 ring-black/5">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-700">
@@ -877,17 +1132,126 @@ export function LatexRichTextField({
             <div className="mt-2.5 flex justify-end gap-2">
               <button
                 type="button"
-                className="rounded-md px-3 py-1 text-xs text-slate-600 transition-colors hover:bg-slate-100"
+                className="rounded-md px-3 py-1 text-xs text-slate-600 hover:bg-slate-100"
                 onClick={() => closeMathPopup(false)}
               >
                 取消
               </button>
               <button
                 type="button"
-                className="rounded-md bg-blue-600 px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-blue-700"
+                className="rounded-md bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700"
                 onClick={() => closeMathPopup(true)}
               >
                 确认
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ Mermaid editing popup ═══ */}
+      {mermaidPopup && (
+        <div
+          id="lrt-mermaid-popup"
+          className="fixed z-50"
+          style={{ top: mermaidPopupPos.top, left: mermaidPopupPos.left }}
+        >
+          <div className="w-[480px] max-w-[95vw] rounded-lg border border-slate-200 bg-white p-3 shadow-2xl ring-1 ring-black/5">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-semibold text-emerald-700">编辑 Mermaid 图表</span>
+              <span className="text-[10px] text-slate-400">编辑源码，实时预览</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <p className="mb-1 text-[10px] font-medium text-slate-500">源码</p>
+                <textarea
+                  className="h-48 w-full rounded-md border border-slate-300 bg-slate-50 px-2 py-1.5 font-mono text-xs leading-relaxed text-slate-800 outline-none focus:ring-2 focus:ring-emerald-400"
+                  value={mermaidDraft}
+                  onChange={(e) => setMermaidDraft(e.target.value)}
+                  spellCheck={false}
+                  autoFocus
+                />
+              </div>
+              <div>
+                <p className="mb-1 text-[10px] font-medium text-slate-500">预览</p>
+                <div
+                  ref={mermaidPreviewRef}
+                  className="flex h-48 items-center justify-center overflow-auto rounded-md border border-slate-200 bg-white p-1 text-xs text-slate-400"
+                />
+              </div>
+            </div>
+            <div className="mt-2.5 flex items-center justify-between">
+              <button
+                type="button"
+                className="rounded-md px-3 py-1 text-xs text-red-600 hover:bg-red-50"
+                onClick={() => {
+                  mermaidPopupStateRef.current?.widget.remove();
+                  setMermaidPopup(null);
+                  const root = editorRef.current;
+                  if (root) {
+                    const next = serializeEditor(root);
+                    lastEmittedRef.current = next;
+                    onChangeRef.current(next);
+                    root.focus();
+                  }
+                }}
+              >
+                删除图表
+              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="rounded-md px-3 py-1 text-xs text-slate-600 hover:bg-slate-100"
+                  onClick={() => closeMermaidPopup(false)}
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-700"
+                  onClick={() => closeMermaidPopup(true)}
+                >
+                  确认
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ Image popup ═══ */}
+      {imagePopup && (
+        <div
+          id="lrt-image-popup"
+          className="fixed z-50"
+          style={{ top: imagePopupPos.top, left: imagePopupPos.left }}
+        >
+          <div className="w-80 max-w-[95vw] rounded-lg border border-slate-200 bg-white p-3 shadow-2xl ring-1 ring-black/5">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-semibold text-violet-700">图片</span>
+              <span className="truncate text-[10px] text-slate-400">
+                {imagePopup.path.trim().split("/").pop()}
+              </span>
+            </div>
+            <img
+              src={resourceApiUrl(imagePopup.path.trim())}
+              alt=""
+              className="max-h-64 w-full rounded-md border border-slate-200 object-contain"
+            />
+            <div className="mt-2.5 flex items-center justify-between">
+              <button
+                type="button"
+                className="rounded-md px-3 py-1 text-xs text-red-600 hover:bg-red-50"
+                onClick={removeImageWidget}
+              >
+                删除图片
+              </button>
+              <button
+                type="button"
+                className="rounded-md px-3 py-1 text-xs text-slate-600 hover:bg-slate-100"
+                onClick={closeImagePopup}
+              >
+                关闭
               </button>
             </div>
           </div>

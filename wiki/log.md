@@ -1,16 +1,17 @@
 # 变更日志（开发者）
 
-## [2026-04-11] LatexRichTextField | 类 Overleaf 可视化编辑器重写
+## [2026-04-11] LatexRichTextField | 类 Overleaf 可视化编辑器（公式 + Mermaid + 图片）
 
-**改动摘要**：完整重写 `web/src/components/LatexRichTextField.tsx`，实现类似 Overleaf Visual Editor 的体验：
+**改动摘要**：完整重写 `web/src/components/LatexRichTextField.tsx`，实现类似 Overleaf Visual Editor 的体验，统一处理三种嵌入类型：
 
-- **正则分词器**：用 `/\$([^$\n]+?)\$/g` 替代脆弱的 `split("$")`，未匹配的单 `$` 不再破坏渲染。
-- **内置工具栏**：可视化/源码模式切换；插入公式按钮；分数、根号、上下标快捷键；希腊字母与运算符下拉面板。
-- **`$` 键直接进入公式编辑**：键入 `$` 或按 `Ctrl+M` 即刻创建公式节点并弹出 MathLive 编辑器。
-- **单击编辑公式**：渲染后的公式单击即可打开 MathLive 浮动弹窗（Enter 确认 / Esc 取消）。
-- **源码模式**：切换后显示原始 `$...$` 文本的 `<textarea>`，可自由编辑。
+- **统一正则分词器**：`TOKEN_RE` 一次匹配 `$latex$`（行内公式）、`` ```mermaid\n…\n``` ``（Mermaid 围栏）和 `:::*_IMG:path:::`（图片标记），未配对的 `$` 不再破坏渲染。
+- **行内公式**：`$` 键 / `Ctrl+M` 即刻创建公式节点并弹出 MathLive 编辑器；单击已有公式编辑；工具栏快捷模板（分数、根号、上下标）与符号面板。
+- **Mermaid 图表**：内容中的 mermaid 围栏块渲染为可视化卡片（异步 mermaid.js SVG 预览）；单击打开内联编辑弹窗（源码 + 实时预览双栏布局）；工具栏「图表」按钮委托父组件打开完整 MermaidEditorModal。
+- **图片嵌入**：`:::*_IMG:path:::` 标记渲染为缩略图卡片；单击打开预览弹窗（查看 / 删除）；工具栏「图片」按钮委托父组件触发文件选择 + 上传。
+- **源码/可视化切换**：两种模式一键切换，源码模式下所有标记均以原始文本显示。
+- **Props 扩展**：新增 `onRequestMermaid`、`onRequestImage`、`busy`，父组件传入回调即可在工具栏显示对应按钮。
 
-同步更新 `BankQuestionEditorPanel.tsx`，移除 content 字段冗余的外部「插入公式」按钮。
+同步更新 `BankQuestionEditorPanel.tsx`：content 字段的外部「插入公式 / 图表 / 图片」按钮全部整合进组件内置工具栏。
 
 **验证命令**：`cd web && npx tsc --noEmit && npx vite build`。
 

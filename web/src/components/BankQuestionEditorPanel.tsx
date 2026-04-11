@@ -601,41 +601,15 @@ export function BankQuestionEditorPanel({
                 </select>
               </label>
               <div className="block">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-xs font-medium text-slate-600">{t("components:bankEditor.contentLatex")}</span>
-                  <div className="flex shrink-0 flex-wrap gap-1">
-                    <button
-                      type="button"
-                      className="rounded border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50"
-                      onClick={() => {
-                        const el = contentRef.current;
-                        const sel = el ? { start: el.selectionStart, end: el.selectionEnd } : null;
-                        beginMermaidEmbed({ k: "q", f: "content" }, sel);
-                      }}
-                    >
-                      {t("components:bankEditor.insertDiagram")}
-                    </button>
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-0.5 rounded border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                      disabled={busy}
-                      title={t("components:bankEditor.insertImageTitle")}
-                      onClick={() => {
-                        const el = contentRef.current;
-                        const sel = el ? { start: el.selectionStart, end: el.selectionEnd } : null;
-                        beginImageEmbed({ k: "q", f: "content" }, sel);
-                      }}
-                    >
-                      <ImagePlus className="h-3.5 w-3.5" aria-hidden />
-                      <span className="hidden sm:inline">{t("components:bankEditor.image")}</span>
-                    </button>
-                  </div>
-                </div>
+                <span className="text-xs font-medium text-slate-600">{t("components:bankEditor.contentLatex")}</span>
                 <LatexRichTextField
                   textAreaRef={contentRef}
                   minRows={6}
                   value={detail.question.content}
                   onChange={(next) => setDetail({ ...detail, question: { ...detail.question, content: next } })}
+                  onRequestMermaid={(sel) => beginMermaidEmbed({ k: "q", f: "content" }, sel)}
+                  onRequestImage={(sel) => beginImageEmbed({ k: "q", f: "content" }, sel)}
+                  busy={busy}
                 />
               </div>
               {detail.question.type === "choice" && (
