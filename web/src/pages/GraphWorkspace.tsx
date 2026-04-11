@@ -14,7 +14,7 @@ import {
   useNodesState,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   apiBankItems,
   apiGraphAttachFile,
@@ -48,6 +48,7 @@ import {
 } from "../graph/layoutGraph";
 import { DAGRE_GRAPH, FORCE_DEFAULT, MATERIAL_BOX, OVERLAP_DEFAULT } from "../graph/layoutParams";
 import { useAgentContext } from "../contexts/AgentContext";
+import { useToolBar } from "../contexts/ToolBarContext";
 import i18n from "../i18n/i18n";
 import { localeCompareStrings } from "../lib/locale";
 import { QUESTION_TYPE_OPTIONS } from "../lib/questionTypes";
@@ -199,6 +200,58 @@ function KnowledgeNode({ data, selected }: NodeProps) {
 const nodeTypes = { knowledge: KnowledgeNode };
 const edgeTypes = { circleChord: CircleChordEdge };
 
+function GraphTreeBranch({
+  nodeId,
+  depth,
+  nodeById,
+  childrenByParent,
+  selectedId,
+  onPick,
+}: {
+  nodeId: string;
+  depth: number;
+  nodeById: Map<string, GraphNodeRow>;
+  childrenByParent: Map<string, string[]>;
+  selectedId: string | null;
+  onPick: (id: string) => void;
+}) {
+  const n = nodeById.get(nodeId);
+  const children = childrenByParent.get(nodeId) ?? [];
+  const label = n?.canonical_name ?? nodeId;
+  return (
+    <li>
+      <button
+        type="button"
+        className={cn(
+          "mb-0.5 w-full rounded border px-2 py-1 text-left text-[11px]",
+          selectedId === nodeId
+            ? "border-slate-900 bg-slate-100 font-medium text-slate-900"
+            : "border-transparent bg-slate-50 hover:border-slate-200 hover:bg-white",
+        )}
+        style={{ paddingLeft: `${8 + depth * 12}px` }}
+        onClick={() => onPick(nodeId)}
+      >
+        <span className="line-clamp-2">{label}</span>
+      </button>
+      {children.length > 0 ? (
+        <ul className="border-l border-slate-100 pl-1">
+          {children.map((cid) => (
+            <GraphTreeBranch
+              key={cid}
+              nodeId={cid}
+              depth={depth + 1}
+              nodeById={nodeById}
+              childrenByParent={childrenByParent}
+              selectedId={selectedId}
+              onPick={onPick}
+            />
+          ))}
+        </ul>
+      ) : null}
+    </li>
+  );
+}
+
 function splitCsv(s: string): string[] {
   return s
     .split(",")
@@ -268,6 +321,13 @@ export function GraphWorkspace({
   const [awaitingFocusPick, setAwaitingFocusPick] = useState(false);
   /** 非聚焦视图首次进入本页时做一次力导向，之后仅「重新整理」或聚焦模式会再算力导向 */
   const nonFocusForceBootstrappedRef = useRef(false);
+  /** 仅用于 fitView；避免与 nodesForRender 推断的 ReactFlow 泛型冲突 */
+  const rfRef = useRef<{ fitView: (opts?: { nodes?: { id: string }[]; duration?: number; padding?: number }) => void } | null>(
+    null,
+  );
+  const { setToolBar, clearToolBar } = useToolBar();
+  /** 侧栏：图谱网络 / 按「组成」关系显示的结构树 */
+  const [browseMode, setBrowseMode] = useState<"graph" | "tree">("graph");
   const [relTypeFilter, setRelTypeFilter] = useState<Record<string, boolean>>(() => {
     const o: Record<string, boolean> = {};
     for (const k of REL_KEYS) o[k as string] = true;
@@ -402,6 +462,46 @@ export function GraphWorkspace({
       return filteredNodeIdSet.has(r.from_node_id) && filteredNodeIdSet.has(r.to_node_id);
     });
   }, [relations, relTypeFilter, filteredNodeIdSet]);
+
+  const nodeById = useMemo(() => {
+    const m = new Map<string, GraphNodeRow>();
+    for (const n of graphNodes) m.set(n.id, n);
+    return m;
+  }, [graphNodes]);
+
+  /** 「组成」关系子节点（父 id → 子 id 列表），用于侧栏结构树 */
+  const partOfChildrenByParent = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const r of filteredRelations) {
+      if (r.relation_type !== "part_of") continue;
+      const arr = m.get(r.to_node_id) ?? [];
+      arr.push(r.from_node_id);
+      m.set(r.to_node_id, arr);
+    }
+    for (const [, arr] of m) {
+      arr.sort((a, b) => {
+        const na = graphNodes.find((x) => x.id === a)?.canonical_name ?? a;
+        const nb = graphNodes.find((x) => x.id === b)?.canonical_name ?? b;
+        return localeCompareStrings(na, nb);
+      });
+    }
+    return m;
+  }, [filteredRelations, graphNodes]);
+
+  const treeRootIds = useMemo(() => {
+    const childIds = new Set<string>();
+    for (const r of filteredRelations) {
+      if (r.relation_type === "part_of") childIds.add(r.from_node_id);
+    }
+    return filteredGraphNodes
+      .filter((n) => !childIds.has(n.id))
+      .map((n) => n.id)
+      .sort((a, b) => {
+        const na = graphNodes.find((x) => x.id === a)?.canonical_name ?? a;
+        const nb = graphNodes.find((x) => x.id === b)?.canonical_name ?? b;
+        return localeCompareStrings(na, nb);
+      });
+  }, [filteredGraphNodes, filteredRelations, graphNodes]);
 
   const filteredKindCounts = useMemo(() => {
     const c: Record<string, number> = { concept: 0, skill: 0, causal: 0 };
@@ -681,6 +781,13 @@ export function GraphWorkspace({
   const onPaneClick = useCallback(() => {
     setSelectedId(null);
     setAwaitingFocusPick(false);
+  }, []);
+
+  const focusToNodeFromSidebar = useCallback((id: string) => {
+    setSelectedId(id);
+    queueMicrotask(() => {
+      rfRef.current?.fitView({ nodes: [{ id }], duration: 280, padding: 0.35 });
+    });
   }, []);
 
   const persistLayout = useCallback(
@@ -1032,9 +1139,209 @@ export function GraphWorkspace({
     return relations.filter((r) => r.from_node_id === selectedId || r.to_node_id === selectedId);
   }, [relations, selectedId]);
 
+  useEffect(() => {
+    const left: ReactNode = (
+      <div className="flex max-w-[min(100vw,720px)] flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-slate-700">
+        <label className="inline-flex items-center gap-1">
+          <span className="shrink-0 text-slate-600">{t("focusNeighborhood")}</span>
+          <select
+            className="rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[11px]"
+            value={focusHops}
+            onChange={(e) => {
+              const v = Number(e.target.value) as 0 | 1 | 2;
+              setFocusHops((prev) => {
+                if (v === 0) {
+                  setFocusCenterId(null);
+                  setAwaitingFocusPick(false);
+                } else if (prev === 0 && v > 0 && selectedId) {
+                  setFocusCenterId(selectedId);
+                  setAwaitingFocusPick(false);
+                }
+                return v;
+              });
+            }}
+          >
+            <option value={0}>{t("focusOff")}</option>
+            <option value={1}>{t("focus1")}</option>
+            <option value={2}>{t("focus2")}</option>
+          </select>
+        </label>
+        {focusHops > 0 ? (
+          <button
+            type="button"
+            className={cn(
+              "rounded border px-2 py-0.5 text-[11px] font-medium",
+              awaitingFocusPick
+                ? "border-amber-500 bg-amber-50 text-amber-900"
+                : "border-slate-300 bg-slate-50 text-slate-800 hover:bg-slate-100",
+            )}
+            onClick={() => setAwaitingFocusPick((a) => !a)}
+            title={t("refocusTitle")}
+          >
+            {awaitingFocusPick ? t("cancelPick") : t("refocus")}
+          </button>
+        ) : null}
+        <span className="hidden text-[11px] text-slate-400 xl:inline">
+          {focusHops > 0
+            ? awaitingFocusPick
+              ? t("pickCenterHint")
+              : focusCenterId
+                ? t("dragNoCenter")
+                : t("pickRefocusFirst")
+            : t("focusSelectCenter")}
+        </span>
+        <span className="hidden h-4 w-px bg-slate-200 lg:inline" aria-hidden />
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="text-slate-600">{t("relTypeCanvas")}</span>
+          {REL_KEYS.map((k) => (
+            <label key={k} className="inline-flex cursor-pointer items-center gap-1 text-[11px]">
+              <input
+                type="checkbox"
+                checked={relTypeFilter[k] !== false}
+                onChange={(e) => setRelTypeFilter((prev) => ({ ...prev, [k]: e.target.checked }))}
+              />
+              <span style={{ color: REL_COLOR[k] ?? "#64748b" }}>{t(`edgeKind.${k}`)}</span>
+              <span className="text-slate-400">({filteredRelCounts[k] ?? 0})</span>
+            </label>
+          ))}
+        </div>
+        <span className="hidden h-4 w-px bg-slate-200 lg:inline" aria-hidden />
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="text-slate-600">{t("subjectCanvas")}</span>
+          {subjectKeysOrdered.map((sk) => (
+            <label key={sk} className="inline-flex cursor-pointer items-center gap-1 text-[11px]">
+              <input
+                type="checkbox"
+                checked={subjectFilter[sk] === true}
+                onChange={(e) => {
+                  setSubjectFilter((prev) => ({ ...prev, [sk]: e.target.checked }));
+                  setLayoutNonce((n) => n + 1);
+                }}
+              />
+              <span>{subjectFilterCheckboxLabel(sk, t("subjectUnset"))}</span>
+              <span className="text-slate-400">({filteredSubjectCounts[sk] ?? 0})</span>
+            </label>
+          ))}
+        </div>
+        <span className="hidden h-4 w-px bg-slate-200 lg:inline" aria-hidden />
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="text-slate-600">{t("nodeTypeCanvas")}</span>
+          {(["concept", "skill", "causal"] as const).map((k) => (
+            <label key={k} className="inline-flex cursor-pointer items-center gap-1 text-[11px]">
+              <input
+                type="checkbox"
+                checked={nodeKindFilter[k] !== false}
+                onChange={(e) => setNodeKindFilter((prev) => ({ ...prev, [k]: e.target.checked }))}
+              />
+              <span>{t(`nodeKind.${k}`)}</span>
+              <span className="text-slate-400">({filteredKindCounts[k] ?? 0})</span>
+            </label>
+          ))}
+        </div>
+      </div>
+    );
+    const right: ReactNode = (
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          className="rounded border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-800 hover:bg-slate-50"
+          onClick={() => setLayoutNonce((n) => n + 1)}
+          title={t("relayoutTitle")}
+        >
+          {t("relayout")}
+        </button>
+      </div>
+    );
+    setToolBar({ left, right });
+    return () => clearToolBar();
+  }, [
+    t,
+    focusHops,
+    selectedId,
+    awaitingFocusPick,
+    focusCenterId,
+    relTypeFilter,
+    subjectFilter,
+    nodeKindFilter,
+    subjectKeysOrdered,
+    filteredRelCounts,
+    filteredSubjectCounts,
+    filteredKindCounts,
+    setToolBar,
+    clearToolBar,
+  ]);
+
   return (
     <div className="flex h-full min-h-[70vh] flex-col gap-2 p-2">
-      <div className="flex min-h-0 flex-1 flex-col gap-2 lg:flex-row">
+      <div className="flex min-h-0 flex-1 flex-row gap-2">
+        <aside className="flex w-[min(100%,280px)] shrink-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white">
+          <div className="border-b border-slate-100 px-2 py-2">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("directoryTitle")}</h2>
+            <div className="mt-2 flex rounded-md border border-slate-200 p-0.5 text-[11px]">
+              <button
+                type="button"
+                className={cn(
+                  "flex-1 rounded px-2 py-1 font-medium",
+                  browseMode === "graph" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50",
+                )}
+                onClick={() => setBrowseMode("graph")}
+              >
+                {t("browseGraph")}
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "flex-1 rounded px-2 py-1 font-medium",
+                  browseMode === "tree" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50",
+                )}
+                onClick={() => setBrowseMode("tree")}
+              >
+                {t("browseTree")}
+              </button>
+            </div>
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto p-2 text-[11px]">
+            {browseMode === "graph" ? (
+              <ul className="space-y-0.5">
+                {[...filteredGraphNodes]
+                  .sort((a, b) => localeCompareStrings(a.canonical_name, b.canonical_name))
+                  .map((n) => (
+                    <li key={n.id}>
+                      <button
+                        type="button"
+                        className={cn(
+                          "w-full rounded border px-2 py-1.5 text-left",
+                          selectedId === n.id
+                            ? "border-slate-900 bg-slate-100 font-medium text-slate-900"
+                            : "border-transparent bg-slate-50 hover:border-slate-200 hover:bg-white",
+                        )}
+                        onClick={() => focusToNodeFromSidebar(n.id)}
+                      >
+                        <span className="line-clamp-2">{n.canonical_name}</span>
+                      </button>
+                    </li>
+                  ))}
+              </ul>
+            ) : treeRootIds.length === 0 ? (
+              <p className="text-slate-500">{t("treeEmptyHint")}</p>
+            ) : (
+              <ul className="space-y-0.5">
+                {treeRootIds.map((rid) => (
+                  <GraphTreeBranch
+                    key={rid}
+                    nodeId={rid}
+                    depth={0}
+                    nodeById={nodeById}
+                    childrenByParent={partOfChildrenByParent}
+                    selectedId={selectedId}
+                    onPick={focusToNodeFromSidebar}
+                  />
+                ))}
+              </ul>
+            )}
+          </div>
+        </aside>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 lg:flex-row">
         <div className="relative min-h-[420px] flex-1 rounded-lg border border-slate-200 bg-slate-50">
           {busy && graphNodes.length === 0 ? (
             <div className="flex h-full items-center justify-center text-sm text-slate-500">{t("loading")}</div>
@@ -1053,16 +1360,8 @@ export function GraphWorkspace({
                     {t("collapse")}
                   </button>
                 </div>
-                <div className="mt-1.5 flex flex-wrap items-center gap-2 text-slate-600">
+                <div className="mt-1.5 text-slate-600">
                   <span>{t("layoutIntro")}</span>
-                  <button
-                    type="button"
-                    className="rounded border border-slate-300 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-800 hover:bg-slate-100"
-                    onClick={() => setLayoutNonce((n) => n + 1)}
-                    title={t("relayoutTitle")}
-                  >
-                    {t("relayout")}
-                  </button>
                 </div>
                 {import.meta.env.DEV ? (
                   <details className="mt-2 rounded border border-dashed border-slate-200 bg-slate-50/90 p-1.5 text-[10px] text-slate-600">
@@ -1083,113 +1382,6 @@ export function GraphWorkspace({
                     </pre>
                   </details>
                 ) : null}
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <label className="flex items-center gap-1 text-slate-600">
-                    {t("focusNeighborhood")}
-                    <select
-                      className="rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[11px]"
-                      value={focusHops}
-                      onChange={(e) => {
-                        const v = Number(e.target.value) as 0 | 1 | 2;
-                        setFocusHops((prev) => {
-                          if (v === 0) {
-                            setFocusCenterId(null);
-                            setAwaitingFocusPick(false);
-                          } else if (prev === 0 && v > 0 && selectedId) {
-                            setFocusCenterId(selectedId);
-                            setAwaitingFocusPick(false);
-                          }
-                          return v;
-                        });
-                      }}
-                    >
-                      <option value={0}>{t("focusOff")}</option>
-                      <option value={1}>{t("focus1")}</option>
-                      <option value={2}>{t("focus2")}</option>
-                    </select>
-                  </label>
-                  {focusHops > 0 ? (
-                    <button
-                      type="button"
-                      className={cn(
-                        "rounded border px-2 py-0.5 text-[11px] font-medium",
-                        awaitingFocusPick
-                          ? "border-amber-500 bg-amber-50 text-amber-900"
-                          : "border-slate-300 bg-slate-50 text-slate-800 hover:bg-slate-100",
-                      )}
-                      onClick={() => setAwaitingFocusPick((a) => !a)}
-                      title={t("refocusTitle")}
-                    >
-                      {awaitingFocusPick ? t("cancelPick") : t("refocus")}
-                    </button>
-                  ) : null}
-                  <span className="text-slate-400">
-                    {focusHops > 0
-                      ? awaitingFocusPick
-                        ? t("pickCenterHint")
-                        : focusCenterId
-                          ? t("dragNoCenter")
-                          : t("pickRefocusFirst")
-                      : t("focusSelectCenter")}
-                  </span>
-                </div>
-                <div className="mt-2 border-t border-slate-100 pt-2">
-                  <div className="text-slate-600">{t("relTypeCanvas")}</div>
-                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
-                    {REL_KEYS.map((k) => (
-                      <label key={k} className="inline-flex cursor-pointer items-center gap-1">
-                        <input
-                          type="checkbox"
-                          checked={relTypeFilter[k] !== false}
-                          onChange={(e) =>
-                            setRelTypeFilter((prev) => ({ ...prev, [k]: e.target.checked }))
-                          }
-                        />
-                        <span style={{ color: REL_COLOR[k] ?? "#64748b" }}>
-                          {t(`edgeKind.${k}`)}
-                        </span>
-                        <span className="text-slate-400">({filteredRelCounts[k] ?? 0})</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-                <div className="mt-2 border-t border-slate-100 pt-2">
-                  <div className="text-slate-600">{t("subjectCanvas")}</div>
-                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
-                    {subjectKeysOrdered.map((sk) => (
-                      <label key={sk} className="inline-flex cursor-pointer items-center gap-1">
-                        <input
-                          type="checkbox"
-                          checked={subjectFilter[sk] === true}
-                          onChange={(e) => {
-                            setSubjectFilter((prev) => ({ ...prev, [sk]: e.target.checked }));
-                            setLayoutNonce((n) => n + 1);
-                          }}
-                        />
-                        <span>{subjectFilterCheckboxLabel(sk, t("subjectUnset"))}</span>
-                        <span className="text-slate-400">({filteredSubjectCounts[sk] ?? 0})</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-                <div className="mt-2 border-t border-slate-100 pt-2">
-                  <div className="text-slate-600">{t("nodeTypeCanvas")}</div>
-                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
-                    {(["concept", "skill", "causal"] as const).map((k) => (
-                      <label key={k} className="inline-flex cursor-pointer items-center gap-1">
-                        <input
-                          type="checkbox"
-                          checked={nodeKindFilter[k] !== false}
-                          onChange={(e) =>
-                            setNodeKindFilter((prev) => ({ ...prev, [k]: e.target.checked }))
-                          }
-                        />
-                        <span>{t(`nodeKind.${k}`)}</span>
-                        <span className="text-slate-400">({filteredKindCounts[k] ?? 0})</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
                 <div className="mt-2 border-t border-slate-100 pt-2 text-slate-500">{t("canvasStyleNote")}</div>
               </div>
               ) : (
@@ -1207,6 +1399,9 @@ export function GraphWorkspace({
               <ReactFlow
                 nodes={nodesForRender}
                 edges={edgesForRender}
+                onInit={(inst) => {
+                  rfRef.current = inst;
+                }}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
                 onNodeClick={onNodeClick}
@@ -1262,7 +1457,7 @@ export function GraphWorkspace({
                   {t("collapse")}
                 </button>
               </div>
-              <p className="mt-1 text-xs text-slate-600">{t("clickNodeHint")}</p>
+              <p className="mt-1 text-xs text-slate-600">{t("clickNodeHintV2")}</p>
           <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-slate-600">
             <span className="text-slate-500">{t("totalNodes")}</span>
             {(["concept", "skill", "causal"] as const).map((k) => (
@@ -1636,6 +1831,7 @@ export function GraphWorkspace({
             </>
           )}
         </aside>
+      </div>
       </div>
 
       {bankOpen ? (
