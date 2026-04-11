@@ -121,6 +121,20 @@ fn sidecar_dev_hint(lang: &str) -> &'static str {
     }
 }
 
+/// `tauri dev` 无嵌入式时，对固定 `:8000` 做健康检查的最长等待（秒）。
+/// 与前端壳 `SHELL_BACKEND_WAIT_MS`（120s）对齐；冷启动导入常超过旧默认 30s。
+/// 可用环境变量 `SOLAIRE_BACKEND_HEALTH_WAIT_SECS` 覆盖（10～600）。
+fn dev_backend_health_wait_secs() -> u64 {
+    const DEFAULT: u64 = 120;
+    match std::env::var("SOLAIRE_BACKEND_HEALTH_WAIT_SECS") {
+        Ok(s) => match s.parse::<u64>() {
+            Ok(n) if (10..=600).contains(&n) => n,
+            _ => DEFAULT,
+        },
+        Err(_) => DEFAULT,
+    }
+}
+
 fn missing_icon_msg(lang: &str) -> &'static str {
     match lang {
         "en" => "Missing application icon",
@@ -350,6 +364,7 @@ fn wait_for_health(
 ) -> Result<(), String> {
     let url = format!("http://127.0.0.1:{}/api/health", port);
     let client = Client::builder()
+        .no_proxy()
         .timeout(Duration::from_secs(2))
         .connect_timeout(Duration::from_secs(2))
         .build()
@@ -652,9 +667,13 @@ fn main() {
                                 "about_to_wait_health",
                                 json!({ "port": port }),
                             );
-                            wait_for_health(port, &lang_th, Duration::from_secs(30), None).map_err(|e| {
-                                format!("{}{}", e, sidecar_dev_hint(&lang_th))
-                            })?;
+                            wait_for_health(
+                                port,
+                                &lang_th,
+                                Duration::from_secs(dev_backend_health_wait_secs()),
+                                None,
+                            )
+                            .map_err(|e| format!("{}{}", e, sidecar_dev_hint(&lang_th)))?;
                             Ok((port, None))
                         }
                     }
