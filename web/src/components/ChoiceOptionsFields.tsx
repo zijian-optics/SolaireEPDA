@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { EmbedKind } from "../lib/bankEditorEmbedKinds";
 import { LatexRichTextField } from "./LatexRichTextField";
@@ -99,10 +99,6 @@ export function ChoiceOptionsFields({
 }: ChoiceOptionsFieldsProps) {
   const { t } = useTranslation("components");
   const keys = useMemo(() => orderedKeys(options), [options]);
-  const [jsonOpen, setJsonOpen] = useState(false);
-  const [rawDraft, setRawDraft] = useState<string | null>(null);
-
-  const jsonPretty = useMemo(() => JSON.stringify(options, null, 2), [options]);
 
   function updateKey(key: string, value: string) {
     onCommit({ ...options, [key]: value });
@@ -158,34 +154,6 @@ export function ChoiceOptionsFields({
       >
         {t("choiceFields.addKey")}
       </button>
-      <details open={jsonOpen} onToggle={(e) => setJsonOpen((e.target as HTMLDetailsElement).open)}>
-        <summary className="cursor-pointer text-[11px] font-medium text-slate-500">{t("choiceFields.jsonAdvanced")}</summary>
-        <p className="mt-1 text-[10px] text-slate-500">{t("choiceFields.jsonHint")}</p>
-        <textarea
-          className="mt-1 w-full rounded border border-slate-300 px-2 py-1.5 font-mono text-xs"
-          rows={5}
-          value={rawDraft ?? jsonPretty}
-          spellCheck={false}
-          onChange={(e) => {
-            const s = e.target.value;
-            setRawDraft(s);
-            try {
-              const o = JSON.parse(s || "{}") as unknown;
-              if (o && typeof o === "object" && !Array.isArray(o)) {
-                const out: Record<string, string> = {};
-                for (const [k, v] of Object.entries(o as Record<string, unknown>)) {
-                  out[k] = typeof v === "string" ? v : String(v ?? "");
-                }
-                onCommit(out);
-                setRawDraft(null);
-              }
-            } catch {
-              /* 保持 rawDraft */
-            }
-          }}
-          onBlur={() => setRawDraft(null)}
-        />
-      </details>
     </div>
   );
 }

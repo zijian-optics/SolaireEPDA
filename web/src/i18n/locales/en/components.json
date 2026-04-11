@@ -64,9 +64,7 @@
     "insertDiagram": "Diagram",
     "image": "Image",
     "remove": "Remove",
-    "addKey": "+ Add option (e.g. E, F)",
-    "jsonAdvanced": "Structured edit (advanced)",
-    "jsonHint": "Paste structured text; if it is invalid, the form above is kept."
+    "addKey": "+ Add option (e.g. E, F)"
   },
   "helpMermaid": {
     "edit": "Edit",

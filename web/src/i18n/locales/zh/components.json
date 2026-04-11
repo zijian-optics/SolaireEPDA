@@ -64,9 +64,7 @@
     "insertDiagram": "流程图",
     "image": "图片",
     "remove": "删除",
-    "addKey": "+ 添加选项（如 E、F）",
-    "jsonAdvanced": "结构化编辑（高级）",
-    "jsonHint": "可粘贴整段结构化文本；若格式无效，不会覆盖上方表单。"
+    "addKey": "+ 添加选项（如 E、F）"
   },
   "helpMermaid": {
     "edit": "编辑",
