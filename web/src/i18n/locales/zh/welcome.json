@@ -3,7 +3,7 @@
   "hint1": "从左侧开始：新建或打开项目后，即可进行组卷、题库与图谱等工作。",
   "hint2": "需要帮助时请使用侧栏「手册」。",
   "title": "欢迎",
-  "intro": "选择一种方式进入项目，稍后在侧栏可随时切换功能模块。",
+  "subtitle": "选择一种方式进入项目；打开项目后可使用顶栏与左侧导航切换功能模块。",
   "newProject": "新建项目",
   "newProjectDialogTitle": "新建项目",
   "newProjectDialogIntro": "请选择项目所在父文件夹、填写项目名称，并选择起始内容。",
@@ -30,5 +30,22 @@
   "recentEmpty": "暂无记录。打开项目后将在此显示，便于下次继续。",
   "removeFromRecentTitle": "从最近列表中移除",
   "removeFromRecentAria": "从最近列表中移除",
-  "pickFolderTitle": "选择项目文件夹"
+  "pickFolderTitle": "选择项目文件夹",
+  "sidebarIntro": "软件介绍",
+  "sidebarProject": "项目",
+  "sidebarModel": "模型配置",
+  "sidebarExtensions": "必要组件",
+  "intro": {
+    "lead": "推荐流程：先整理教学脉络与资料，再维护题库与版式，最后组卷并做成绩分析。下列步骤可帮助你快速上手。",
+    "stepLabel": "第 {{n}} 步",
+    "step1Title": "知识脉络",
+    "step1Desc": "导入或整理知识结构，便于命题与复习对齐教学重点。",
+    "step2Title": "题库维护",
+    "step2Desc": "录入或导入题目，可按需让助手协助整理，也可手工精修。",
+    "step3Title": "组卷出卷",
+    "step3Desc": "按版式模板选题组卷，校验后导出试卷文件。",
+    "step4Title": "成绩分析",
+    "step4Desc": "收集作答结果，查看统计与薄弱点（能力随版本迭代）。",
+    "footer": "具体能力以当前软件版本为准；后续将持续完善各环节的衔接体验。"
+  }
 }
