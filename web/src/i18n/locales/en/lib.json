@@ -5,7 +5,8 @@
     "judge": "True/false",
     "short_answer": "Short answer (point-based)",
     "reasoning": "Reasoning (calculation, proof, etc.)",
-    "essay": "Essay"
+    "essay": "Essay",
+    "group": "Question group"
   },
   "groupInnerTypes": {
     "choice": "Multiple choice",

@@ -1453,7 +1453,9 @@ function ComposeWorkspace({ onError }: { onError: (s: string | null) => void }) 
                           : "border-transparent bg-slate-50 hover:border-slate-200 hover:bg-white",
                       )}
                     >
-                      <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-700">{q.type}</span>
+                      <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-700">
+                        {t(`lib:questionTypes.${q.type}`, { defaultValue: q.type })}
+                      </span>
                       {isBundle ? (
                         <span className="ml-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-900">
                           {t("compose:bundleBadge")}
@@ -1678,7 +1680,7 @@ function ComposeWorkspace({ onError }: { onError: (s: string | null) => void }) 
               >
                 {selectedTpl?.sections.map((s) => (
                   <option key={s.section_id} value={s.section_id}>
-                    {s.section_id} · {s.type}
+                    {s.section_id}
                     {s.type === "text"
                       ? t("compose:sectionOptionText")
                       : t("compose:sectionOptionNeed", { n: s.required_count })}
@@ -1728,12 +1730,12 @@ function ComposeWorkspace({ onError }: { onError: (s: string | null) => void }) 
                       <p className="text-[11px] text-slate-500">
                         {isText ? (
                           <>
-                            {t("compose:textSectionLine", { type: s.type })}
+                            {t("compose:textSectionLine")}
                             {ok && <span className="ml-2 text-emerald-600">{t("compose:configured")}</span>}
                           </>
                         ) : (
                           <>
-                            {t("compose:pickedCount", { type: s.type, n, need: s.required_count })}
+                            {t("compose:pickedCount", { n, need: s.required_count })}
                             {ok && <span className="ml-2 text-emerald-600">{t("compose:satisfied")}</span>}
                           </>
                         )}

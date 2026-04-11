@@ -5,7 +5,8 @@
     "judge": "判断题",
     "short_answer": "简答题（要点给分）",
     "reasoning": "推理题（计算、证明等）",
-    "essay": "论述题"
+    "essay": "论述题",
+    "group": "题组"
   },
   "groupInnerTypes": {
     "choice": "选择题",

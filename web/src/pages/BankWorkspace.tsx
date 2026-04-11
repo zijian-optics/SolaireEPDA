@@ -1108,9 +1108,7 @@ export function BankWorkspace({
                     }}
                   >
                     <span className="rounded bg-slate-200 px-1 py-0.5 text-[10px] font-medium text-slate-700">
-                      {it.type === "group"
-                        ? t("typeGroup")
-                        : t(`lib:questionTypes.${it.type}`, { defaultValue: it.type })}
+                      {t(`lib:questionTypes.${it.type}`, { defaultValue: it.type })}
                     </span>
                     {isBundle ? (
                       <span className="ml-1 rounded bg-emerald-100 px-1 py-0.5 text-[10px] font-medium text-emerald-900">
