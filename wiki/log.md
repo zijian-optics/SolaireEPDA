@@ -1,5 +1,13 @@
 # 变更日志（开发者）
 
+## [2026-04-11] LLM Wiki 落地 | Schema、索引与路径速查
+
+**改动摘要**：新增 `wiki/README.md`（Schema 与维护约定）；新建 `wiki/architecture/overview.md`、`wiki/architecture/file-map.md`；新建 `wiki/modules/dev-environment.md`；扩展 `wiki/index.md`（总览、专题、`docs/` 链接）；修正 `wiki/modules/desktop-startup.md` 中健康检查超时描述与默认 120s 一致；根目录新增 `AGENTS.md` 指向 wiki 入口。
+
+**验证命令**：对新增/修改的 Markdown 做路径与链接自检（`docs/api/*.md`、`wiki/**` 相对链接）。
+
+**结果要点**：规则中引用的 `wiki/README.md` 已存在；索引可导向架构、file-map、开发环境、桌面专题与对外文档。
+
 ## [2026-04-11] LaTeX对齐
 **新建文件**
 `web/src/lib/contentTokenizer.ts`内联了 KaTeX splitAtDelimiters 的状态机算法，统一解析：
