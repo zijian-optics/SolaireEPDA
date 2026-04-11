@@ -19,6 +19,7 @@ import {
 } from "../components/BankQuestionEditorPanel";
 import type { EmbedKind } from "../lib/bankEditorEmbedKinds";
 import { ContentWithPrimeBrush } from "../components/ContentWithPrimeBrush";
+import { KatexPlainPreview } from "../components/KatexText";
 import { MathInsertOverlay } from "../components/MathInsertOverlay";
 import { MermaidEditorModal } from "../components/MermaidEditorModal";
 import { useAgentContext } from "../contexts/AgentContext";
@@ -1118,7 +1119,10 @@ export function BankWorkspace({
                     <span className="ml-1 font-mono text-[11px] text-slate-800">
                       {isBundle && it.group_id ? `${it.collection} / ${it.group_id}` : it.qualified_id}
                     </span>
-                    <div className="line-clamp-3 text-xs text-slate-600">{it.content_preview}</div>
+                    <KatexPlainPreview
+                      text={it.content_preview}
+                      className="line-clamp-3 text-xs leading-snug text-slate-600 [&_.katex]:text-[0.92em]"
+                    />
                     {Object.keys(it.metadata ?? {}).length > 0 && (
                       <div className="mt-1 flex flex-wrap gap-1">
                         {Object.entries(it.metadata).map(([k, v]) => (

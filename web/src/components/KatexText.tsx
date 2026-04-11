@@ -1,7 +1,8 @@
 import katex from "katex";
 import "katex/dist/katex.min.css";
 
-import { stripVisualEmbeds } from "../lib/stripVisualEmbeds";
+import { fixUnbalancedInlineMathDelimiters, stripVisualEmbeds } from "../lib/stripVisualEmbeds";
+import { cn } from "../lib/utils";
 
 function escapeHtml(s: string): string {
   return s
@@ -42,12 +43,14 @@ export function KatexText({ text, className }: { text: string; className?: strin
 
 /** 文字 + `$...$` 公式；去掉图片 / Mermaid / PrimeBrush 占位后再 KaTeX（用于列表摘要等）。 */
 export function KatexPlainPreview({ text, className }: { text: string; className?: string }) {
-  const cleaned = stripVisualEmbeds(text);
+  const cleaned = fixUnbalancedInlineMathDelimiters(stripVisualEmbeds(text));
+  const html = buildKatexHtml(cleaned);
+  /* 必须用短语级根节点：常见于 <button> 内摘要，<div> 在 button 内无效会导致公式无法渲染 */
   return (
-    <div
-      className={className}
+    <span
+      className={cn("min-w-0", className)}
       // eslint-disable-next-line react/no-danger
-      dangerouslySetInnerHTML={{ __html: buildKatexHtml(cleaned) }}
+      dangerouslySetInnerHTML={{ __html: html }}
     />
   );
 }
