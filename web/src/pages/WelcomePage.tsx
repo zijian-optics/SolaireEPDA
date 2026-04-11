@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { BookOpen, Boxes, Cpu, Info, LayoutGrid } from "lucide-react";
 import welcomeLogo from "../assets/welcome-logo.png";
+import { AgentSidebar } from "../components/AgentSidebar";
 import { ExtensionsPanel } from "../components/ExtensionsPanel";
 import { ModelConfigPane } from "../components/welcome/ModelConfigPane";
 import { cn } from "../lib/utils";
@@ -61,7 +62,8 @@ export function WelcomePage({ onProjectReady, onError }: Props) {
         </div>
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+        <AgentSidebar projectBound={false} mode="overlay" />
         <header className="shrink-0 border-b border-slate-700/50 px-8 py-6">
           <h1 className="text-2xl font-semibold tracking-tight text-white">{t("welcome:title")}</h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-400">{t("welcome:subtitle")}</p>

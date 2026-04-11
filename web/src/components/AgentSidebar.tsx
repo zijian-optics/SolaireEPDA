@@ -27,7 +27,7 @@ export function AgentSidebar({
         <aside
           className={cn(
             "pointer-events-auto absolute bottom-0 right-0 top-0 z-[40] flex overflow-hidden border-l border-slate-200 bg-white shadow-2xl transition-transform duration-200 ease-out",
-            sidebarOpen ? "w-[min(22rem,calc(100vw-4.25rem))] translate-x-0" : "w-[min(22rem,calc(100vw-4.25rem))] translate-x-full pointer-events-none",
+            sidebarOpen ? "w-[min(22rem,100%)] translate-x-0" : "w-[min(22rem,100%)] translate-x-full pointer-events-none",
           )}
           aria-hidden={!sidebarOpen}
         >

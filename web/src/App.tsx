@@ -303,11 +303,11 @@ function AppShell() {
                   {page === "analysis" && <AnalysisWorkspace />}
                   {page === "log" && <LogWorkspace />}
                 </main>
+                <AgentSidebar projectBound mode="overlay" />
               </div>
             </div>
           </>
         )}
-        <AgentSidebar projectBound={Boolean(info?.bound)} mode="overlay" />
       </div>
     </div>
   );
