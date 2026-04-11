@@ -1,6 +1,8 @@
 import katex from "katex";
 import "katex/dist/katex.min.css";
 
+import { stripVisualEmbeds } from "../lib/stripVisualEmbeds";
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
@@ -34,6 +36,18 @@ export function KatexText({ text, className }: { text: string; className?: strin
       className={className}
       // eslint-disable-next-line react/no-danger
       dangerouslySetInnerHTML={{ __html: buildKatexHtml(text) }}
+    />
+  );
+}
+
+/** 文字 + `$...$` 公式；去掉图片 / Mermaid / PrimeBrush 占位后再 KaTeX（用于列表摘要等）。 */
+export function KatexPlainPreview({ text, className }: { text: string; className?: string }) {
+  const cleaned = stripVisualEmbeds(text);
+  return (
+    <div
+      className={className}
+      // eslint-disable-next-line react/no-danger
+      dangerouslySetInnerHTML={{ __html: buildKatexHtml(cleaned) }}
     />
   );
 }

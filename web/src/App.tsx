@@ -30,6 +30,7 @@ import { TemplateWorkspace } from "./pages/TemplateWorkspace";
 import { WelcomeWorkspace } from "./pages/WelcomeWorkspace";
 import { ApiError, apiDelete, apiGet, apiPost, apiPut } from "./api/client";
 import { ContentWithPrimeBrush } from "./components/ContentWithPrimeBrush";
+import { KatexPlainPreview } from "./components/KatexText";
 import { TexSetupNotice } from "./components/TexSetupNotice";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { cn } from "./lib/utils";
@@ -1462,7 +1463,10 @@ function ComposeWorkspace({ onError }: { onError: (s: string | null) => void }) 
                         </span>
                       ) : null}
                       <span className="ml-1 font-mono text-[11px] text-slate-800">{q.qualified_id}</span>
-                      <div className="mt-1 line-clamp-3 text-xs text-slate-600">{q.content_preview}</div>
+                      <KatexPlainPreview
+                        text={q.content_preview}
+                        className="mt-1 line-clamp-3 text-xs leading-snug text-slate-600 [&_.katex]:text-[0.92em]"
+                      />
                     </button>
                   </li>
                 );
@@ -1809,7 +1813,10 @@ function ComposeWorkspace({ onError }: { onError: (s: string | null) => void }) 
                                   )}
                                 >
                                   <span className="font-mono text-xs text-slate-800">{qid}</span>
-                                  <div className="line-clamp-2 text-xs text-slate-600">{questionMap.get(qid)?.content_preview}</div>
+                                  <KatexPlainPreview
+                                    text={questionMap.get(qid)?.content_preview ?? ""}
+                                    className="line-clamp-2 text-xs leading-snug text-slate-600 [&_.katex]:text-[0.92em]"
+                                  />
                                   {perQuestionMode[s.section_id] ? (
                                     <div
                                       className="mt-1 flex items-center gap-1 border-t border-slate-100 pt-1"
@@ -1883,7 +1890,10 @@ function ComposeWorkspace({ onError }: { onError: (s: string | null) => void }) 
                                   <span className="font-mono text-[11px] text-slate-800">{slot.rep.group_id}</span>
                                 </div>
                                 <p className="mt-0.5 font-mono text-[10px] leading-tight text-slate-500">{slot.qids.join(" · ")}</p>
-                                <div className="line-clamp-2 text-xs text-slate-600">{prevText}</div>
+                                <KatexPlainPreview
+                                  text={prevText ?? ""}
+                                  className="line-clamp-2 text-xs leading-snug text-slate-600 [&_.katex]:text-[0.92em]"
+                                />
                                 {perQuestionMode[s.section_id] ? (
                                   <div
                                     className="mt-1 flex items-center gap-1 border-t border-slate-100 pt-1"

@@ -3,11 +3,8 @@ import mermaid from "mermaid";
 
 import { resourceApiUrl } from "../api/client";
 import { initMermaid } from "../lib/mermaidInit";
+import { VISUAL_EMBED_RE } from "../lib/stripVisualEmbeds";
 import { buildKatexHtml } from "./KatexText";
-
-/** PrimeBrush / Mermaid / EMBED Web markers, or raw ```mermaid fences (client render). */
-const SEGMENT_RE =
-  /:::((?:PRIMEBRUSH|MERMAID|EMBED)_IMG):([^:]+):::|```mermaid\s*\n([\s\S]*?)```/g;
 
 function MermaidFencePreview({ body }: { body: string }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -46,9 +43,9 @@ export function ContentWithPrimeBrush({ text, className }: { text: string; class
   const nodes: ReactNode[] = [];
   let last = 0;
   let key = 0;
-  SEGMENT_RE.lastIndex = 0;
+  VISUAL_EMBED_RE.lastIndex = 0;
   let m: RegExpExecArray | null;
-  while ((m = SEGMENT_RE.exec(text)) !== null) {
+  while ((m = VISUAL_EMBED_RE.exec(text)) !== null) {
     if (m.index > last) {
       const seg = text.slice(last, m.index);
       nodes.push(
