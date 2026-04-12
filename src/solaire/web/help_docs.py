@@ -94,9 +94,8 @@ def help_index() -> dict[str, Any]:
         if not pid or not title or not path:
             continue
         sec_raw = p.get("section")
-        valid_sections = ("intro", "guide", "advanced")
-        if isinstance(sec_raw, str) and sec_raw in valid_sections:
-            section = sec_raw
+        if isinstance(sec_raw, str) and sec_raw.strip():
+            section = sec_raw.strip()
         elif sec_raw == "automation":
             # 兼容旧版 manifest：历史上把图谱 HTTP 接口归为 automation
             section = "advanced"

@@ -27,9 +27,10 @@ https://www.gnu.org/licenses/agpl-3.0.html
 
 ## 联系作者
 
-- **代码仓库**：*（提交后补充）*
-- **问题反馈**：通过仓库 Issues 提交，或发送邮件至 hectorzhang4253@gmail.com
+- **代码仓库**：*https://github.com/zijian-optics/SolaireEPDA*
+- **建议反馈**：通过仓库 Issues 提交，或发送邮件至 hectorzhang4253@gmail.com，或加入qq群1094709486
 - **安全漏洞报告**：请通过 hectorzhang4253@gmail.com 联系，勿在公开 Issue 中披露。
+- **合作与商务**: 请通过 hectorzhang4253@gmail.com 联系作者
 
 ## 名称与标识
 

@@ -22,6 +22,20 @@
       "section": "入门与理念"
     },
     {
+      "id": "tutorial-index",
+      "title": "组卷流程与导出说明",
+      "path": "tutorial/README.md",
+      "audience": "user",
+      "section": "试卷生成"
+    },
+    {
+      "id": "template-and-layout",
+      "title": "版式模板与全局版式样式",
+      "path": "tutorial/template-and-layout.md",
+      "audience": "user",
+      "section": "试卷生成"
+    },
+    {
       "id": "bank-exchange",
       "title": "题库交换包",
       "path": "user/bank-exchange.md",
@@ -50,32 +64,18 @@
       "section": "题库建设"
     },
     {
-      "id": "template-and-layout",
-      "title": "版式模板与全局版式样式",
-      "path": "tutorial/template-and-layout.md",
-      "audience": "user",
-      "section": "试卷生成（模板与组卷）"
-    },
-    {
-      "id": "tutorial-index",
-      "title": "组卷流程与导出说明",
-      "path": "tutorial/README.md",
-      "audience": "user",
-      "section": "试卷生成（模板与组卷）"
-    },
-    {
       "id": "knowledge-graph",
       "title": "知识图谱的业务用法",
       "path": "user/knowledge-graph.md",
       "audience": "user",
-      "section": "考后分析与图谱"
+      "section": "知识图谱"
     },
     {
       "id": "custom-analysis-script",
       "title": "考试报表与分析工具",
       "path": "tutorial/custom-analysis-script.md",
       "audience": "user",
-      "section": "考后分析与图谱"
+      "section": "考后分析"
     },
     {
       "id": "teaching-assistant",

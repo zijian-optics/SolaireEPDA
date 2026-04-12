@@ -23,6 +23,8 @@ type HelpIndexEntry = { id: string; title: string; audience: string; section?: s
 type HelpIndex = { pages: HelpIndexEntry[] };
 type HelpPage = { id: string; title: string; audience: string; markdown: string };
 
+const SECTION_ORDER = ["入门与理念", "知识图谱", "题库建设", "试卷生成", "考后分析", "智能辅助", "其它"] as const;
+
 const mdComponents = {
   h1: ({ children }: { children?: ReactNode }) => (
     <h1 className="mb-4 mt-8 border-b border-slate-200 pb-2 text-xl font-semibold text-slate-900 first:mt-0">{children}</h1>
@@ -108,8 +110,9 @@ export function HelpWorkspace({ onError }: { onError: (msg: string | null) => vo
         const pages = data.pages as HelpIndexEntry[];
         setIndex(pages);
         if (pages.length > 0) {
-          const intro = pages.find((p) => p.section === "intro");
-          setSelectedId((intro ?? pages[0]).id);
+          const withSection = pages.map((p) => ({ ...p, section: (p.section ?? "").trim() }));
+          const preferred = SECTION_ORDER.map((s) => withSection.find((p) => p.section === s)).find(Boolean);
+          setSelectedId((preferred ?? withSection[0]).id);
         }
       } catch (e) {
         if (!cancelled) {
@@ -148,9 +151,29 @@ export function HelpWorkspace({ onError }: { onError: (msg: string | null) => vo
     };
   }, [selectedId, onError]);
 
-  const introPages = useMemo(() => (index ?? []).filter((p) => p.section === "intro"), [index]);
-  const guidePages = useMemo(() => (index ?? []).filter((p) => p.section === "guide"), [index]);
-  const advancedPages = useMemo(() => (index ?? []).filter((p) => p.section === "advanced"), [index]);
+  const sectionGroups = useMemo(() => {
+    const pages = (index ?? []).map((p) => ({ ...p, section: (p.section ?? "").trim() || "其它" }));
+    const map = new Map<string, HelpIndexEntry[]>();
+    for (const p of pages) {
+      const key = (p.section ?? "").trim() || "其它";
+      const arr = map.get(key);
+      if (arr) {
+        arr.push(p);
+      } else {
+        map.set(key, [p]);
+      }
+    }
+    const known: Array<{ name: string; pages: HelpIndexEntry[] }> = [];
+    for (const name of SECTION_ORDER) {
+      const arr = map.get(name);
+      if (arr && arr.length > 0) {
+        known.push({ name, pages: arr });
+        map.delete(name);
+      }
+    }
+    const unknown = Array.from(map.entries()).map(([name, groupPages]) => ({ name, pages: groupPages }));
+    return [...known, ...unknown];
+  }, [index]);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-slate-50">
@@ -165,75 +188,28 @@ export function HelpWorkspace({ onError }: { onError: (msg: string | null) => vo
         <aside className="w-[17rem] shrink-0 overflow-y-auto border-r border-slate-200 bg-white p-3">
           {loading && <p className="px-2 text-xs text-slate-500">{t("loading")}</p>}
           {!loading && index && index.length === 0 && <p className="px-2 text-xs text-slate-500">{t("empty")}</p>}
-          {!loading && introPages.length > 0 && (
-            <div className="mb-4">
-              <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                {t("sectionIntro")}
+          {!loading &&
+            sectionGroups.map((group) => (
+              <div key={group.name} className="mb-4">
+                <div className="px-2 pb-1 text-[11px] font-semibold tracking-wide text-slate-500">{group.name}</div>
+                <ul className="space-y-0.5">
+                  {group.pages.map((p) => (
+                    <li key={p.id}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedId(p.id)}
+                        className={cn(
+                          "w-full rounded-md px-2 py-1.5 text-left text-sm",
+                          selectedId === p.id ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100",
+                        )}
+                      >
+                        {p.title}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
               </div>
-              <ul className="space-y-0.5">
-                {introPages.map((p) => (
-                  <li key={p.id}>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedId(p.id)}
-                      className={cn(
-                        "w-full rounded-md px-2 py-1.5 text-left text-sm",
-                        selectedId === p.id ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100",
-                      )}
-                    >
-                      {p.title}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {!loading && guidePages.length > 0 && (
-            <div className="mb-4">
-              <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                {t("sectionGuide")}
-              </div>
-              <ul className="space-y-0.5">
-                {guidePages.map((p) => (
-                  <li key={p.id}>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedId(p.id)}
-                      className={cn(
-                        "w-full rounded-md px-2 py-1.5 text-left text-sm",
-                        selectedId === p.id ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100",
-                      )}
-                    >
-                      {p.title}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {!loading && advancedPages.length > 0 && (
-            <div className="mb-4">
-              <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                {t("sectionAdvanced")}
-              </div>
-              <ul className="space-y-0.5">
-                {advancedPages.map((p) => (
-                  <li key={p.id}>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedId(p.id)}
-                      className={cn(
-                        "w-full rounded-md px-2 py-1.5 text-left text-sm",
-                        selectedId === p.id ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100",
-                      )}
-                    >
-                      {p.title}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+            ))}
         </aside>
         <div className="min-w-0 flex-1 overflow-y-auto px-6 py-6">
           {page && (
