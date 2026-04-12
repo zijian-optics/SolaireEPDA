@@ -489,16 +489,13 @@ export function AgentChatPanel({
     [busy, ensureSession, runStream],
   );
 
-  const newChat = useCallback(async () => {
+  const newChat = useCallback(() => {
     streamAbortRef.current?.abort();
     setSessionId(null);
     setLines([]);
     setTaskSteps(null);
     setActiveSkillId(null);
-    const { session_id } = await apiAgentCreateSession();
-    setSessionId(session_id);
-    void refreshSessionList();
-  }, [refreshSessionList]);
+  }, []);
 
   const stopStream = useCallback(async () => {
     const sid = sessionId;
@@ -541,7 +538,7 @@ export function AgentChatPanel({
         await apiAgentSessionDelete(id);
         await refreshSessionList();
         if (sessionId === id) {
-          await newChat();
+          newChat();
         }
       } catch (e) {
         window.alert(`${t("sessionDeleteErr")}: ${e instanceof Error ? e.message : String(e)}`);

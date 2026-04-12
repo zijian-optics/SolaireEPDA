@@ -464,3 +464,11 @@
 **验证命令**：`cd web; npx tsc --noEmit`（通过）。
 
 **结果要点**：下拉从「智能助手 / 历史…」那一行正下方展开，宽度与侧栏内容区一致，仍叠在聊天区之上（`z-30`）。
+
+## [2026-04-13] 行为 | 助手「新对话」不再预建 session
+
+**改动摘要**：`AgentChatPanel` 的 `newChat` 仅中止流、清空 `sessionId` / 消息 / 任务步骤 / 快捷协助，不再调用 `apiAgentCreateSession`。服务端会话仍在用户首次 `send`（及需会话的 `confirm` / `planAction` 经 `ensureSession`）时创建。
+
+**验证命令**：`cd web; npx tsc --noEmit`（通过）。
+
+**结果要点**：反复点「新对话」不会在历史列表中增加空会话。
