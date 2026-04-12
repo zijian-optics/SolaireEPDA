@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   apiGraphAttachFile,
@@ -18,11 +18,13 @@ import {
   apiBankItems,
   resourceApiUrl,
 } from "../api/client";
+import { ContentWithPrimeBrush } from "../components/ContentWithPrimeBrush";
+import { LatexRichTextField } from "../components/LatexRichTextField";
 import { KatexPlainPreview } from "../components/KatexText";
 import { cn } from "../lib/utils";
 import { QUESTION_TYPE_OPTIONS } from "../lib/questionTypes";
 import { localeCompareStrings } from "../lib/locale";
-import type { GraphNodeRow, GraphRelationRow, BoundQuestion, NodeFileLink, PanelTab } from "./useGraphStore";
+import type { GraphNodeNoteRow, GraphNodeRow, GraphRelationRow, BoundQuestion, NodeFileLink, PanelTab } from "./useGraphStore";
 
 const REL_KEYS = ["prerequisite", "part_of", "related", "causal"] as const;
 const REL_COLOR: Record<string, string> = {
@@ -70,7 +72,6 @@ export function GraphNodePanel({
   // Edit state
   const [draftName, setDraftName] = useState("");
   const [draftSubject, setDraftSubject] = useState("");
-  const [draftDesc, setDraftDesc] = useState("");
   const [draftTags, setDraftTags] = useState("");
   const [draftAliases, setDraftAliases] = useState("");
   const [draftKind, setDraftKind] = useState<"concept" | "skill" | "causal">("concept");
@@ -98,6 +99,12 @@ export function GraphNodePanel({
   const [fileList, setFileList] = useState<{ path: string; size: number }[]>([]);
   const [fileSel, setFileSel] = useState<Set<string>>(() => new Set());
 
+  // Notes (separate from legacy description; persisted as `notes` on node)
+  const [notesList, setNotesList] = useState<GraphNodeNoteRow[]>([]);
+  const [noteComposerOpen, setNoteComposerOpen] = useState(false);
+  const [noteDraftBody, setNoteDraftBody] = useState("");
+  const noteTextAreaRef = useRef<HTMLTextAreaElement>(null);
+
   // Highlight ref for edge
   const edgeItemRef = useRef<HTMLLIElement | null>(null);
 
@@ -111,11 +118,19 @@ export function GraphNodePanel({
     }
     setDraftName(selectedNode.canonical_name ?? "");
     setDraftSubject(selectedNode.subject ?? "");
-    setDraftDesc(selectedNode.description ?? "");
     setDraftTags((selectedNode.tags ?? []).join(", "));
     setDraftAliases((selectedNode.aliases ?? []).join(", "));
     setDraftKind((selectedNode.node_kind as "concept" | "skill" | "causal") ?? "concept");
     setDraftPrimaryParent(selectedNode.primary_parent_id ?? "");
+    setNotesList(
+      (selectedNode.notes ?? []).map((n) => ({
+        id: n.id,
+        body: n.body ?? "",
+        created_at: n.created_at,
+      })),
+    );
+    setNoteComposerOpen(false);
+    setNoteDraftBody("");
   }, [selectedNode]);
 
   // Load questions & files when node selected
@@ -156,6 +171,35 @@ export function GraphNodePanel({
     return () => window.clearTimeout(timer);
   }, [fileOpen, fileQ]);
 
+  const persistNotes = useCallback(async (next: GraphNodeNoteRow[]): Promise<boolean> => {
+    if (!selectedNode) return false;
+    setBusy(true);
+    onError(null);
+    try {
+      await apiGraphUpdateNode(
+        selectedNode.id,
+        {
+          id: selectedNode.id,
+          canonical_name: (selectedNode.canonical_name ?? "").trim() || selectedNode.id,
+          notes: next.map((n) => ({
+            id: n.id,
+            body: n.body,
+            ...(n.created_at ? { created_at: n.created_at } : {}),
+          })),
+        },
+        activeSlug,
+      );
+      setNotesList(next);
+      onSaved();
+      return true;
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }, [selectedNode, activeSlug, onSaved, onError]);
+
   if (!selectedNode) {
     return (
       <div className="flex h-full flex-col items-center justify-center p-4 text-xs text-slate-400">
@@ -189,12 +233,16 @@ export function GraphNodePanel({
           aliases: splitCsv(draftAliases),
           subject: draftSubject.trim() || null,
           level: (selectedNode.level ?? "").trim() || null,
-          description: draftDesc.trim() || null,
           tags: splitCsv(draftTags),
           source: null,
           layout_x: selectedNode.layout_x ?? null,
           layout_y: selectedNode.layout_y ?? null,
           primary_parent_id: draftPrimaryParent.trim() || null,
+          notes: notesList.map((n) => ({
+            id: n.id,
+            body: n.body,
+            ...(n.created_at ? { created_at: n.created_at } : {}),
+          })),
         },
         activeSlug,
       );
@@ -420,6 +468,7 @@ export function GraphNodePanel({
     { id: "edit", label: t("panelTabEdit") },
     { id: "questions", label: t("panelTabQuestions") },
     { id: "files", label: t("panelTabFiles") },
+    { id: "notes", label: t("panelTabNotes") },
   ];
 
   return (
@@ -494,16 +543,6 @@ export function GraphNodePanel({
                 className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm font-mono"
                 value={draftAliases}
                 onChange={(e) => setDraftAliases(e.target.value)}
-              />
-            </label>
-
-            <label className="block text-[11px] font-medium text-slate-600">
-              {t("brief")}
-              <textarea
-                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-                rows={3}
-                value={draftDesc}
-                onChange={(e) => setDraftDesc(e.target.value)}
               />
             </label>
 
@@ -862,6 +901,87 @@ export function GraphNodePanel({
                 </div>
               </div>
             ) : null}
+          </div>
+        )}
+
+        {/* Tab 4: Notes */}
+        {tab === "notes" && (
+          <div className="space-y-3">
+            <p className="text-[11px] text-slate-500">{t("noteHint")}</p>
+            {!noteComposerOpen ? (
+              <button
+                type="button"
+                className="w-full rounded-md bg-slate-900 py-2 text-sm font-medium text-white disabled:opacity-50"
+                disabled={busy}
+                onClick={() => {
+                  setNoteDraftBody("");
+                  setNoteComposerOpen(true);
+                }}
+              >
+                {t("addNote")}
+              </button>
+            ) : (
+              <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-2">
+                <LatexRichTextField
+                  textAreaRef={noteTextAreaRef}
+                  syncTextAreaId={`graph-node-note-${selectedNode.id}`}
+                  minRows={4}
+                  value={noteDraftBody}
+                  onChange={setNoteDraftBody}
+                  busy={busy}
+                />
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                    disabled={busy}
+                    onClick={() => void (async () => {
+                      const ok = await persistNotes([...notesList, { id: crypto.randomUUID(), body: noteDraftBody }]);
+                      if (ok) {
+                        setNoteComposerOpen(false);
+                        setNoteDraftBody("");
+                      }
+                    })()}
+                  >
+                    {t("saveNote")}
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-800"
+                    disabled={busy}
+                    onClick={() => {
+                      setNoteComposerOpen(false);
+                      setNoteDraftBody("");
+                    }}
+                  >
+                    {t("cancelNote")}
+                  </button>
+                </div>
+              </div>
+            )}
+            <ul className="space-y-2">
+              {notesList.map((note) => (
+                <li
+                  key={note.id}
+                  className="relative rounded-md border border-slate-200 bg-white p-2 pr-8 text-sm"
+                >
+                  <button
+                    type="button"
+                    className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded text-[14px] leading-none text-slate-500 hover:bg-slate-100 hover:text-red-600"
+                    title={t("removeNoteTitle")}
+                    disabled={busy}
+                    onClick={() => void persistNotes(notesList.filter((n) => n.id !== note.id))}
+                    aria-label={t("removeNoteTitle")}
+                  >
+                    ×
+                  </button>
+                  <ContentWithPrimeBrush text={note.body} className="text-slate-900" />
+                </li>
+              ))}
+              {notesList.length === 0 && !noteComposerOpen ? (
+                <li className="text-xs text-slate-400">{t("noNotesYet")}</li>
+              ) : null}
+            </ul>
           </div>
         )}
       </div>

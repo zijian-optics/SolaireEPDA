@@ -5,6 +5,12 @@
 import { create } from "zustand";
 import type { GraphInfo } from "../api/client";
 
+export type GraphNodeNoteRow = {
+  id: string;
+  body: string;
+  created_at?: string;
+};
+
 export type GraphNodeRow = {
   id: string;
   canonical_name: string;
@@ -18,6 +24,7 @@ export type GraphNodeRow = {
   layout_y?: number | null;
   file_link_count?: number;
   primary_parent_id?: string | null;
+  notes?: GraphNodeNoteRow[];
 };
 
 export type GraphRelationRow = {
@@ -43,7 +50,7 @@ export type NodeFileLink = {
 export type ViewMode = "mindmap" | "graph";
 
 /** Right-panel tab */
-export type PanelTab = "edit" | "questions" | "files";
+export type PanelTab = "edit" | "questions" | "files" | "notes";
 
 interface GraphStore {
   // Multi-graph management

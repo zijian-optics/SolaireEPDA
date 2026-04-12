@@ -299,6 +299,14 @@ class GraphRenameBody(BaseModel):
     display_name: str = Field(..., min_length=1, description="新名称")
 
 
+class GraphNodeNoteBody(BaseModel):
+    """图谱节点笔记项（与 knowledge_forge.GraphNodeNote 对齐）。"""
+
+    id: str = Field(..., min_length=1)
+    body: str = Field(default="", description="富文本正文")
+    created_at: str | None = Field(default=None, description="ISO8601，可选")
+
+
 class GraphNodeCreateBody(BaseModel):
     id: str | None = Field(default=None, description="知识点标识；留空则根据父级与名称自动生成")
     parent_node_id: str | None = Field(default=None, description="父级知识点标识；留空时需手动填写 id")
@@ -316,6 +324,7 @@ class GraphNodeCreateBody(BaseModel):
     layout_x: float | None = Field(default=None, description="画布坐标 X")
     layout_y: float | None = Field(default=None, description="画布坐标 Y")
     primary_parent_id: str | None = Field(default=None, description="思维导图主父节点 ID")
+    notes: list[GraphNodeNoteBody] | None = Field(default=None, description="维护笔记列表；不传则更新时不改已有笔记")
 
 
 class GraphRelationCreateBody(BaseModel):

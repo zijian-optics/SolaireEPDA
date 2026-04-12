@@ -408,3 +408,27 @@
 **验证命令**：`cd web; npx tsc --noEmit`（通过）。
 
 **结果要点**：主树实线始终显示；交叉关系按需显示。
+
+## [2026-04-13] 功能 | 图谱节点笔记 Tab 与移除简述
+
+**改动摘要**：后端 `GraphNodeNote` + `ConceptNode.notes`（[`service.py`](src/solaire/knowledge_forge/service.py)）；`GraphNodeCreateBody` 增加可选 `notes`（[`app.py`](src/solaire/web/app.py)）。前端 `GraphNodeRow.notes`、`PanelTab` 含 `notes`；[`GraphNodePanel.tsx`](web/src/graph/GraphNodePanel.tsx) 移除简述编辑；新增笔记 Tab（`LatexRichTextField` 编写、`ContentWithPrimeBrush` 预览、× 删除）；编辑保存与笔记保存均 PUT `notes`。`zh`/`en` graph.json 新增文案。
+
+**验证命令**：`cd web; npx tsc --noEmit`；`pixi run pytest tests/test_graph_service.py tests/test_graph_api.py -q`（通过）。
+
+**结果要点**：简述仍存于模型与旧数据，面板不再编辑；多条笔记独立增删。
+
+## [2026-04-13] Bug 修复 | 仅保存笔记时 PUT 422
+
+**改动摘要**：`GraphNodeCreateBody` 要求 `canonical_name`；`persistNotes` 原只传 `id`+`notes` 触发 422。`GraphNodePanel.persistNotes` 请求体增加 `canonical_name`（取自当前节点，兜底为 id）。
+
+**验证命令**：`cd web; npx tsc --noEmit`（通过）。
+
+**结果要点**：笔记保存与编辑 Tab 保存均满足 FastAPI 请求体验证。
+
+## [2026-04-13] Bug 修复 | GraphNodePanel 切换页面白屏（Hooks 顺序）
+
+**改动摘要**：`persistNotes` 的 `useCallback` 曾写在 `if (!selectedNode) return …` 之后；`selectedNode` 变为 `null` 时提前返回导致少执行一个 hook，触发 `Rendered fewer hooks than expected`。已将 `persistNotes` 上移至该提前 return 之前，与其它 hooks 顺序一致。
+
+**验证命令**：`cd web; npx tsc --noEmit`（通过）。
+
+**结果要点**：离开图谱或取消选中节点时不再因 hooks 数量不一致而崩溃。

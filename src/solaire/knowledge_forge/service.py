@@ -46,6 +46,16 @@ def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class GraphNodeNote(BaseModel):
+    """图谱节点上的多条维护笔记（富文本与题目题干同源序列化）。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: str = Field(min_length=1)
+    body: str = Field(default="", description="HTML/占位串，前端用 ContentWithPrimeBrush 预览")
+    created_at: datetime = Field(default_factory=_now_utc)
+
+
 class ConceptNode(BaseModel):
     """图谱节点；需求书中的 Concept / Skill / Causal 以 node_kind 区分（同表存储）。"""
 
@@ -67,6 +77,7 @@ class ConceptNode(BaseModel):
     layout_y: float | None = None
     primary_parent_id: str | None = None
     """思维导图视角的主父节点 ID，用于构建严格树结构。"""
+    notes: list[GraphNodeNote] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=_now_utc)
     updated_at: datetime = Field(default_factory=_now_utc)
 
