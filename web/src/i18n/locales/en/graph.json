@@ -51,6 +51,7 @@
   "pickRefocusFirst": "Click Refocus or select a node before enabling focus",
   "focusSelectCenter": "When focus is on, the selected node can be the center",
   "relTypeCanvas": "Relation type (canvas)",
+  "relTypeMindmap": "Relation type (cross-links)",
   "subjectCanvas": "Subject (canvas)",
   "nodeTypeCanvas": "Node type (canvas)",
   "canvasStyleNote": "Nodes are circles; edges are straight (semi-transparent, no labels). Labels show in neighborhood focus.",

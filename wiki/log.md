@@ -392,3 +392,19 @@
 **验证命令**：`cd web; npx tsc --noEmit`（通过）。
 
 **结果要点**：切换入口与 `BankWorkspace` 等页一致，离开图谱页 `clearToolBar` 回收。
+
+## [2026-04-13] UI | 知识图谱节点 Handle 置于圆盘底层
+
+**改动摘要**：`GraphCanvas.tsx` 的 `KnowledgeNode` 将 target/source 两个 `Handle` 提前并设 `z-0`，标签与标题包在 `absolute inset-0 z-[1]` 且与节点同色的圆角衬层内，视觉上盖住中心连线桩。
+
+**验证命令**：`cd web; npx tsc --noEmit`（通过）。
+
+**结果要点**：连线逻辑不变，DOM 上 Handle 不再浮在文案之上。
+
+## [2026-04-13] UI | 思维导图默认隐藏交叉关系线
+
+**改动摘要**：`MindMapCanvas` 增加与画布类似的关系类型复选框（文案键 `relTypeMindmap`），默认四类全不勾选，不渲染非主树的交叉虚线与标签；勾选某类后仅显示该类的交叉连线。`zh`/`en` graph.json 新增翻译。
+
+**验证命令**：`cd web; npx tsc --noEmit`（通过）。
+
+**结果要点**：主树实线始终显示；交叉关系按需显示。

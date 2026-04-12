@@ -62,6 +62,10 @@ function KnowledgeNode({ data, selected }: NodeProps) {
       : kind === "causal"
         ? "border-amber-300 bg-amber-50"
         : "border-slate-200 bg-white";
+  const kindFill =
+    kind === "skill" ? "bg-violet-50" : kind === "causal" ? "bg-amber-50" : "bg-white";
+  const handleCls =
+    "!z-0 !h-3 !w-3 !border-2 !border-slate-400 !bg-white";
   return (
     <div
       className={cn(
@@ -72,19 +76,27 @@ function KnowledgeNode({ data, selected }: NodeProps) {
       )}
       style={{ width: sizePx, height: sizePx, minWidth: sizePx, minHeight: sizePx, maxWidth: sizePx, maxHeight: sizePx, padding: `${pad}px` }}
     >
-      <Handle type="target" id="t" position={Position.Top} isConnectable={true} className="!h-3 !w-3 !border-2 !border-slate-400 !bg-white" style={{ left: "50%", top: "50%", transform: "translate(-50%, -50%)" }} />
-      <span
+      <Handle type="target" id="t" position={Position.Top} isConnectable={true} className={handleCls} style={{ left: "50%", top: "50%", transform: "translate(-50%, -50%)" }} />
+      <Handle type="source" id="s" position={Position.Bottom} isConnectable={true} className={handleCls} style={{ left: "50%", top: "50%", transform: "translate(-50%, -50%)" }} />
+      <div
         className={cn(
-          "rounded-full px-2 py-0.5 text-[10px] font-medium leading-none",
-          kind === "skill" ? "bg-violet-200 text-violet-900" : kind === "causal" ? "bg-amber-200 text-amber-900" : "bg-slate-200 text-slate-800",
+          "absolute inset-0 z-[1] flex flex-col items-center justify-center gap-1 rounded-full",
+          kindFill,
         )}
+        style={{ padding: `${pad}px` }}
       >
-        {i18n.t(`nodeKind.${kind}`, { ns: "graph", defaultValue: kind })}
-      </span>
-      <div className="line-clamp-3 w-full max-w-[min(92%,11rem)] text-xs font-semibold leading-snug text-slate-900">
-        {String(data.label ?? "")}
+        <span
+          className={cn(
+            "rounded-full px-2 py-0.5 text-[10px] font-medium leading-none",
+            kind === "skill" ? "bg-violet-200 text-violet-900" : kind === "causal" ? "bg-amber-200 text-amber-900" : "bg-slate-200 text-slate-800",
+          )}
+        >
+          {i18n.t(`nodeKind.${kind}`, { ns: "graph", defaultValue: kind })}
+        </span>
+        <div className="line-clamp-3 w-full max-w-[min(92%,11rem)] text-xs font-semibold leading-snug text-slate-900">
+          {String(data.label ?? "")}
+        </div>
       </div>
-      <Handle type="source" id="s" position={Position.Bottom} isConnectable={true} className="!h-3 !w-3 !border-2 !border-slate-400 !bg-white" style={{ left: "50%", top: "50%", transform: "translate(-50%, -50%)" }} />
     </div>
   );
 }

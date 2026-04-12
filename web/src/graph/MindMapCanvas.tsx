@@ -2,7 +2,7 @@
  * MindMapCanvas: Tree-based mind map view using ReactFlow with LR tree layout.
  * - Uses primary_parent_id for tree structure
  * - Nodes without primary_parent_id are direct children of the virtual root
- * - Cross-references (non-primary part_of, prerequisite, related, causal) shown as dashed curves
+ * - Cross-references (non-primary part_of, prerequisite, related, causal): dashed curves + labels, off by default; toolbar toggles per relation type
  * - Supports keyboard shortcuts: Tab (child), Enter (sibling), Delete (delete)
  * - Supports inline rename on double-click
  * - Supports collapse/expand
@@ -37,6 +37,8 @@ import i18n from "../i18n/i18n";
 
 // Virtual root sentinel
 const VIRTUAL_ROOT_ID = "__virtual_root__";
+
+const REL_KEYS = ["prerequisite", "part_of", "related", "causal"] as const;
 
 const REL_COLOR: Record<string, string> = {
   prerequisite: "#2563eb",
@@ -280,6 +282,11 @@ export function MindMapCanvas({
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [crossRelTypeFilter, setCrossRelTypeFilter] = useState<Record<string, boolean>>(() => {
+    const o: Record<string, boolean> = {};
+    for (const k of REL_KEYS) o[k] = false;
+    return o;
+  });
   const [inlineEditId, setInlineEditId] = useState<string | null>(null);
   const [inlineEditValue, setInlineEditValue] = useState("");
   const rfRef = useRef<{ fitView: (opts?: any) => void } | null>(null);
@@ -402,6 +409,7 @@ export function MindMapCanvas({
       })();
 
       if (isPrimaryEdge) continue;
+      if (crossRelTypeFilter[r.relation_type] !== true) continue;
 
       rfEdges.push({
         id: `cross-${r.id}`,
@@ -424,8 +432,7 @@ export function MindMapCanvas({
 
     setNodes(rfNodes);
     setEdges(rfEdges);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graphNodes, relations, childrenByParent, collapsed, inlineEditId, inlineEditValue, activeGraphName, layoutNonce]);
+  }, [graphNodes, relations, childrenByParent, collapsed, crossRelTypeFilter, inlineEditId, inlineEditValue, activeGraphName, layoutNonce, t, onRenameNode]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -509,6 +516,22 @@ export function MindMapCanvas({
         <button type="button" className="rounded border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-800 hover:bg-slate-50" onClick={onRelayout}>
           {t("relayout")}
         </button>
+
+        <span className="hidden h-4 w-px bg-slate-200 sm:inline" aria-hidden />
+
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+          <span className="text-slate-500">{t("relTypeMindmap")}</span>
+          {REL_KEYS.map((k) => (
+            <label key={k} className="inline-flex cursor-pointer items-center gap-1">
+              <input
+                type="checkbox"
+                checked={crossRelTypeFilter[k] === true}
+                onChange={(e) => setCrossRelTypeFilter((prev) => ({ ...prev, [k]: e.target.checked }))}
+              />
+              <span style={{ color: REL_COLOR[k] ?? "#64748b" }}>{t(`edgeKind.${k}`)}</span>
+            </label>
+          ))}
+        </div>
 
         <span className="hidden text-[11px] text-slate-400 sm:inline">
           {t("mindmapHint")}

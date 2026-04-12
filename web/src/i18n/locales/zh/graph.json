@@ -51,6 +51,7 @@
   "pickRefocusFirst": "请先点「重新聚焦」或开启聚焦前选中一个节点",
   "focusSelectCenter": "开启聚焦时可将当前选中节点作为中心",
   "relTypeCanvas": "关系类型（画布）",
+  "relTypeMindmap": "关系类型（交叉连线）",
   "subjectCanvas": "学科（画布）",
   "nodeTypeCanvas": "节点类型（画布）",
   "canvasStyleNote": "节点为圆形，连线为直线（默认半透明、无文字）；开启邻域聚焦后显示关系说明。",
