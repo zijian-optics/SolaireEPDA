@@ -6,12 +6,13 @@ from tests.integration._helpers import write_exam_yaml
 
 
 def _prepare_exam_batch(web_client, tmp_path: Path, exam_id: str) -> str:
-    exam_dir = tmp_path / "result" / exam_id
+    label, subj = exam_id.split("/", 1)
+    exam_dir = tmp_path / "exams" / label / subj
     exam_dir.mkdir(parents=True)
     write_exam_yaml(exam_dir, exam_id, [("选择题", 2, 5.0)])
     csv_text = "姓名,学号,1.1,1.2\n甲,001,5,4\n乙,002,3,1\n"
     files = {"file": ("scores.csv", csv_text.encode("utf-8"), "text/csv")}
-    r = web_client.post(f"/api/results/{exam_id}/scores", files=files)
+    r = web_client.post(f"/api/exams/{exam_id}/scores", files=files)
     assert r.status_code == 200
     return r.json()["batch_id"]
 
@@ -43,7 +44,7 @@ def test_analysis_tools_and_script_crud(web_client) -> None:
 
 
 def test_analysis_builtin_and_job_endpoints(web_client, tmp_path: Path) -> None:
-    exam_id = "api-exam"
+    exam_id = "api-exam/数学"
     batch_id = _prepare_exam_batch(web_client, tmp_path, exam_id)
 
     r_builtin = web_client.post(
@@ -72,7 +73,7 @@ def test_analysis_builtin_and_job_endpoints(web_client, tmp_path: Path) -> None:
 
 
 def test_analysis_tool_invoke(web_client, tmp_path: Path) -> None:
-    exam_id = "invoke-exam"
+    exam_id = "invoke-exam/数学"
     batch_id = _prepare_exam_batch(web_client, tmp_path, exam_id)
 
     r_invoke = web_client.post(
@@ -115,7 +116,7 @@ def test_analysis_tools_schema_version_and_idempotency(web_client, tmp_path: Pat
     assert tools.status_code == 200
     assert all("schema_version" in t for t in tools.json()["tools"])
 
-    exam_id = "idem-exam"
+    exam_id = "idem-exam/数学"
     batch_id = _prepare_exam_batch(web_client, tmp_path, exam_id)
     request_id = "req-001"
     r1 = web_client.post(

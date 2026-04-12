@@ -128,7 +128,7 @@ export function WelcomeWorkspace({ onProjectReady, onError }: Props) {
       <div className="flex min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto p-10">
         <div className="mx-auto w-full max-w-2xl">
           <h1 className="mb-2 text-2xl font-semibold tracking-tight text-white">{t("welcome:title")}</h1>
-          <p className="mb-8 text-sm text-slate-400">{t("welcome:intro")}</p>
+          <p className="mb-8 text-sm text-slate-400">{t("welcome:subtitle")}</p>
 
           <div className="mb-10 flex flex-wrap gap-3">
             <button

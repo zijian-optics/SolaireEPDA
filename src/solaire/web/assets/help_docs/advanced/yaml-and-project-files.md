@@ -11,9 +11,10 @@
   resource/<科目>/<题集>/     # 题库：questions.yaml 或若干 *.yaml
   templates/                   # 试卷模板：*.yaml + LaTeX 基架
   result/                      # 导出 PDF 等产物
+  exams/                       # 组卷「考试工作区」：每套考试独立目录，含可编辑 exam 描述与状态
   analysis/                    # 自定义分析脚本（可选）
   .solaire/                    # 组卷/构建辅助（由工具生成，勿手改除非排错）
-    drafts/                    # 组卷草稿
+    drafts/                    # 旧版组卷草稿（可迁移至 exams/）
     agent/                     # 智能助手：会话、记忆、审计等（由系统写入）
 ```
 
@@ -62,7 +63,7 @@
 
 - Web 在**校验**或**导出**时会在 `.solaire/` 下生成/更新面向流水线的 **exam 描述文件**（名称以产品实现为准，如 `validate.yaml` / 构建用 `build.yaml`）。
 - 内容包含：**选用的 `template_ref`、模板相对路径、各小节已选题目 id 列表、试卷标题等 metadata**；各小节还可选 `score_per_item`、`score_overrides`（按题目完整编号覆盖分值）。  
-- **教师草稿**另存于 `.solaire/drafts/*.yaml`，便于下次继续组卷；**不要**手工编辑流水线用 `build.yaml` / `validate.yaml` 代替界面操作，除非明确在排错。
+- **组卷可编辑内容**默认保存在 `exams/<考试目录id>/exam.yaml`（旁路状态文件同目录）；旧版亦可能仍在 `.solaire/drafts/*.yaml`，可一次性迁移。**不要**手工编辑流水线用 `build.yaml` / `validate.yaml` 代替界面操作，除非明确在排错。
 
 ---
 

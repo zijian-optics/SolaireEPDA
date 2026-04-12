@@ -122,6 +122,67 @@ def test_latex_metadata_ui_returns_warnings(web_client, tmp_path: Path) -> None:
     assert "bad" not in keys
 
 
+def test_template_rename_after_save(web_client, tmp_path: Path) -> None:
+    td = tmp_path / "templates"
+    td.mkdir(parents=True, exist_ok=True)
+    p = td / "新模板.yaml"
+    content = yaml.dump(
+        {
+            "template_id": "高中历史选择",
+            "layout": "single_column",
+            "latex_base": "exam-zh-base.tex.j2",
+            "sections": [
+                {"section_id": "一", "type": "text", "required_count": 0, "score_per_item": 0},
+            ],
+        },
+    )
+    p.write_text(content, encoding="utf-8")
+    r = web_client.put(
+        "/api/templates/raw",
+        json={
+            "path": "templates/新模板.yaml",
+            "yaml": content,
+            "rename_to": "templates/高中历史选择.yaml",
+        },
+    )
+    assert r.status_code == 200
+    assert r.json()["path"] == "templates/高中历史选择.yaml"
+    assert not p.is_file()
+    assert (td / "高中历史选择.yaml").is_file()
+    lst = web_client.get("/api/templates")
+    assert lst.status_code == 200
+    ids = [x["id"] for x in lst.json()["templates"]]
+    assert "高中历史选择" in ids
+
+
+def test_template_rename_post_endpoint(web_client, tmp_path: Path) -> None:
+    """POST /api/templates/rename 仍可用（与单次 PUT 等价场景）。"""
+    td = tmp_path / "templates"
+    td.mkdir(parents=True, exist_ok=True)
+    p = td / "a.yaml"
+    p.write_text(
+        yaml.dump(
+            {
+                "template_id": "b",
+                "layout": "single_column",
+                "latex_base": "exam-zh-base.tex.j2",
+                "sections": [
+                    {"section_id": "一", "type": "text", "required_count": 0, "score_per_item": 0},
+                ],
+            },
+        ),
+        encoding="utf-8",
+    )
+    r = web_client.post(
+        "/api/templates/rename",
+        json={"from_path": "templates/a.yaml", "to_path": "templates/b.yaml"},
+    )
+    assert r.status_code == 200
+    assert r.json()["path"] == "templates/b.yaml"
+    assert not p.is_file()
+    assert (td / "b.yaml").is_file()
+
+
 def test_materialize_matches_compile_path_options() -> None:
     """Merged metadata used by editor should match diagram_expand option resolution for nested dicts."""
     from solaire.exam_compiler.pipeline.diagram_expand import (

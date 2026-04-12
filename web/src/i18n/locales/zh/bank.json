@@ -79,5 +79,10 @@
   "defaultSubject": "数学",
   "latexStemPh": "（题干，支持公式）",
   "sharedMaterialDefault": "（共用材料）\n",
-  "defaultTarget": "默认"
+  "defaultTarget": "默认",
+  "workViewFields": "字段编辑",
+  "workViewPreview": "浏览",
+  "workViewSource": "源文件",
+  "closeTabConfirm": "此标签有未保存的修改，确定关闭？",
+  "switchTabDiscard": "当前题目有未保存的修改，切换将放弃修改，是否继续？"
 }

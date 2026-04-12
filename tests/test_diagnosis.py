@@ -7,18 +7,18 @@ from tests.integration._helpers import write_exam_yaml
 
 
 def test_diagnosis_api_after_bind_and_recompute(web_client, tmp_path: Path) -> None:
-    exam_id = "diag-api-exam"
-    exam_dir = tmp_path / "result" / exam_id
+    exam_id = "diag-api-exam/数学"
+    exam_dir = tmp_path / "exams" / "diag-api-exam" / "数学"
     exam_dir.mkdir(parents=True)
     write_exam_yaml(exam_dir, exam_id, [("选择题", 1, 5.0)])
 
     csv_text = "姓名,学号,1.1\n甲,,5\n乙,,2\n"
     files = {"file": ("scores.csv", csv_text.encode("utf-8"), "text/csv")}
-    r_import = web_client.post(f"/api/results/{exam_id}/scores", files=files)
+    r_import = web_client.post(f"/api/exams/{exam_id}/scores", files=files)
     assert r_import.status_code == 200, r_import.text
     batch_id = r_import.json()["batch_id"]
 
-    r0 = web_client.get(f"/api/results/{exam_id}/scores/{batch_id}")
+    r0 = web_client.get(f"/api/exams/{exam_id}/scores/{batch_id}")
     assert r0.status_code == 200
     qid = r0.json()["question_stats"][0]["question_id"]
 
@@ -32,7 +32,7 @@ def test_diagnosis_api_after_bind_and_recompute(web_client, tmp_path: Path) -> N
         json={"question_qualified_id": qid, "node_id": node_id},
     ).status_code == 200
 
-    assert web_client.post(f"/api/results/{exam_id}/scores/{batch_id}/recompute", json={}).status_code == 200
+    assert web_client.post(f"/api/exams/{exam_id}/scores/{batch_id}/recompute", json={}).status_code == 200
 
     r = web_client.get("/api/analysis/diagnosis/knowledge", params={"exam_id": exam_id, "batch_id": batch_id})
     assert r.status_code == 200, r.text
@@ -59,8 +59,8 @@ def test_diagnosis_module_direct(tmp_path: Path) -> None:
 
     root = tmp_path / "proj"
     ensure_project_layout(root)
-    exam_id = "e-diag"
-    exam_dir = root / "result" / exam_id
+    exam_id = "e-diag/数学"
+    exam_dir = root / "exams" / "e-diag" / "数学"
     exam_dir.mkdir(parents=True)
     write_exam_yaml(exam_dir, exam_id, [("选择题", 1, 5.0)])
 

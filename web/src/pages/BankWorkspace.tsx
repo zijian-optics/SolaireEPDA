@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import yaml from "js-yaml";
 import {
@@ -23,8 +23,12 @@ import { KatexPlainPreview } from "../components/KatexText";
 import { MathInsertOverlay } from "../components/MathInsertOverlay";
 import { MermaidEditorModal } from "../components/MermaidEditorModal";
 import { useAgentContext } from "../contexts/AgentContext";
+import { useToolBar } from "../contexts/ToolBarContext";
+import { TabPanel, type TabItem } from "../components/layout/TabPanel";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import i18n from "../i18n/i18n";
 import { localeCompareStrings } from "../lib/locale";
+import { SOLAIRE_SAVE_EVENT } from "../lib/saveEvents";
 import { cn } from "../lib/utils";
 import { collapseGroupRowsForList } from "../lib/groupQuestions";
 import { QUESTION_TYPE_OPTIONS } from "../lib/questionTypes";
@@ -86,6 +90,10 @@ export function BankWorkspace({
   const [filterType, setFilterType] = useState<string>("__all__");
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  /** 已打开的题目标签（多窗口编辑） */
+  const [openTabs, setOpenTabs] = useState<string[]>([]);
+  /** 中间工作区：字段编辑 / 浏览 / 源文件 */
+  const [workView, setWorkView] = useState<"fields" | "preview" | "source">("fields");
   const [detail, setDetail] = useState<BankDetailState | null>(null);
   const [busy, setBusy] = useState(false);
   const [importYaml, setImportYaml] = useState("");
@@ -123,6 +131,8 @@ export function BankWorkspace({
   const embedSelectionRef = useRef<{ start: number; end: number } | null>(null);
 
   const { setPageContext } = useAgentContext();
+  const { setToolBar, clearToolBar } = useToolBar();
+  const baselineRef = useRef<Record<string, { yaml: string; detailJson: string }>>({});
 
   useEffect(() => {
     if (selectedId && detail) {
@@ -473,6 +483,10 @@ export function BankWorkspace({
       const m = detailState.question.metadata ?? {};
       setMetaRows(Object.keys(m).length ? Object.entries(m).map(([k, v]) => ({ key: k, value: String(v) })) : [{ key: "", value: "" }]);
       setEditorTab("form");
+      baselineRef.current[qid] = {
+        yaml: detailState.file_yaml,
+        detailJson: JSON.stringify(detailState),
+      };
     },
     [onError],
   );
@@ -656,6 +670,7 @@ export function BankWorkspace({
       const r = await apiPost<{ ok: boolean; qualified_id: string }>("/api/bank/items", body);
       await loadList();
       openModalAfterCreateRef.current = true;
+      setOpenTabs((prev) => (prev.includes(r.qualified_id) ? prev : [...prev, r.qualified_id]));
       setSelectedId(r.qualified_id);
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
@@ -760,6 +775,8 @@ export function BankWorkspace({
         ? `?storage_path=${encodeURIComponent(detail.storage_path)}`
         : "";
       await apiDelete(`/api/bank/items/${enc}${sp}`);
+      setOpenTabs((prev) => prev.filter((x) => x !== selectedId));
+      delete baselineRef.current[selectedId];
       setSelectedId(null);
       setDetail(null);
       await loadList();
@@ -783,6 +800,250 @@ export function BankWorkspace({
     if (!p) return g;
     return { ...g, material: p.material, items: p.items };
   }, [detail]);
+
+  const dirty = useMemo(() => {
+    if (!selectedId || !detail) return false;
+    const b = baselineRef.current[selectedId];
+    if (!b) return false;
+    const yamlDirty = rawYaml !== b.yaml;
+    const formDirty = JSON.stringify(detail) !== b.detailJson;
+    return yamlDirty || formDirty;
+  }, [selectedId, detail, rawYaml]);
+
+  const trySelectId = useCallback(
+    (qid: string | null) => {
+      if (qid === selectedId) return true;
+      if (dirty && !window.confirm(t("switchTabDiscard"))) {
+        return false;
+      }
+      setSelectedId(qid);
+      return true;
+    },
+    [selectedId, dirty, t],
+  );
+
+  const openOrFocusTab = useCallback(
+    (qid: string) => {
+      if (!trySelectId(qid)) return;
+      setOpenTabs((prev) => (prev.includes(qid) ? prev : [...prev, qid]));
+      setEditorModalOpen(false);
+    },
+    [trySelectId],
+  );
+
+  const closeTab = useCallback(
+    (qid: string) => {
+      if (qid === selectedId && dirty && !window.confirm(t("closeTabConfirm"))) {
+        return;
+      }
+      setOpenTabs((prev) => {
+        const next = prev.filter((x) => x !== qid);
+        if (selectedId === qid) {
+          const fallback = next[next.length - 1] ?? null;
+          setSelectedId(fallback);
+          if (!fallback) {
+            setDetail(null);
+          }
+        }
+        return next;
+      });
+      delete baselineRef.current[qid];
+    },
+    [selectedId, dirty, t],
+  );
+
+  useEffect(() => {
+    const left: ReactNode = (
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+          disabled={busy}
+          onClick={() => {
+            const el = document.getElementById("bank-new-question");
+            el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            setTimeout(() => {
+              (el as HTMLDetailsElement | null)?.setAttribute("open", "");
+            }, 0);
+          }}
+        >
+          {t("newQuestion")}
+        </button>
+        <button
+          type="button"
+          className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+          disabled={busy}
+          onClick={() => importFileRef.current?.click()}
+        >
+          {t("pickAndImport")}
+        </button>
+        <button
+          type="button"
+          className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+          disabled={busy || filterCollection === "__all__"}
+          title={filterCollection === "__all__" ? t("exportNeedCollection") : undefined}
+          onClick={() => void doExportBundle()}
+        >
+          {t("exportBundle")}
+        </button>
+        <button
+          type="button"
+          className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50"
+          onClick={() => setBankFilterExpanded((v) => !v)}
+        >
+          {bankFilterExpanded ? t("filterTapToCollapse") : t("filter")}
+        </button>
+      </div>
+    );
+    const right: ReactNode =
+      selectedId && detail ? (
+        <div className="flex items-center gap-2">
+          {dirty ? (
+            <span className="text-[11px] text-amber-700">{t("common:unsavedHint")}</span>
+          ) : null}
+          <button
+            type="button"
+            className="rounded-md bg-slate-900 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
+            disabled={busy || !dirty}
+            onClick={() => {
+              if (workView === "source") {
+                void saveRawYaml();
+              } else {
+                void saveForm();
+              }
+            }}
+          >
+            {t("components:bankEditor.save")}
+          </button>
+        </div>
+      ) : null;
+    setToolBar({ left, right });
+    return () => clearToolBar();
+  }, [
+    t,
+    busy,
+    selectedId,
+    detail,
+    dirty,
+    workView,
+    editorTab,
+    filterCollection,
+    bankFilterExpanded,
+    setToolBar,
+    clearToolBar,
+  ]);
+
+  const saveFormRef = useRef(saveForm);
+  saveFormRef.current = saveForm;
+  const saveRawYamlRef = useRef(saveRawYaml);
+  saveRawYamlRef.current = saveRawYaml;
+
+  useEffect(() => {
+    if (workView === "source") {
+      setEditorTab("yaml");
+    } else if (workView === "fields") {
+      setEditorTab("form");
+    }
+  }, [workView]);
+
+  useEffect(() => {
+    const onSave = () => {
+      if (!selectedId || !detail || !dirty) return;
+      if (workView === "source") {
+        void saveRawYamlRef.current();
+      } else {
+        void saveFormRef.current();
+      }
+    };
+    window.addEventListener(SOLAIRE_SAVE_EVENT, onSave);
+    return () => window.removeEventListener(SOLAIRE_SAVE_EVENT, onSave);
+  }, [selectedId, detail, dirty, workView]);
+
+  const tabItems: TabItem[] = useMemo(
+    () =>
+      openTabs.map((id) => {
+        const short = id.includes("/") ? id.split("/").pop() ?? id : id;
+        return { id, label: short, dirty: id === selectedId && dirty, closable: true };
+      }),
+    [openTabs, selectedId, dirty],
+  );
+
+  const previewBlock =
+    !previewQ && !previewGroup ? (
+      <p className="mt-4 text-sm text-slate-500">{t("previewEmpty")}</p>
+    ) : previewGroup ? (
+      <div className="mt-3 space-y-4 text-sm">
+        <div>
+          <p className="text-[11px] font-medium text-slate-500">{t("sharedMaterialLabel")}</p>
+          <ContentWithPrimeBrush text={previewGroup.material} className="mt-1 text-slate-900" />
+        </div>
+        {previewGroup.items.map((it, i) => {
+          const rowIsChoice =
+            previewGroup.unified === false
+              ? (it.type ?? "choice") === "choice"
+              : typeof previewGroup.unified === "string" && previewGroup.unified === "choice";
+          return (
+            <div key={i} className="border-t border-slate-100 pt-3">
+              <p className="text-[11px] font-medium text-slate-500">{t("subItemIndex", { n: i + 1 })}</p>
+              <ContentWithPrimeBrush text={it.content} className="mt-1 text-slate-900" />
+              {rowIsChoice && (
+                <div>
+                  <p className="text-[11px] font-medium text-slate-500">{t("options")}</p>
+                  <ul className="mt-1 list-inside list-disc text-slate-700">
+                    {Object.entries(it.options ?? { A: "", B: "", C: "", D: "" }).map(([k, v]) => (
+                      <li key={k}>
+                        <strong>{k}</strong>{" "}
+                        <span className="inline-block align-top">
+                          <ContentWithPrimeBrush text={v} className="inline" />
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <details>
+                <summary className="cursor-pointer text-xs text-slate-600">{t("answer")}</summary>
+                <ContentWithPrimeBrush text={it.answer} className="mt-1" />
+              </details>
+              <details>
+                <summary className="cursor-pointer text-xs text-slate-600">{t("analysis")}</summary>
+                <ContentWithPrimeBrush text={it.analysis || ""} className="mt-1" />
+              </details>
+            </div>
+          );
+        })}
+      </div>
+    ) : (
+      <div className="mt-3 space-y-4 text-sm">
+        <div>
+          <p className="text-[11px] font-medium text-slate-500">{t("stem")}</p>
+          <ContentWithPrimeBrush text={previewQ!.content} className="mt-1 text-slate-900" />
+        </div>
+        {previewQ!.type === "choice" && previewQ!.options && (
+          <div>
+            <p className="text-[11px] font-medium text-slate-500">{t("options")}</p>
+            <ul className="mt-1 list-inside list-disc text-slate-700">
+              {Object.entries(previewQ!.options).map(([k, v]) => (
+                <li key={k}>
+                  <strong>{k}</strong>{" "}
+                  <span className="inline-block align-top">
+                    <ContentWithPrimeBrush text={v} className="inline" />
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <details>
+          <summary className="cursor-pointer text-xs text-slate-600">{t("answer")}</summary>
+          <ContentWithPrimeBrush text={previewQ!.answer} className="mt-1" />
+        </details>
+        <details>
+          <summary className="cursor-pointer text-xs text-slate-600">{t("analysis")}</summary>
+          <ContentWithPrimeBrush text={previewQ!.analysis || ""} className="mt-1" />
+        </details>
+      </div>
+    );
 
   return (
     <>
@@ -888,7 +1149,7 @@ export function BankWorkspace({
                 : t("exportHintScope", { path: filterCollection })}
             </p>
           </div>
-          <details className="mt-3 rounded-md border border-slate-200 bg-white p-2">
+          <details id="bank-new-question" className="mt-3 rounded-md border border-slate-200 bg-white p-2">
             <summary className="cursor-pointer text-xs font-medium text-slate-700">{t("newQuestion")}</summary>
             <label className="mt-2 block text-[11px] font-medium text-slate-600">
               {t("newSubject")}
@@ -1103,10 +1364,7 @@ export function BankWorkspace({
                   <button
                     type="button"
                     className="w-full text-left text-sm"
-                    onClick={() => {
-                      setSelectedId(it.qualified_id);
-                      setEditorModalOpen(false);
-                    }}
+                    onClick={() => openOrFocusTab(it.qualified_id)}
                   >
                     <span className="rounded bg-slate-200 px-1 py-0.5 text-[10px] font-medium text-slate-700">
                       {t(`lib:questionTypes.${it.type}`, { defaultValue: it.type })}
@@ -1155,137 +1413,118 @@ export function BankWorkspace({
         </ul>
       </section>
 
-      {/* 中：编辑 */}
-      <section className="min-w-0 flex-1 overflow-auto border-slate-200 bg-slate-50 p-4 lg:border-r">
-        {!detail ? (
-          <p className="text-sm text-slate-500">{t("selectLeft")}</p>
-        ) : editorModalOpen ? (
-          <p className="text-sm text-slate-600">{t("editingInModal")}</p>
-        ) : (
-          <>
-            {graphLinkIndex[detail.qualified_id]?.length ? (
-              <div className="mb-3 rounded-lg border border-sky-200 bg-sky-50/80 px-3 py-2">
-                <p className="text-[11px] font-medium text-sky-900">{t("linkedNodes")}</p>
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {graphLinkIndex[detail.qualified_id]!.map((n) => (
-                    <button
-                      key={n.id}
-                      type="button"
-                      className="rounded-full bg-white px-2 py-0.5 text-xs font-medium text-sky-800 shadow-sm ring-1 ring-sky-200 hover:bg-sky-100"
-                      onClick={() => onOpenGraphNode?.(n.id)}
-                    >
-                      {n.canonical_name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-            <BankQuestionEditorPanel
-            detail={detail}
-            setDetail={setDetail}
-            busy={busy}
-            editorTab={editorTab}
-            setEditorTab={setEditorTab}
-            rawYaml={rawYaml}
-            setRawYaml={setRawYaml}
-            metaRows={metaRows}
-            setMetaRows={setMetaRows}
-            contentRef={contentRef}
-            answerRef={answerRef}
-            analysisRef={analysisRef}
-            materialGroupRef={materialGroupRef}
-            imageInputRef={imageInputRef}
-            beginMathEmbed={beginMathEmbed}
-            beginMermaidEmbed={beginMermaidEmbed}
-            beginImageEmbed={beginImageEmbed}
-            onImageFileSelected={onImageFileSelected}
-            onRemove={removeQuestion}
-            onSave={saveForm}
-            onSaveYaml={saveRawYaml}
-            removeLabel={detail.question_group ? t("removeGroup") : t("remove")}
-          />
-          </>
-        )}
-      </section>
-
-      {/* 右：预览 */}
-      <section className="w-full shrink-0 border-slate-200 bg-white p-4 lg:w-[min(100%,340px)] lg:border-l">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("livePreview")}</h3>
-        {!previewQ && !previewGroup ? (
-          <p className="mt-4 text-sm text-slate-500">{t("previewEmpty")}</p>
-        ) : previewGroup ? (
-          <div className="mt-3 space-y-4 text-sm">
-            <div>
-              <p className="text-[11px] font-medium text-slate-500">{t("sharedMaterialLabel")}</p>
-              <ContentWithPrimeBrush text={previewGroup.material} className="mt-1 text-slate-900" />
-            </div>
-            {previewGroup.items.map((it, i) => {
-              const rowIsChoice =
-                previewGroup.unified === false
-                  ? (it.type ?? "choice") === "choice"
-                  : typeof previewGroup.unified === "string" && previewGroup.unified === "choice";
-              return (
-              <div key={i} className="border-t border-slate-100 pt-3">
-                <p className="text-[11px] font-medium text-slate-500">{t("subItemIndex", { n: i + 1 })}</p>
-                <ContentWithPrimeBrush text={it.content} className="mt-1 text-slate-900" />
-                {rowIsChoice && (
-                  <div>
-                    <p className="text-[11px] font-medium text-slate-500">{t("options")}</p>
-                    <ul className="mt-1 list-inside list-disc text-slate-700">
-                      {Object.entries(it.options ?? { A: "", B: "", C: "", D: "" }).map(([k, v]) => (
-                        <li key={k}>
-                          <strong>{k}</strong>{" "}
-                          <span className="inline-block align-top">
-                            <ContentWithPrimeBrush text={v} className="inline" />
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
+      {/* 中：多标签 + 字段 / 浏览 / 源文件 */}
+      <section className="flex min-w-0 flex-1 flex-col overflow-hidden border-slate-200 bg-slate-50 lg:border-r">
+        <TabPanel
+          tabs={tabItems}
+          activeId={selectedId}
+          onSelect={(id) => {
+            if (trySelectId(id)) {
+              setEditorModalOpen(false);
+            }
+          }}
+          onClose={closeTab}
+          onCloseOthers={() => {
+            if (!selectedId) return;
+            const keep = selectedId;
+            setOpenTabs([keep]);
+            setSelectedId(keep);
+          }}
+        />
+        <div className="min-h-0 flex-1 overflow-auto p-4">
+          {!detail ? (
+            <p className="text-sm text-slate-500">{t("selectLeft")}</p>
+          ) : editorModalOpen ? (
+            <p className="text-sm text-slate-600">{t("editingInModal")}</p>
+          ) : (
+            <>
+              {graphLinkIndex[detail.qualified_id]?.length ? (
+                <div className="mb-3 rounded-lg border border-sky-200 bg-sky-50/80 px-3 py-2">
+                  <p className="text-[11px] font-medium text-sky-900">{t("linkedNodes")}</p>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {graphLinkIndex[detail.qualified_id]!.map((n) => (
+                      <button
+                        key={n.id}
+                        type="button"
+                        className="rounded-full bg-white px-2 py-0.5 text-xs font-medium text-sky-800 shadow-sm ring-1 ring-sky-200 hover:bg-sky-100"
+                        onClick={() => onOpenGraphNode?.(n.id)}
+                      >
+                        {n.canonical_name}
+                      </button>
+                    ))}
                   </div>
-                )}
-                <details>
-                  <summary className="cursor-pointer text-xs text-slate-600">{t("answer")}</summary>
-                  <ContentWithPrimeBrush text={it.answer} className="mt-1" />
-                </details>
-                <details>
-                  <summary className="cursor-pointer text-xs text-slate-600">{t("analysis")}</summary>
-                  <ContentWithPrimeBrush text={it.analysis || ""} className="mt-1" />
-                </details>
-              </div>
-            );
-            })}
-          </div>
-        ) : (
-          <div className="mt-3 space-y-4 text-sm">
-            <div>
-              <p className="text-[11px] font-medium text-slate-500">{t("stem")}</p>
-              <ContentWithPrimeBrush text={previewQ!.content} className="mt-1 text-slate-900" />
-            </div>
-            {previewQ!.type === "choice" && previewQ!.options && (
-              <div>
-                <p className="text-[11px] font-medium text-slate-500">{t("options")}</p>
-                <ul className="mt-1 list-inside list-disc text-slate-700">
-                  {Object.entries(previewQ!.options).map(([k, v]) => (
-                    <li key={k}>
-                      <strong>{k}</strong>{" "}
-                      <span className="inline-block align-top">
-                        <ContentWithPrimeBrush text={v} className="inline" />
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            <details>
-              <summary className="cursor-pointer text-xs text-slate-600">{t("answer")}</summary>
-              <ContentWithPrimeBrush text={previewQ!.answer} className="mt-1" />
-            </details>
-            <details>
-              <summary className="cursor-pointer text-xs text-slate-600">{t("analysis")}</summary>
-              <ContentWithPrimeBrush text={previewQ!.analysis || ""} className="mt-1" />
-            </details>
-          </div>
-        )}
+                </div>
+              ) : null}
+              <Tabs value={workView} onValueChange={(v) => setWorkView(v as "fields" | "preview" | "source")}>
+                <TabsList className="mb-3 grid w-full max-w-md grid-cols-3">
+                  <TabsTrigger value="fields">{t("workViewFields")}</TabsTrigger>
+                  <TabsTrigger value="preview">{t("workViewPreview")}</TabsTrigger>
+                  <TabsTrigger value="source">{t("workViewSource")}</TabsTrigger>
+                </TabsList>
+                <TabsContent value="fields" className="mt-0">
+                  <BankQuestionEditorPanel
+                    embedded
+                    panelMode="form"
+                    detail={detail}
+                    setDetail={setDetail}
+                    busy={busy}
+                    editorTab="form"
+                    setEditorTab={setEditorTab}
+                    rawYaml={rawYaml}
+                    setRawYaml={setRawYaml}
+                    metaRows={metaRows}
+                    setMetaRows={setMetaRows}
+                    contentRef={contentRef}
+                    answerRef={answerRef}
+                    analysisRef={analysisRef}
+                    materialGroupRef={materialGroupRef}
+                    imageInputRef={imageInputRef}
+                    beginMathEmbed={beginMathEmbed}
+                    beginMermaidEmbed={beginMermaidEmbed}
+                    beginImageEmbed={beginImageEmbed}
+                    onImageFileSelected={onImageFileSelected}
+                    onRemove={removeQuestion}
+                    onSave={saveForm}
+                    onSaveYaml={saveRawYaml}
+                    removeLabel={detail.question_group ? t("removeGroup") : t("remove")}
+                  />
+                </TabsContent>
+                <TabsContent value="preview" className="mt-0 rounded-xl border border-slate-200 bg-white p-4">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("livePreview")}</h3>
+                  {previewBlock}
+                </TabsContent>
+                <TabsContent value="source" className="mt-0">
+                  <BankQuestionEditorPanel
+                    embedded
+                    panelMode="yaml"
+                    detail={detail}
+                    setDetail={setDetail}
+                    busy={busy}
+                    editorTab="yaml"
+                    setEditorTab={setEditorTab}
+                    rawYaml={rawYaml}
+                    setRawYaml={setRawYaml}
+                    metaRows={metaRows}
+                    setMetaRows={setMetaRows}
+                    contentRef={contentRef}
+                    answerRef={answerRef}
+                    analysisRef={analysisRef}
+                    materialGroupRef={materialGroupRef}
+                    imageInputRef={imageInputRef}
+                    beginMathEmbed={beginMathEmbed}
+                    beginMermaidEmbed={beginMermaidEmbed}
+                    beginImageEmbed={beginImageEmbed}
+                    onImageFileSelected={onImageFileSelected}
+                    onRemove={removeQuestion}
+                    onSave={saveForm}
+                    onSaveYaml={saveRawYaml}
+                    removeLabel={detail.question_group ? t("removeGroup") : t("remove")}
+                  />
+                </TabsContent>
+              </Tabs>
+            </>
+          )}
+        </div>
       </section>
     </div>
     {detail && editorModalOpen && (
