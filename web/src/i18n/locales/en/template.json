@@ -12,6 +12,7 @@
   "pageSummaryPick": "Choose or create an exam template",
   "pageSummaryEdit": "Template editor: {{path}}",
   "saved": "Saved",
+  "renameConflict": "A template file with that name already exists. Change the template ID or remove the conflicting file, then save again.",
   "newTemplateDefault": "New template",
   "created": "Created",
   "switchDiscard": "You have unsaved changes. Switch anyway and discard them?",

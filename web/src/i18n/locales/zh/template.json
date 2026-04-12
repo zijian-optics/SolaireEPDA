@@ -12,6 +12,7 @@
   "pageSummaryPick": "选择或新建试卷模板",
   "pageSummaryEdit": "模板编辑：{{path}}",
   "saved": "已保存",
+  "renameConflict": "已存在同名模板文件，请更换模板编号或先处理冲突文件后再保存。",
   "newTemplateDefault": "新模板",
   "created": "已创建",
   "newSection": "新小节（{{label}}）",

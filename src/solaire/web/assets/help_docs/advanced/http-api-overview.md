@@ -39,7 +39,8 @@
 |------|------|------|
 | GET | `/api/templates` | 模板列表 |
 | GET | `/api/templates/parsed` | 解析后的编辑器载荷（`path=` 模板路径） |
-| GET/PUT | `/api/templates/raw` | 读写模板 YAML 原文 |
+| GET/PUT | `/api/templates/raw` | 读写模板 YAML 原文；PUT 可在请求体中加 `rename_to`（与 `path` 同目录），保存成功后重命名文件，响应含 `path`（最终路径） |
+| POST | `/api/templates/rename` | 仅重命名（一般由带 `rename_to` 的 PUT 代替） |
 | POST | `/api/templates/create` | 创建最小模板 |
 
 模板路径须落在项目 `templates/` 下。

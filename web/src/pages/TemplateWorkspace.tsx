@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useTranslation } from "react-i18next";
 import yaml from "js-yaml";
 import { ChevronDown, ChevronUp, Plus, Save, Trash2 } from "lucide-react";
-import { apiDelete, apiGet, apiPost, apiPut } from "../api/client";
+import { ApiError, apiDelete, apiGet, apiPost, apiPut } from "../api/client";
 import { TabPanel, type TabItem } from "../components/layout/TabPanel";
 import { useAgentContext } from "../contexts/AgentContext";
 import { useToolBar } from "../contexts/ToolBarContext";
@@ -313,6 +313,35 @@ type Draft = {
   metadata_extra: Record<string, unknown>;
 };
 
+/** 与后端 `safe_filename_component` 一致，用于由模板编号生成文件名 */
+function safeFilenameComponent(s: string): string {
+  const t = s.trim().replace(/[<>:"/\\|?*\x00-\x1f]/g, "_");
+  return t || "export";
+}
+
+function templateIdFromSaveBody(tab: "visual" | "yaml", yamlTabContent: string, draft: Draft): string {
+  if (tab === "visual") {
+    return draft.template_id;
+  }
+  try {
+    const parsed = yaml.load(yamlTabContent) as { template_id?: unknown };
+    if (typeof parsed?.template_id === "string") {
+      return parsed.template_id;
+    }
+  } catch {
+    /* ignore */
+  }
+  return draft.template_id;
+}
+
+/** 与当前模板文件同目录，文件名 = 规范化后的模板编号 + .yaml */
+function desiredPathForTemplateId(currentPath: string, templateId: string): string {
+  const norm = currentPath.replace(/\\/g, "/");
+  const stem = safeFilenameComponent(templateId);
+  const dir = norm.includes("/") ? norm.slice(0, norm.lastIndexOf("/")) : "templates";
+  return `${dir}/${stem}.yaml`;
+}
+
 function createDefaultDraft(): Draft {
   return {
     template_id: "new_template",
@@ -583,20 +612,43 @@ export function TemplateWorkspace({ onError }: { onError: (s: string | null) => 
     setMsg(null);
     try {
       const body = tab === "yaml" ? yamlTab : yamlDump;
-      await apiPut("/api/templates/raw", { path, yaml: body });
-      const q = encodeURIComponent(path);
+      const oldPath = path.replace(/\\/g, "/");
+      const tid = templateIdFromSaveBody(tab, yamlTab, draft);
+      const desiredPath = desiredPathForTemplateId(oldPath, tid);
+      const putBody: { path: string; yaml: string; rename_to?: string } = {
+        path: oldPath,
+        yaml: body,
+      };
+      if (desiredPath !== oldPath) {
+        putBody.rename_to = desiredPath;
+      }
+      const putRes = await apiPut<{ ok: boolean; path?: string }>("/api/templates/raw", putBody);
+      let finalPath = (putRes.path ?? oldPath).replace(/\\/g, "/");
+      if (desiredPath !== oldPath) {
+        delete baselineYamlRef.current[oldPath];
+        setOpenTabs((prev) => prev.map((p) => (p === oldPath ? finalPath : p)));
+      }
+
+      const q = encodeURIComponent(finalPath);
       const [raw, parsed] = await Promise.all([
         apiGet<{ yaml: string }>(`/api/templates/raw?path=${q}`),
         apiGet<TemplateParsedResponse>(`/api/templates/parsed?path=${q}`),
       ]);
       setYamlTab(raw.yaml);
-      baselineYamlRef.current[path] = raw.yaml;
+      baselineYamlRef.current[finalPath] = raw.yaml;
       setLayoutBuiltinKeys(parsed.layout_builtin_keys);
       setDraft(draftFromParsed(parsed));
+      if (finalPath !== oldPath) {
+        setPath(finalPath);
+      }
       await refreshList();
       setMsg(t("saved"));
     } catch (e) {
-      onError(e instanceof Error ? e.message : String(e));
+      if (e instanceof ApiError && e.status === 409) {
+        onError(t("renameConflict"));
+      } else {
+        onError(e instanceof Error ? e.message : String(e));
+      }
     } finally {
       setBusy(false);
     }

@@ -321,6 +321,40 @@ class TemplateRawFileBody(BaseModel):
 
     path: str = Field(..., min_length=1, description="Relative path under project root, e.g. templates/demo.yaml")
     yaml: str | None = Field(default=None, description="For PUT: full file contents")
+    rename_to: str | None = Field(
+        default=None,
+        description="If set after a successful save, rename the file to this path (same directory only).",
+    )
+
+
+class TemplateRenameBody(BaseModel):
+    """Rename a template file under templates/ (same directory only)."""
+
+    from_path: str = Field(..., min_length=1, description="Current path, e.g. templates/old.yaml")
+    to_path: str = Field(..., min_length=1, description="New path, e.g. templates/new.yaml")
+
+
+def _rename_template_on_disk(old: Path, new: Path) -> None:
+    """Rename template file; on Windows supports case-only renames for the same file."""
+    new.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        same = old.samefile(new)
+    except OSError:
+        same = False
+    if same:
+        if old.name == new.name:
+            return
+        tmp = old.with_name(old.stem + ".__solaire_rename__.yaml")
+        n = 0
+        while tmp.exists():
+            n += 1
+            tmp = old.with_name(f"{old.stem}.__solaire_rename_{n}__.yaml")
+        old.rename(tmp)
+        tmp.rename(new)
+        return
+    if new.exists():
+        raise FileExistsError(new)
+    old.rename(new)
 
 
 @app.get("/api/health")
@@ -888,7 +922,70 @@ def template_raw_put(body: TemplateRawFileBody) -> dict[str, Any]:
         load_template(p)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid template YAML: {e}") from e
-    return {"ok": True}
+    out_path = p
+    rel = out_path.relative_to(root).as_posix()
+    rename_raw = (body.rename_to or "").strip()
+    if rename_raw:
+        new = _resolve_under_templates(root, rename_raw)
+        if p.parent.resolve() != new.parent.resolve():
+            raise HTTPException(status_code=400, detail="Rename must stay in the same templates directory")
+        norm_from = p.relative_to(root).as_posix()
+        norm_to = new.relative_to(root).as_posix()
+        if norm_from != norm_to:
+            try:
+                if new.exists() and not p.samefile(new):
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Target path already exists: {rename_raw}",
+                    )
+                _rename_template_on_disk(p, new)
+            except FileExistsError:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Target path already exists: {rename_raw}",
+                ) from None
+            out_path = new
+            try:
+                load_template(out_path)
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Invalid template YAML after rename: {e}") from e
+            rel = out_path.relative_to(root).as_posix()
+    return {"ok": True, "path": rel}
+
+
+@app.post("/api/templates/rename")
+def template_rename(body: TemplateRenameBody) -> dict[str, Any]:
+    """Rename a template YAML so the file name can follow ``template_id`` after save."""
+    root = _require_root()
+    old = _resolve_under_templates(root, body.from_path)
+    new = _resolve_under_templates(root, body.to_path)
+    if not old.is_file():
+        raise HTTPException(status_code=404, detail=f"File not found: {body.from_path}")
+    if old.parent.resolve() != new.parent.resolve():
+        raise HTTPException(status_code=400, detail="Rename must stay in the same templates directory")
+    norm_from = old.relative_to(root).as_posix()
+    norm_to = new.relative_to(root).as_posix()
+    if norm_from == norm_to:
+        return {"ok": True, "path": norm_from}
+    try:
+        if new.exists() and not old.samefile(new):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Target path already exists: {body.to_path}",
+            )
+        _rename_template_on_disk(old, new)
+    except FileExistsError:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Target path already exists: {body.to_path}",
+        ) from None
+    out = _resolve_under_templates(root, body.to_path)
+    rel = out.relative_to(root).as_posix()
+    try:
+        load_template(out)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid template YAML after rename: {e}") from e
+    return {"ok": True, "path": rel}
 
 
 @app.post("/api/templates/create")

@@ -169,10 +169,18 @@
 
 **结果要点**：TypeScript 检查通过。
 
-## [2026-04-12] 组卷 | 右侧试卷同题型多选移出
+## [2026-04-12] 模板工作台 | 保存后按模板编号重命名文件
 
-**改动摘要**：`RightSelection` 改为 `sectionId + qids[]`；`ComposeWorkspace` 增加 `rightListAnchor` 与 `handleRightPaperSlotClick`（Ctrl/⌘ 切换、Shift 区间内、跨小节 Shift 时仅选中当前槽，不跨题型）；`removeFromRight` 批量过滤并清理 `scoreOverrides`；`zh/en compose.json` 增加 `paperListMultiSelectHint`；`wiki/modules/exams-storage.md` 增加组卷界面交互说明。
+**改动摘要**：新增 `POST /api/templates/rename`（同目录重命名，Windows 支持仅大小写变更）；保存模板时若规范化后的 `template_id` 与当前文件名不一致则先 `PUT` 再重命名，使磁盘文件名与模板编号一致；`TemplateWorkspace` 从 YAML 页保存时从正文解析 `template_id`；冲突 409 时提示 `renameConflict`；`tests/test_template_web_integration.py::test_template_rename_after_save` 覆盖中文文件名场景。
 
-**验证命令**：`cd web && npx tsc --noEmit`。
+**验证命令**：`pixi run pytest tests/test_template_web_integration.py::test_template_rename_after_save -q`；`cd web && npx tsc --noEmit`。
 
-**结果要点**：TypeScript 检查通过。
+**结果要点**：测试与 tsc 通过。
+
+## [2026-04-12] 模板工作台 | 重命名并入 PUT（避免 rename 404）
+
+**改动摘要**：`PUT /api/templates/raw` 增加可选 `rename_to`，在同一请求内写完再重命名并返回 `path`；前端保存改为单次 PUT，不再依赖 `POST /api/templates/rename`（避免未升级后端或代理下 404）；`http-api-overview.md` 补充说明；`test_template_rename_after_save` 改为测 PUT+`rename_to`，另增 `test_template_rename_post_endpoint`。
+
+**验证命令**：`pixi run pytest tests/test_template_web_integration.py -q`；`cd web && npx tsc --noEmit`。
+
+**结果要点**：测试与 tsc 通过。
