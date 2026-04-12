@@ -66,4 +66,5 @@ export type ExamDoc = {
 /** @deprecated 使用 ExamDoc */
 export type DraftDoc = ExamDoc;
 
-export type RightSelection = { sectionId: string; qid: string };
+/** 试卷栏选中项：仅同一 `section_id` 内可多选，用于批量移出 */
+export type RightSelection = { sectionId: string; qids: string[] };

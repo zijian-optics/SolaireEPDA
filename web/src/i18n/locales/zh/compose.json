@@ -43,6 +43,7 @@
   "closeSidebar": "关闭侧栏",
   "bankSearchTitle": "题库检索",
   "bankListMultiSelectHint": "可按住 Ctrl 或 ⌘ 点选多题，按住 Shift 点选区间，再点箭头加入当前小节。",
+  "paperListMultiSelectHint": "在同一小题型内可按住 Ctrl 或 ⌘ 多选，按住 Shift 点选区间，再点箭头移出；不可跨题型多选。",
   "filter": "筛选",
   "filterSummary": "{{subject}} · {{collection}} · {{type}}{{search}}",
   "allCollections": "全部题集",

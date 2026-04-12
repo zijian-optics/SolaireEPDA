@@ -23,6 +23,11 @@
 
 更全路由见内嵌帮助 `http-api-overview.md` 与 `src/solaire/web/app.py`。
 
+## 组卷界面（ComposeWorkspace）
+
+- **左侧题库**：Ctrl/⌘ 多选、Shift 区间选，再点箭头加入**当前小节**；混题型时跳过并提示。
+- **右侧试卷**：在同一 **`section_id`（题型小节）** 内 Ctrl/⌘ 多选、Shift 区间选，再点箭头批量移出；**不可跨小节多选**。题组槽位作为一整条参与多选/区间。
+
 ## 验证
 
 - 前端：`cd web && npm run build`

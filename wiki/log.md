@@ -160,3 +160,19 @@
 **验证命令**：`pixi run pytest tests/test_exams_create_nested_path.py -q`。
 
 **结果要点**：测试通过。
+
+## [2026-04-12] 组卷 | 右侧试卷同题型多选移出
+
+**改动摘要**：`RightSelection` 改为 `sectionId + qids[]`；`ComposeWorkspace` 增加 `rightListAnchor` 与 `handleRightPaperSlotClick`（Ctrl/⌘ 切换、Shift 区间内、跨小节 Shift 时仅选中当前槽，不跨题型）；`removeFromRight` 批量过滤并清理 `scoreOverrides`；`zh/en compose.json` 增加 `paperListMultiSelectHint`；`wiki/modules/exams-storage.md` 增加组卷界面交互说明。
+
+**验证命令**：`cd web && npx tsc --noEmit`。
+
+**结果要点**：TypeScript 检查通过。
+
+## [2026-04-12] 组卷 | 右侧试卷同题型多选移出
+
+**改动摘要**：`RightSelection` 改为 `sectionId + qids[]`；`ComposeWorkspace` 增加 `rightListAnchor` 与 `handleRightPaperSlotClick`（Ctrl/⌘ 切换、Shift 区间内、跨小节 Shift 时仅选中当前槽，不跨题型）；`removeFromRight` 批量过滤并清理 `scoreOverrides`；`zh/en compose.json` 增加 `paperListMultiSelectHint`；`wiki/modules/exams-storage.md` 增加组卷界面交互说明。
+
+**验证命令**：`cd web && npx tsc --noEmit`。
+
+**结果要点**：TypeScript 检查通过。

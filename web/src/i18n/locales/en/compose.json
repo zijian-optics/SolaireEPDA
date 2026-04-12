@@ -42,6 +42,7 @@
   "closeSidebar": "Close side panel",
   "bankSearchTitle": "Bank search",
   "bankListMultiSelectHint": "Ctrl+click or ⌘+click to multi-select; Shift+click for a range; then use the arrow to add to the current section.",
+  "paperListMultiSelectHint": "Within one question-type section: Ctrl/⌘+click to multi-select, Shift+click for a range, then use the arrow to remove. You cannot multi-select across sections.",
   "filter": "Filter",
   "filterSummary": "{{subject}} · {{collection}} · {{type}}{{search}}",
   "allCollections": "All collections",

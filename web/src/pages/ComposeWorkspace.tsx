@@ -18,7 +18,7 @@ import i18n from "../i18n/i18n";
 import {
   collapseGroupRowsForList,
   clusterAdjacentGroupSlots,
-  sectionSlotContainsQid,
+  type SectionSlot,
 } from "../lib/groupQuestions";
 import { QUESTION_TYPE_OPTIONS } from "../lib/questionTypes";
 import { cn } from "../lib/utils";
@@ -53,6 +53,8 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
   /** 用于 Shift+点击 范围选择的锚点（filteredQuestions 下标） */
   const [leftListAnchorIndex, setLeftListAnchorIndex] = useState<number | null>(null);
   const [selectedRight, setSelectedRight] = useState<RightSelection | null>(null);
+  /** 试卷栏 Shift 区间锚点（仅与 `section_id` 组合有效，不跨题型） */
+  const [rightListAnchor, setRightListAnchor] = useState<{ sectionId: string; slotIndex: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -349,6 +351,7 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
         setSelectedLeftIds(range);
         setLeftListAnchorIndex(index);
         setSelectedRight(null);
+        setRightListAnchor(null);
         return;
       }
       if (e.metaKey || e.ctrlKey) {
@@ -360,13 +363,83 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
         });
         setLeftListAnchorIndex(index);
         setSelectedRight(null);
+        setRightListAnchor(null);
         return;
       }
       setSelectedLeftIds([q.qualified_id]);
       setLeftListAnchorIndex(index);
       setSelectedRight(null);
+      setRightListAnchor(null);
     },
     [filteredQuestions, leftListAnchorIndex],
+  );
+
+  const handleRightPaperSlotClick = useCallback(
+    (
+      sectionId: string,
+      slots: SectionSlot<QuestionRow>[],
+      slotIndex: number,
+      slot: SectionSlot<QuestionRow>,
+      e: MouseEvent<HTMLButtonElement>,
+    ) => {
+      e.preventDefault();
+      const slotIds = slot.kind === "single" ? [slot.qid] : [...slot.qids];
+      const sectionQids = bySection[sectionId] ?? [];
+      const mergeOrder = (ids: Set<string>) => sectionQids.filter((id) => ids.has(id));
+
+      if (e.shiftKey) {
+        if (rightListAnchor && rightListAnchor.sectionId !== sectionId) {
+          setSelectedRight({ sectionId, qids: slotIds });
+          setRightListAnchor({ sectionId, slotIndex });
+          setSelectedLeftIds(slotIds);
+          return;
+        }
+        const anchorSlot =
+          rightListAnchor && rightListAnchor.sectionId === sectionId ? rightListAnchor.slotIndex : slotIndex;
+        const start = Math.min(anchorSlot, slotIndex);
+        const end = Math.max(anchorSlot, slotIndex);
+        const ordered: string[] = [];
+        for (let i = start; i <= end; i++) {
+          const sl = slots[i];
+          if (!sl) {
+            continue;
+          }
+          if (sl.kind === "single") {
+            ordered.push(sl.qid);
+          } else {
+            ordered.push(...sl.qids);
+          }
+        }
+        setSelectedRight({ sectionId, qids: ordered });
+        setRightListAnchor({ sectionId, slotIndex });
+        setSelectedLeftIds(ordered);
+        return;
+      }
+      if (e.metaKey || e.ctrlKey) {
+        if (selectedRight?.sectionId !== sectionId) {
+          setSelectedRight({ sectionId, qids: slotIds });
+          setRightListAnchor({ sectionId, slotIndex });
+          setSelectedLeftIds(slotIds);
+          return;
+        }
+        const cur = new Set(selectedRight.qids);
+        const allIn = slotIds.every((id) => cur.has(id));
+        if (allIn) {
+          slotIds.forEach((id) => cur.delete(id));
+        } else {
+          slotIds.forEach((id) => cur.add(id));
+        }
+        const nextOrdered = mergeOrder(cur);
+        setSelectedRight(nextOrdered.length ? { sectionId, qids: nextOrdered } : null);
+        setRightListAnchor({ sectionId, slotIndex });
+        setSelectedLeftIds(nextOrdered);
+        return;
+      }
+      setSelectedRight({ sectionId, qids: slotIds });
+      setRightListAnchor({ sectionId, slotIndex });
+      setSelectedLeftIds(slotIds);
+    },
+    [bySection, rightListAnchor, selectedRight],
   );
 
   const dlgSelectedPastExam = useMemo(
@@ -437,6 +510,8 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
     setPerQuestionMode(perQ);
     setSelectedLeftIds([]);
     setLeftListAnchorIndex(null);
+    setSelectedRight(null);
+    setRightListAnchor(null);
   }, []);
 
   function addFromLeft() {
@@ -483,17 +558,36 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
   }
 
   function removeFromRight() {
-    if (!selectedRight) {
+    if (!selectedRight || selectedRight.qids.length === 0) {
       onError(t("compose:errors.selectPaperItemFirst"));
       return;
     }
-    const removeIds = [selectedRight.qid];
+    const removeIds = selectedRight.qids;
+    const secId = selectedRight.sectionId;
     onError(null);
     setBySection((prev) => ({
       ...prev,
-      [selectedRight.sectionId]: (prev[selectedRight.sectionId] ?? []).filter((x) => !removeIds.includes(x)),
+      [secId]: (prev[secId] ?? []).filter((x) => !removeIds.includes(x)),
     }));
+    setScoreOverrides((prev) => {
+      const so = prev[secId];
+      if (!so) {
+        return prev;
+      }
+      const next = { ...so };
+      for (const id of removeIds) {
+        delete next[id];
+      }
+      const out = { ...prev };
+      if (Object.keys(next).length === 0) {
+        delete out[secId];
+      } else {
+        out[secId] = next;
+      }
+      return out;
+    });
     setSelectedRight(null);
+    setRightListAnchor(null);
   }
 
   async function validate() {
@@ -1434,12 +1528,14 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
                 ))}
               </select>
             </p>
+            <p className="text-[10px] leading-snug text-slate-500">{t("compose:paperListMultiSelectHint")}</p>
 
             {selectedTpl?.sections.map((s) => {
               const n = bySection[s.section_id]?.length ?? 0;
               const isText = s.type === "text";
               const ok = isText || n === s.required_count;
               const sectionBaseScore = scoreBySection[s.section_id] ?? s.score_per_item;
+              const slots = clusterAdjacentGroupSlots(bySection[s.section_id] ?? [], questionMap);
               return (
                 <div
                   key={s.section_id}
@@ -1535,24 +1631,23 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
                       <li className="text-center text-xs text-slate-500">{t("compose:textSectionNoPickHere")}</li>
                     ) : (
                       <>
-                        {clusterAdjacentGroupSlots(bySection[s.section_id] ?? [], questionMap).map((slot, si) => {
+                        {slots.map((slot, si) => {
                           if (slot.kind === "single") {
                             const qid = slot.qid;
+                            const selectedHere =
+                              selectedRight?.sectionId === s.section_id && selectedRight.qids.includes(qid);
                             return (
                               <li key={qid}>
                                 <button
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    setSelectedRight({ sectionId: s.section_id, qid });
-                                    setSelectedLeftIds([qid]);
+                                    handleRightPaperSlotClick(s.section_id, slots, si, slot, e);
                                     setLeftListAnchorIndex(null);
                                   }}
                                   className={cn(
                                     "w-full rounded-md border px-2 py-2 text-left text-sm",
-                                    selectedRight?.sectionId === s.section_id && selectedRight?.qid === qid
-                                      ? "border-slate-900 bg-slate-100"
-                                      : "border-slate-100 bg-slate-50 hover:bg-white",
+                                    selectedHere ? "border-slate-900 bg-slate-100" : "border-slate-100 bg-slate-50 hover:bg-white",
                                   )}
                                 >
                                   <span className="font-mono text-xs text-slate-800">{qid}</span>
@@ -1611,15 +1706,15 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
                             ? mat.replace(/\s+/g, " ").slice(0, 120) + (mat.length > 120 ? "…" : "")
                             : questionMap.get(headQid)?.content_preview;
                           const selectedHere =
-                            selectedRight?.sectionId === s.section_id && sectionSlotContainsQid(slot, selectedRight.qid);
+                            selectedRight?.sectionId === s.section_id &&
+                            slot.qids.every((q) => selectedRight.qids.includes(q));
                           return (
                             <li key={`grp-${slot.rep.group_id}-${si}`}>
                               <button
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  setSelectedRight({ sectionId: s.section_id, qid: headQid });
-                                  setSelectedLeftIds([headQid]);
+                                  handleRightPaperSlotClick(s.section_id, slots, si, slot, e);
                                   setLeftListAnchorIndex(null);
                                 }}
                                 className={cn(
