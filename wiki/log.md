@@ -233,6 +233,14 @@
 
 **结果要点**：TypeScript 通过。
 
+## [2026-04-12] 前端 | 主导航侧栏略缩窄
+
+**改动摘要**：`App.tsx` 已绑定项目时的左侧 `aside` 宽度由 `w-[4.25rem]` 改为 `w-16`（4rem）。
+
+**验证命令**：`cd web; npx tsc --noEmit`。
+
+**结果要点**：TypeScript 通过。
+
 ## [2026-04-12] 题库 | 列表项题号换行与排版
 
 **改动摘要**：`BankWorkspace` 左侧题目列表：题型/题组标签与全限定题号同一行 `flex` 排列，题号 `min-w-0 flex-1 break-all` 可换行；`KatexPlainPreview` 置于下一行独立块；按钮增加 `min-w-0` 以利窄栏收缩。

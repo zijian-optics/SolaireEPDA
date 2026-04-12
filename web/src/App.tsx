@@ -175,7 +175,7 @@ function AppShell() {
           </div>
         ) : (
           <>
-            <aside className="flex w-[4.25rem] shrink-0 flex-col border-r border-slate-800 bg-slate-900">
+            <aside className="flex w-16 shrink-0 flex-col border-r border-slate-800 bg-slate-900">
               <nav className="flex flex-1 flex-col gap-1 p-2">
                 <div className="flex flex-1 flex-col gap-1">
                   <SidebarNavButton
