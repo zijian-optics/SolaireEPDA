@@ -233,6 +233,14 @@
 
 **结果要点**：TypeScript 通过。
 
+## [2026-04-12] 前端 | 顶栏工具栏切换页刷新与占位高度
+
+**改动摘要**：根因：组卷 `ComposeRoute` 在非组卷页仍挂载，`ComposeWorkspace` 继续 `setToolBar` 会覆盖当前页工具栏。修复：`ComposeRoute`/`ComposeWorkspace` 增加 `toolBarActive={page === "compose"}`，非激活时不再注册工具栏并在 `toolBarActive` 为 false 时 `clearToolBar`；`ToolBar` 在 `left`/`right` 均为空时仍渲染 `min-h-[2.5rem]` 占位条，避免高度跳动。
+
+**验证命令**：`cd web; npx tsc --noEmit`。
+
+**结果要点**：TypeScript 通过。
+
 ## [2026-04-12] 前端 | 主导航侧栏略缩窄
 
 **改动摘要**：`App.tsx` 已绑定项目时的左侧 `aside` 宽度由 `w-[4.25rem]` 改为 `w-16`（4rem）。

@@ -38,7 +38,14 @@ function normTemplatePath(p: string): string {
   return s.replace(/^\/+/, "");
 }
 
-export function ComposeWorkspace({ onError }: { onError: (s: string | null) => void }) {
+export function ComposeWorkspace({
+  onError,
+  toolBarActive = true,
+}: {
+  onError: (s: string | null) => void;
+  /** 为 false 时不占用顶栏工具栏（父级隐藏组卷视图时使用） */
+  toolBarActive?: boolean;
+}) {
   const { t } = useTranslation(["compose", "common", "lib"]);
   const { setPageContext } = useAgentContext();
   const { setToolBar, clearToolBar } = useToolBar();
@@ -1042,6 +1049,9 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
   }
 
   useEffect(() => {
+    if (!toolBarActive) {
+      return;
+    }
     const left: ReactNode = (
       <div className="flex flex-wrap items-center gap-2">
         <button
@@ -1093,6 +1103,7 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
     setToolBar({ left, right });
     return () => clearToolBar();
   }, [
+    toolBarActive,
     t,
     busy,
     selectedTpl,
@@ -1106,6 +1117,12 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
     templates,
     exportedExamRows,
   ]);
+
+  useEffect(() => {
+    if (!toolBarActive) {
+      clearToolBar();
+    }
+  }, [toolBarActive, clearToolBar]);
 
   const pdfApiPath =
     pdfExamId != null

@@ -10,9 +10,6 @@ export function ToolBar({
   right?: ReactNode;
   className?: string;
 }) {
-  if (left == null && right == null) {
-    return null;
-  }
   return (
     <div
       className={cn(
@@ -20,8 +17,8 @@ export function ToolBar({
         className,
       )}
     >
-      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">{left}</div>
-      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">{right}</div>
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">{left ?? null}</div>
+      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">{right ?? null}</div>
     </div>
   );
 }

@@ -12,10 +12,13 @@ export function ComposeRoute({
   info,
   onRefreshInfo,
   onError,
+  toolBarActive = true,
 }: {
   info: ProjectInfo | null;
   onRefreshInfo: () => Promise<void>;
   onError: (s: string | null) => void;
+  /** 为 false 时不向顶栏注册工具栏（例如组卷页被隐藏但仍挂载时，避免覆盖其它页） */
+  toolBarActive?: boolean;
 }) {
   const { t } = useTranslation("app");
   const { setPageContext } = useAgentContext();
@@ -34,7 +37,7 @@ export function ComposeRoute({
       </div>
     );
   }
-  return <ComposeWorkspace onError={onError} />;
+  return <ComposeWorkspace onError={onError} toolBarActive={toolBarActive} />;
 }
 
 export function BankRoute({

@@ -282,7 +282,12 @@ function AppShell() {
                       )}
                       aria-hidden={page !== "compose"}
                     >
-                      <ComposeRoute info={info} onRefreshInfo={refreshInfo} onError={setErr} />
+                      <ComposeRoute
+                        info={info}
+                        onRefreshInfo={refreshInfo}
+                        onError={setErr}
+                        toolBarActive={page === "compose"}
+                      />
                     </div>
                   )}
                   {page === "bank" && (
