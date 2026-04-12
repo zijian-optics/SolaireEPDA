@@ -336,3 +336,139 @@
 **验证命令**：`pixi run pytest tests/test_user_llm_overrides.py -q`；`cd web && npx tsc --noEmit`。
 
 **结果要点**：与产品「先全局、打开项目后项目优先」一致。
+
+## [2026-04-13] Bug 修复 | 思维导图节点点击不打开编辑面板
+
+**改动摘要**：`GraphWorkspace.tsx` 的 `handleNodeClick` 中，`setSelectedEdgeId(null)` 因 Zustand store 中 setter 的互清逻辑（`setSelectedEdgeId` 会同时置 `selectedNodeId: null`）导致刚设置的 `selectedNodeId` 被覆盖为 `null`。面板虽展开但 `selectedNode` 为空，仅显示占位文案。修复：移除 `handleNodeClick` 中冗余的 `setSelectedEdgeId(null)`（`setSelectedNodeId` 已自动清除 `selectedEdgeId`），同步简化 `handlePaneClick`。
+
+**验证命令**：`cd web && npx tsc --noEmit`（类型检查无新增错误）；运行 `pixi run dev` 后在思维导图点击节点确认右侧编辑面板正常弹出。
+
+**结果要点**：根因为 store setter 的隐式互斥副作用与 handler 中调用顺序冲突。
+
+## [2026-04-13] UI | 图谱节点面板题目预览与题库一致
+
+**改动摘要**：`GraphNodePanel.tsx` 已绑定题目列表与「从题库挑选」弹窗预览列改用 `KatexPlainPreview`，外层 `div.mt-0.5 block w-full min-w-0` 与 `className="line-clamp-3 text-xs leading-snug text-slate-600 [&_.katex]:text-[0.92em]"`，与 `BankWorkspace` 列表项一致。
+
+**验证命令**：`cd web; npx tsc --noEmit`（通过）。
+
+**结果要点**：LaTeX 与题库侧摘要渲染路径统一。
+
+## [2026-04-13] UI | 图谱节点面板隐藏内部标识
+
+**改动摘要**：`GraphNodePanel.tsx` 编辑标签页移除「内部标识（只读）」标签与路径展示块，面向用户不再暴露节点路径式 id。
+
+**验证命令**：`cd web; npx tsc --noEmit`（通过）。
+
+**结果要点**：`internalId` 文案键仍保留在 i18n，供其它提示复用。
+
+## [2026-04-13] UI | 图谱节点面板隐藏学科字段
+
+**改动摘要**：按科目分图后编辑侧栏不再展示学科下拉；`GraphNodePanel` 移除 `subjects` prop；保存仍通过 `draftSubject`（随节点数据同步）提交既有 `subject` 字段。`GraphWorkspace` 去掉对 `subjects` 的解构与传参。
+
+**验证命令**：`cd web; npx tsc --noEmit`（通过）。
+
+**结果要点**：学科由当前图谱上下文隐含，避免重复编辑。
+
+## [2026-04-13] UI | 图谱节点面板隐藏层级字段
+
+**改动摘要**：学段/考纲层级改由图谱命名（如高中数学）表达；`GraphNodePanel` 移除层级下拉与 `levels` prop；保存时 `level` 沿用节点已有值（`selectedNode.level`），避免误清空。`GraphWorkspace` 不再解构或传入 `levels`；`loadGraphData` 仍 `setLevels` 以同步 taxonomy 供其它用途。
+
+**验证命令**：`cd web; npx tsc --noEmit`（通过）。
+
+**结果要点**：侧栏不再编辑层级；新建子节点时 `GraphWorkspace` 继承父级 `level` 的逻辑未改。
+
+## [2026-04-13] UI | 图谱节点面板名称与类型并排
+
+**改动摘要**：`GraphNodePanel` 编辑页「标准名称」与「节点类型」置于 `grid grid-cols-2 gap-2` 同一行，列内 `min-w-0` 避免窄栏溢出。
+
+**验证命令**：`cd web; npx tsc --noEmit`（通过）。
+
+**结果要点**：半宽并排，节省纵向空间。
+
+## [2026-04-13] UI | 图谱视图切换移至顶栏 ToolBar
+
+**改动摘要**：`GraphWorkspace` 使用 `useToolBar` 在 `ToolBar` 左侧注入「思维导图 / 知识图谱」分段按钮（样式与原先画布工具栏一致，外层增加 `bg-white` 以贴合顶栏）；`MindMapCanvas`、`GraphCanvas` 移除视图切换及相关 props。
+
+**验证命令**：`cd web; npx tsc --noEmit`（通过）。
+
+**结果要点**：切换入口与 `BankWorkspace` 等页一致，离开图谱页 `clearToolBar` 回收。
+
+## [2026-04-13] UI | 知识图谱节点 Handle 置于圆盘底层
+
+**改动摘要**：`GraphCanvas.tsx` 的 `KnowledgeNode` 将 target/source 两个 `Handle` 提前并设 `z-0`，标签与标题包在 `absolute inset-0 z-[1]` 且与节点同色的圆角衬层内，视觉上盖住中心连线桩。
+
+**验证命令**：`cd web; npx tsc --noEmit`（通过）。
+
+**结果要点**：连线逻辑不变，DOM 上 Handle 不再浮在文案之上。
+
+## [2026-04-13] UI | 思维导图默认隐藏交叉关系线
+
+**改动摘要**：`MindMapCanvas` 增加与画布类似的关系类型复选框（文案键 `relTypeMindmap`），默认四类全不勾选，不渲染非主树的交叉虚线与标签；勾选某类后仅显示该类的交叉连线。`zh`/`en` graph.json 新增翻译。
+
+**验证命令**：`cd web; npx tsc --noEmit`（通过）。
+
+**结果要点**：主树实线始终显示；交叉关系按需显示。
+
+## [2026-04-13] 功能 | 图谱节点笔记 Tab 与移除简述
+
+**改动摘要**：后端 `GraphNodeNote` + `ConceptNode.notes`（[`service.py`](src/solaire/knowledge_forge/service.py)）；`GraphNodeCreateBody` 增加可选 `notes`（[`app.py`](src/solaire/web/app.py)）。前端 `GraphNodeRow.notes`、`PanelTab` 含 `notes`；[`GraphNodePanel.tsx`](web/src/graph/GraphNodePanel.tsx) 移除简述编辑；新增笔记 Tab（`LatexRichTextField` 编写、`ContentWithPrimeBrush` 预览、× 删除）；编辑保存与笔记保存均 PUT `notes`。`zh`/`en` graph.json 新增文案。
+
+**验证命令**：`cd web; npx tsc --noEmit`；`pixi run pytest tests/test_graph_service.py tests/test_graph_api.py -q`（通过）。
+
+**结果要点**：简述仍存于模型与旧数据，面板不再编辑；多条笔记独立增删。
+
+## [2026-04-13] Bug 修复 | 仅保存笔记时 PUT 422
+
+**改动摘要**：`GraphNodeCreateBody` 要求 `canonical_name`；`persistNotes` 原只传 `id`+`notes` 触发 422。`GraphNodePanel.persistNotes` 请求体增加 `canonical_name`（取自当前节点，兜底为 id）。
+
+**验证命令**：`cd web; npx tsc --noEmit`（通过）。
+
+**结果要点**：笔记保存与编辑 Tab 保存均满足 FastAPI 请求体验证。
+
+## [2026-04-13] Bug 修复 | GraphNodePanel 切换页面白屏（Hooks 顺序）
+
+**改动摘要**：`persistNotes` 的 `useCallback` 曾写在 `if (!selectedNode) return …` 之后；`selectedNode` 变为 `null` 时提前返回导致少执行一个 hook，触发 `Rendered fewer hooks than expected`。已将 `persistNotes` 上移至该提前 return 之前，与其它 hooks 顺序一致。
+
+**验证命令**：`cd web; npx tsc --noEmit`（通过）。
+
+**结果要点**：离开图谱或取消选中节点时不再因 hooks 数量不一致而崩溃。
+
+## [2026-04-13] UI | 图谱节点笔记列表支持编辑
+
+**改动摘要**：`GraphNodePanel` 笔记 Tab 每条笔记在「×」旁增加「编辑」；`noteEditingId` 区分新建与编辑；保存时对列表 `map` 更新对应 `body` 并 `persistNotes`；撰写区展示简短说明文案；`LatexRichTextField` 的 `syncTextAreaId` 含编辑 id 以便切换笔记时编辑器同步。`zh`/`en` graph.json 增加 `editNote`、`editNoteTitle`、`editNoteBanner`。
+
+**验证命令**：`cd web; npx tsc --noEmit`（通过）。
+
+**结果要点**：可就地打开编辑器修改已有笔记并保存到节点。
+
+## [2026-04-13] Bug 修复 | 助手侧栏「历史」下拉被裁剪不可见
+
+**改动摘要**：`AgentChatPanel` 顶栏右侧将「历史」与含 `overflow-x-auto` 的按钮组拆成兄弟节点；`absolute` 会话列表不再处于横向滚动容器内，避免 `overflow-x` 非 `visible` 时纵向溢出被裁切。下拉 `z-index` 调至 `z-30`。
+
+**验证命令**：`cd web; npx tsc --noEmit`（通过）。
+
+**结果要点**：overlay 模式下点击「历史」可正常看到会话列表。
+
+## [2026-04-13] UI | 助手历史对话居中弹层与删除
+
+**改动摘要**：`AgentChatPanel` 将「历史」由按钮下绝对定位改为在面板根节点 `relative` 内全屏半透明遮罩 + 居中卡片；标题栏含关闭；列表每行左侧打开会话、右侧「×」调用 `DELETE /api/agent/sessions/{id}`（新增 `apiAgentSessionDelete`）；删当前会话时走 `newChat`；打开历史时刷新列表；`Escape` 关闭。`zh`/`en` agent.json 增加 `historyDialogTitle`、`removeSessionTitle`、`confirmDeleteSession`、`sessionDeleteErr`。
+
+**验证命令**：`cd web; npx tsc --noEmit`（通过）。
+
+**结果要点**：历史列表在智能助手区域内居中显示，不易被侧栏裁切；可删除单条对话。
+
+## [2026-04-13] UI | 助手历史改为顶栏下锚定下拉
+
+**改动摘要**：移除全屏居中遮罩与居中卡片；历史面板改为紧贴顶栏容器下缘（`absolute left-0 right-0 top-full`），与 Cursor 类「顶栏下展开」一致；`historyShellRef` + `document` `mousedown` 在区域外关闭；保留标题行、× 关闭、行内删除与 `Escape`。
+
+**验证命令**：`cd web; npx tsc --noEmit`（通过）。
+
+**结果要点**：下拉从「智能助手 / 历史…」那一行正下方展开，宽度与侧栏内容区一致，仍叠在聊天区之上（`z-30`）。
+
+## [2026-04-13] 行为 | 助手「新对话」不再预建 session
+
+**改动摘要**：`AgentChatPanel` 的 `newChat` 仅中止流、清空 `sessionId` / 消息 / 任务步骤 / 快捷协助，不再调用 `apiAgentCreateSession`。服务端会话仍在用户首次 `send`（及需会话的 `confirm` / `planAction` 经 `ensureSession`）时创建。
+
+**验证命令**：`cd web; npx tsc --noEmit`（通过）。
+
+**结果要点**：反复点「新对话」不会在历史列表中增加空会话。
