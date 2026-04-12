@@ -19,6 +19,7 @@ import {
   type AnalysisJob,
 } from "../api/client";
 import { useAgentContext } from "../contexts/AgentContext";
+import { dispatchExamsChanged } from "../lib/examEvents";
 import { formatLocaleDate } from "../lib/locale";
 import { cn } from "../lib/utils";
 import {
@@ -475,13 +476,15 @@ export function AnalysisWorkspace() {
     if (!selectedExamId) return;
     const ok = window.confirm(t("confirmDeleteExam"));
     if (!ok) return;
+    const deletedId = selectedExamId;
     try {
-      await apiDelete<{ ok: boolean }>(`/api/exams/${encodeURIComponent(selectedExamId)}`);
+      await apiDelete<{ ok: boolean }>(`/api/exams/${encodeURIComponent(deletedId)}`);
       setSelectedExamId(null);
       setExamSummary(null);
       setSelectedBatchId(null);
       setAnalysis(null);
       await loadExams();
+      dispatchExamsChanged({ examId: deletedId });
     } catch (e) {
       setImportError(e instanceof Error ? e.message : String(e));
     }

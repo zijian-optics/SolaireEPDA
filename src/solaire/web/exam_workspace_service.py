@@ -43,6 +43,17 @@ def _norm_label(s: str) -> str:
     return " ".join((s or "").strip().split())
 
 
+def _norm_template_path_rel(s: str) -> str:
+    """
+    与 ``/api/templates`` 列表一致：相对项目根的路径，如 ``templates/foo.yaml``。
+    exam.yaml 中可能存 ``../templates/foo.yaml``（相对考试目录），需去掉前导 ``../`` 才能与前端列表匹配。
+    """
+    t = (s or "").replace("\\", "/").strip()
+    while t.startswith("../"):
+        t = t[3:]
+    return t.lstrip("/")
+
+
 def label_subject_pair(export_label: str, subject: str) -> tuple[str, str]:
     return (_norm_label(export_label), _norm_label(subject))
 
@@ -110,6 +121,18 @@ def _split_exam_path(exam_id: str) -> tuple[str, str]:
     if ".." in a or ".." in b:
         raise ValueError("无效的考试标识")
     return a, b
+
+
+def _fill_identity_from_exam_path_fields(doc: dict[str, Any], eid: str) -> None:
+    """当 YAML 中缺少试卷说明或学科时，用目录 ``exams/<标签段>/<学科段>/`` 回填。"""
+    try:
+        label_seg, subject_seg = _split_exam_path(eid)
+    except ValueError:
+        return
+    if not str(doc.get("export_label") or "").strip():
+        doc["export_label"] = label_seg
+    if not str(doc.get("subject") or "").strip():
+        doc["subject"] = subject_seg
 
 
 def _safe_exam_id(exam_id: str) -> str:
@@ -288,6 +311,8 @@ def list_exam_workspaces(project_root: Path) -> list[dict[str, Any]]:
     rows.sort(key=lambda x: x[0], reverse=True)
     out = [r[1] for r in rows]
     for row in out:
+        _fill_identity_from_exam_path_fields(row, str(row["exam_id"]))
+    for row in out:
         eid = row["exam_id"]
         yp = exam_yaml_path(project_root, eid)
         try:
@@ -295,7 +320,11 @@ def list_exam_workspaces(project_root: Path) -> list[dict[str, Any]]:
                 raw = yaml.safe_load(f)
             if isinstance(raw, dict):
                 row["template_ref"] = raw.get("template_ref")
-                row["template_path"] = raw.get("template_path")
+                tp = raw.get("template_path")
+                if tp is None:
+                    row["template_path"] = None
+                else:
+                    row["template_path"] = _norm_template_path_rel(str(tp))
         except OSError:
             pass
     return out
@@ -315,6 +344,10 @@ def load_exam_workspace(project_root: Path, exam_id: str) -> dict[str, Any]:
     doc = dict(raw)
     # 目录标识以路径为准（``exams/<标签>/<学科>/``），避免 YAML 内仍为历史单段 id 时污染前端与后续保存。
     doc["exam_id"] = eid
+    tp = doc.get("template_path")
+    if isinstance(tp, str):
+        doc["template_path"] = _norm_template_path_rel(tp)
+    _fill_identity_from_exam_path_fields(doc, eid)
     return doc
 
 
@@ -340,7 +373,7 @@ def _build_exam_doc(
     updated_at: str,
     source_exam_id: str | None = None,
 ) -> dict[str, Any]:
-    tpl_rel = template_path.replace("\\", "/").strip().lstrip("/")
+    tpl_rel = _norm_template_path_rel(template_path)
     doc: dict[str, Any] = {
         "exam_id": exam_id,
         "name": name,
@@ -369,7 +402,7 @@ def save_exam_workspace(
     selected_items: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Create or update workspace; returns stored document."""
-    tpl_rel = template_path.replace("\\", "/").strip().lstrip("/")
+    tpl_rel = _norm_template_path_rel(template_path)
     sections = _sections_from_raw(selected_items)
     now = _utc_now_iso()
 
@@ -505,6 +538,9 @@ def persist_exam_document(project_root: Path, doc: dict[str, Any]) -> dict[str, 
         raise ValueError("exam_id required")
     doc = dict(doc)
     doc.pop("draft_id", None)
+    tp0 = doc.get("template_path")
+    if isinstance(tp0, str):
+        doc["template_path"] = _norm_template_path_rel(tp0)
     eid = _safe_exam_id(exam_id)
     doc["exam_id"] = eid
     pair = label_subject_pair(str(doc.get("export_label") or ""), str(doc.get("subject") or ""))
@@ -682,7 +718,7 @@ def import_legacy_draft_yaml(project_root: Path, draft_yaml: Path, *, suffix: st
         "subject": subject,
         "export_label": export_label,
         "template_ref": str(raw.get("template_ref") or ""),
-        "template_path": str(raw.get("template_path") or "").replace("\\", "/").strip().lstrip("/"),
+        "template_path": _norm_template_path_rel(str(raw.get("template_path") or "")),
         "selected_items": raw.get("selected_items") or [],
         "created_at": created,
         "updated_at": str(raw.get("updated_at") or now),

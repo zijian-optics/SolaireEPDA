@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { ChevronDown } from "lucide-react";
 import yaml from "js-yaml";
 import {
   apiDelete,
@@ -102,7 +103,10 @@ export function BankWorkspace({
   const importFileRef = useRef<HTMLInputElement>(null);
   const openModalAfterCreateRef = useRef(false);
   const [editorModalOpen, setEditorModalOpen] = useState(false);
-  const [bankFilterExpanded, setBankFilterExpanded] = useState(false);
+  const [bankFilterMenuOpen, setBankFilterMenuOpen] = useState(false);
+  const bankFilterDropdownRef = useRef<HTMLDivElement | null>(null);
+  const [bankNewQuestionOpen, setBankNewQuestionOpen] = useState(false);
+  const bankNewQuestionRef = useRef<HTMLDivElement | null>(null);
   const [newSubject, setNewSubject] = useState(() => i18n.t("bank:defaultSubject"));
   const [newCollection, setNewCollection] = useState("main");
   const [newId, setNewId] = useState("new_question_001");
@@ -416,6 +420,44 @@ export function BankWorkspace({
     return `${sub} · ${collLabel} · ${typLabel}${suffix}`;
   }, [filterSubject, filterCollection, filterType, search, collections, t]);
 
+  useEffect(() => {
+    if (!bankFilterMenuOpen) return;
+    const root = bankFilterDropdownRef.current;
+    if (!root) return;
+    const onPointerDownCapture = (e: PointerEvent) => {
+      if (e.composedPath().includes(root)) return;
+      setBankFilterMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDownCapture, true);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setBankFilterMenuOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDownCapture, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [bankFilterMenuOpen]);
+
+  useEffect(() => {
+    if (!bankNewQuestionOpen) return;
+    const root = bankNewQuestionRef.current;
+    if (!root) return;
+    const onPointerDownCapture = (e: PointerEvent) => {
+      if (e.composedPath().includes(root)) return;
+      setBankNewQuestionOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDownCapture, true);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setBankNewQuestionOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDownCapture, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [bankNewQuestionOpen]);
+
   /** 导入目标科目：接口科目 + 列表中已出现的科目 */
   const importSubjectList = useMemo(() => {
     const fromItems = [...new Set(items.map((i) => i.subject).filter(Boolean) as string[])];
@@ -672,6 +714,7 @@ export function BankWorkspace({
       openModalAfterCreateRef.current = true;
       setOpenTabs((prev) => (prev.includes(r.qualified_id) ? prev : [...prev, r.qualified_id]));
       setSelectedId(r.qualified_id);
+      setBankNewQuestionOpen(false);
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -855,20 +898,215 @@ export function BankWorkspace({
   useEffect(() => {
     const left: ReactNode = (
       <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-          disabled={busy}
-          onClick={() => {
-            const el = document.getElementById("bank-new-question");
-            el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-            setTimeout(() => {
-              (el as HTMLDetailsElement | null)?.setAttribute("open", "");
-            }, 0);
-          }}
-        >
-          {t("newQuestion")}
-        </button>
+        <div className="relative shrink-0" ref={bankFilterDropdownRef}>
+          <button
+            type="button"
+            className={cn(
+              "flex max-w-[min(100vw-8rem,20rem)] items-center gap-2 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-left text-xs font-medium text-slate-800 hover:bg-slate-50",
+              bankFilterMenuOpen && "border-slate-400 bg-slate-100",
+            )}
+            aria-expanded={bankFilterMenuOpen}
+            aria-haspopup="dialog"
+            onClick={() => {
+              setBankNewQuestionOpen(false);
+              setBankFilterMenuOpen((v) => !v);
+            }}
+          >
+            <span className="shrink-0">{t("filter")}</span>
+            <span className="flex min-w-0 flex-1 items-center gap-1">
+              <span className="truncate text-[10px] font-normal text-slate-500">{bankFilterSummary}</span>
+              <ChevronDown
+                className={cn(
+                  "h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-200",
+                  bankFilterMenuOpen && "rotate-180",
+                )}
+                aria-hidden
+              />
+            </span>
+          </button>
+          {bankFilterMenuOpen ? (
+            <div
+              className="absolute left-0 top-full z-[100] mt-1 w-72 max-h-[min(70vh,28rem)] overflow-y-auto rounded-md border border-slate-200 bg-white p-2 shadow-lg"
+              role="dialog"
+              aria-label={t("filter")}
+            >
+              <div className="space-y-2">
+                <label className="block text-[11px] font-medium text-slate-600">
+                  {t("subject")}
+                  <select
+                    className="mt-0.5 w-full rounded-md border border-slate-300 bg-slate-50 px-2 py-1.5 text-sm"
+                    value={filterSubject}
+                    onChange={(e) => {
+                      setFilterSubject(e.target.value);
+                      setFilterCollection("__all__");
+                    }}
+                  >
+                    <option value="__all__">{t("filterAllLabel")}</option>
+                    {(subjects.length ? subjects : [...new Set(items.map((i) => i.subject).filter(Boolean) as string[])]).map(
+                      (s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ),
+                    )}
+                  </select>
+                </label>
+                <label className="block text-[11px] font-medium text-slate-600">
+                  {t("collection")}
+                  <select
+                    className="mt-0.5 w-full rounded-md border border-slate-300 bg-slate-50 px-2 py-1.5 text-sm"
+                    value={filterCollection}
+                    onChange={(e) => setFilterCollection(e.target.value)}
+                  >
+                    <option value="__all__">{t("filterAllLabel")}</option>
+                    {collectionOptions.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-[11px] font-medium text-slate-600">
+                  {t("questionType")}
+                  <select
+                    className="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                    value={filterType}
+                    onChange={(e) => setFilterType(e.target.value)}
+                  >
+                    <option value="__all__">{t("filterAllLabel")}</option>
+                    <option value="group">{t("typeGroup")}</option>
+                    {QUESTION_TYPE_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {t(`lib:questionTypes.${o.value}`)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-[11px] font-medium text-slate-600">
+                  {t("search")}
+                  <input
+                    className="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder={t("searchPlaceholder")}
+                  />
+                </label>
+              </div>
+            </div>
+          ) : null}
+        </div>
+        <div className="relative shrink-0" ref={bankNewQuestionRef}>
+          <button
+            type="button"
+            className={cn(
+              "flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50",
+              bankNewQuestionOpen && "border-slate-400 bg-slate-100",
+            )}
+            disabled={busy}
+            aria-expanded={bankNewQuestionOpen}
+            aria-haspopup="dialog"
+            onClick={() => {
+              setBankFilterMenuOpen(false);
+              setBankNewQuestionOpen((v) => !v);
+            }}
+          >
+            {t("newQuestion")}
+            <ChevronDown
+              className={cn(
+                "h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-200",
+                bankNewQuestionOpen && "rotate-180",
+              )}
+              aria-hidden
+            />
+          </button>
+          {bankNewQuestionOpen ? (
+            <div
+              className="absolute left-0 top-full z-[100] mt-1 w-80 max-h-[min(85vh,32rem)] overflow-y-auto rounded-md border border-slate-200 bg-white p-2 shadow-lg"
+              role="dialog"
+              aria-label={t("newQuestion")}
+            >
+              <div className="space-y-2">
+                <label className="block text-[11px] font-medium text-slate-600">
+                  {t("newSubject")}
+                  <input
+                    className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                    value={newSubject}
+                    onChange={(e) => setNewSubject(e.target.value)}
+                    placeholder={t("newSubjectPh")}
+                  />
+                </label>
+                <label className="block text-[11px] font-medium text-slate-600">
+                  {t("newCollection")}
+                  <input
+                    className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                    value={newCollection}
+                    onChange={(e) => setNewCollection(e.target.value)}
+                  />
+                </label>
+                <label className="block text-[11px] font-medium text-slate-600">
+                  {t("newId")}
+                  <input
+                    className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1 font-mono text-sm"
+                    value={newId}
+                    onChange={(e) => setNewId(e.target.value)}
+                  />
+                </label>
+                <label className="block text-[11px] font-medium text-slate-600">
+                  {t("newType")}
+                  <select
+                    className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                    value={newType}
+                    onChange={(e) => setNewType(e.target.value)}
+                  >
+                    <option value="group">{t("typeGroup")}</option>
+                    {QUESTION_TYPE_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {t(`lib:questionTypes.${o.value}`)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {newType === "group" && (
+                  <div className="space-y-2 rounded border border-slate-200 bg-slate-50 p-2">
+                    <label className="block text-[11px] font-medium text-slate-600">
+                      {t("subItemMode")}
+                      <select
+                        className="mt-0.5 w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm"
+                        value={newGroupUnified}
+                        onChange={(e) => setNewGroupUnified(e.target.value)}
+                      >
+                        <option value="mixed">{t("mixedMode")}</option>
+                        {QUESTION_TYPE_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {t("sameType", { label: t(`lib:questionTypes.${o.value}`) })}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="block text-[11px] font-medium text-slate-600">
+                      {t("sharedMaterial")}
+                      <textarea
+                        className="mt-0.5 w-full rounded border border-slate-300 bg-white px-2 py-1.5 font-mono text-xs"
+                        rows={4}
+                        value={newGroupMaterial}
+                        onChange={(e) => setNewGroupMaterial(e.target.value)}
+                        placeholder={t("sharedMaterialPh")}
+                      />
+                    </label>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  className="w-full rounded-md border border-slate-300 py-1.5 text-xs font-medium hover:bg-slate-50 disabled:opacity-50"
+                  disabled={busy || !newSubject.trim() || !newCollection.trim() || !newId.trim()}
+                  onClick={() => void createQuestion()}
+                >
+                  {newType === "group" ? t("createGroup") : t("createDraft")}
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
         <button
           type="button"
           className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
@@ -885,13 +1123,6 @@ export function BankWorkspace({
           onClick={() => void doExportBundle()}
         >
           {t("exportBundle")}
-        </button>
-        <button
-          type="button"
-          className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50"
-          onClick={() => setBankFilterExpanded((v) => !v)}
-        >
-          {bankFilterExpanded ? t("filterTapToCollapse") : t("filter")}
         </button>
       </div>
     );
@@ -928,7 +1159,21 @@ export function BankWorkspace({
     workView,
     editorTab,
     filterCollection,
-    bankFilterExpanded,
+    bankFilterMenuOpen,
+    bankFilterSummary,
+    filterSubject,
+    filterType,
+    search,
+    subjects,
+    items,
+    collectionOptions,
+    bankNewQuestionOpen,
+    newSubject,
+    newCollection,
+    newId,
+    newType,
+    newGroupUnified,
+    newGroupMaterial,
     setToolBar,
     clearToolBar,
   ]);
@@ -1052,183 +1297,6 @@ export function BankWorkspace({
       <section className="flex w-full shrink-0 flex-col border-slate-200 bg-white lg:w-[min(100%,300px)] lg:border-r">
         <div className="border-b border-slate-100 p-3">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("title")}</h2>
-          <p className="mt-1 text-[11px] text-slate-500">
-            {t("structureHint")}{" "}
-            <code className="rounded bg-slate-100 px-0.5">{t("structurePath")}</code>
-            {t("structureHintTail")}
-          </p>
-          <button
-            type="button"
-            className="mt-3 flex w-full items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-left text-xs font-medium text-slate-800 hover:bg-slate-100"
-            onClick={() => setBankFilterExpanded((v) => !v)}
-          >
-            <span>{t("filter")}</span>
-            <span className="truncate pl-2 text-[10px] font-normal text-slate-500">
-              {bankFilterExpanded ? t("filterTapToCollapse") : bankFilterSummary}
-            </span>
-          </button>
-          {bankFilterExpanded && (
-            <div className="mt-2 space-y-2">
-              <label className="block text-[11px] font-medium text-slate-600">
-                {t("subject")}
-                <select
-                  className="mt-0.5 w-full rounded-md border border-slate-300 bg-slate-50 px-2 py-1.5 text-sm"
-                  value={filterSubject}
-                  onChange={(e) => {
-                    setFilterSubject(e.target.value);
-                    setFilterCollection("__all__");
-                  }}
-                >
-                  <option value="__all__">{t("filterAllLabel")}</option>
-                  {(subjects.length ? subjects : [...new Set(items.map((i) => i.subject).filter(Boolean) as string[])]).map(
-                    (s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ),
-                  )}
-                </select>
-              </label>
-              <label className="block text-[11px] font-medium text-slate-600">
-                {t("collection")}
-                <select
-                  className="mt-0.5 w-full rounded-md border border-slate-300 bg-slate-50 px-2 py-1.5 text-sm"
-                  value={filterCollection}
-                  onChange={(e) => setFilterCollection(e.target.value)}
-                >
-                  <option value="__all__">{t("filterAllLabel")}</option>
-                  {collectionOptions.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block text-[11px] font-medium text-slate-600">
-                {t("questionType")}
-                <select
-                  className="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-                  value={filterType}
-                  onChange={(e) => setFilterType(e.target.value)}
-                >
-                  <option value="__all__">{t("filterAllLabel")}</option>
-                  <option value="group">{t("typeGroup")}</option>
-                  {QUESTION_TYPE_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {t(`lib:questionTypes.${o.value}`)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block text-[11px] font-medium text-slate-600">
-                {t("search")}
-                <input
-                  className="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder={t("searchPlaceholder")}
-                />
-              </label>
-            </div>
-          )}
-          <div className="mt-2">
-            <button
-              type="button"
-              className="w-full rounded-md border border-slate-800 bg-slate-50 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-100 disabled:opacity-50"
-              disabled={busy || filterCollection === "__all__"}
-              title={
-                filterCollection === "__all__" ? t("exportNeedCollection") : undefined
-              }
-              onClick={() => void doExportBundle()}
-            >
-              {t("exportBundle")}
-            </button>
-            <p className="mt-1 text-[10px] leading-snug text-slate-500">
-              {filterCollection === "__all__"
-                ? t("exportHintNeedCollection")
-                : t("exportHintScope", { path: filterCollection })}
-            </p>
-          </div>
-          <details id="bank-new-question" className="mt-3 rounded-md border border-slate-200 bg-white p-2">
-            <summary className="cursor-pointer text-xs font-medium text-slate-700">{t("newQuestion")}</summary>
-            <label className="mt-2 block text-[11px] font-medium text-slate-600">
-              {t("newSubject")}
-              <input
-                className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1 text-sm"
-                value={newSubject}
-                onChange={(e) => setNewSubject(e.target.value)}
-                placeholder={t("newSubjectPh")}
-              />
-            </label>
-            <label className="mt-2 block text-[11px] font-medium text-slate-600">
-              {t("newCollection")}
-              <input
-                className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1 text-sm"
-                value={newCollection}
-                onChange={(e) => setNewCollection(e.target.value)}
-              />
-            </label>
-            <label className="mt-2 block text-[11px] font-medium text-slate-600">
-              {t("newId")}
-              <input
-                className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1 font-mono text-sm"
-                value={newId}
-                onChange={(e) => setNewId(e.target.value)}
-              />
-            </label>
-            <label className="mt-2 block text-[11px] font-medium text-slate-600">
-              {t("newType")}
-              <select
-                className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1 text-sm"
-                value={newType}
-                onChange={(e) => setNewType(e.target.value)}
-              >
-                <option value="group">{t("typeGroup")}</option>
-                {QUESTION_TYPE_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {t(`lib:questionTypes.${o.value}`)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {newType === "group" && (
-              <div className="mt-2 space-y-2 rounded border border-slate-200 bg-slate-50 p-2">
-                <label className="block text-[11px] font-medium text-slate-600">
-                  {t("subItemMode")}
-                  <select
-                    className="mt-0.5 w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm"
-                    value={newGroupUnified}
-                    onChange={(e) => setNewGroupUnified(e.target.value)}
-                  >
-                    <option value="mixed">{t("mixedMode")}</option>
-                    {QUESTION_TYPE_OPTIONS.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {t("sameType", { label: t(`lib:questionTypes.${o.value}`) })}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block text-[11px] font-medium text-slate-600">
-                  {t("sharedMaterial")}
-                  <textarea
-                    className="mt-0.5 w-full rounded border border-slate-300 bg-white px-2 py-1.5 font-mono text-xs"
-                    rows={4}
-                    value={newGroupMaterial}
-                    onChange={(e) => setNewGroupMaterial(e.target.value)}
-                    placeholder={t("sharedMaterialPh")}
-                  />
-                </label>
-              </div>
-            )}
-            <button
-              type="button"
-              className="mt-2 w-full rounded-md border border-slate-300 py-1.5 text-xs font-medium disabled:opacity-50"
-              disabled={busy || !newSubject.trim() || !newCollection.trim() || !newId.trim()}
-              onClick={() => void createQuestion()}
-            >
-              {newType === "group" ? t("createGroup") : t("createDraft")}
-            </button>
-          </details>
           <details className="group mt-3 rounded-md border border-slate-200 bg-slate-50 p-2">
             <summary className="cursor-pointer list-none marker:hidden [&::-webkit-details-marker]:hidden">
               <span className="flex w-full items-start gap-2 text-left">

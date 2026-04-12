@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type MouseEvent,
   type ReactNode,
@@ -20,12 +21,22 @@ import {
   clusterAdjacentGroupSlots,
   type SectionSlot,
 } from "../lib/groupQuestions";
+import { dispatchExamsChanged, SOLAIRE_EXAMS_CHANGED_EVENT, type ExamsChangedDetail } from "../lib/examEvents";
 import { QUESTION_TYPE_OPTIONS } from "../lib/questionTypes";
 import { cn } from "../lib/utils";
 import { isTauriShell } from "../lib/tauriEnv";
 import type { ExamDoc, ExamWorkspaceSummary, QuestionRow, RightSelection, TemplateRow } from "../types/compose";
 
 type GraphBindingNode = { id: string; canonical_name: string; node_kind?: string };
+
+/** 与后端 `_norm_template_path_rel` 一致：去掉 ``../``，与 ``/api/templates`` 列表匹配 */
+function normTemplatePath(p: string): string {
+  let s = p.replace(/\\/g, "/").trim();
+  while (s.startsWith("../")) {
+    s = s.slice(3);
+  }
+  return s.replace(/^\/+/, "");
+}
 
 export function ComposeWorkspace({ onError }: { onError: (s: string | null) => void }) {
   const { t } = useTranslation(["compose", "common", "lib"]);
@@ -84,6 +95,9 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
   /** 从历史复制时的新考试标签（学科沿用源导出） */
   const [dlgHistoryExportLabel, setDlgHistoryExportLabel] = useState("");
 
+  const currentExamIdRef = useRef<string | null>(null);
+  currentExamIdRef.current = currentExamId;
+
   const openViewPdfExternally = useCallback(async () => {
     const id = pdfExamId ?? lastExportedExamId;
     if (!id) {
@@ -107,7 +121,13 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
     }
   }, [pdfExamId, lastExportedExamId, pdfVariant]);
 
-  const selectedTpl = useMemo(() => templates.find((t) => t.path === templatePath), [templates, templatePath]);
+  const selectedTpl = useMemo(() => {
+    const tp = normTemplatePath(templatePath);
+    if (!tp) {
+      return undefined;
+    }
+    return templates.find((t) => normTemplatePath(t.path) === tp);
+  }, [templates, templatePath]);
 
   useEffect(() => {
     const parts: string[] = [];
@@ -128,6 +148,26 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
     const s = subject.trim();
     return questions.filter((q) => (q.subject ?? "") === s);
   }, [questions, subject]);
+
+  /** 题库目录导出的 subjects 可能不含当前试卷学科；必须把 exam 中的学科并入选项，否则 select 无匹配项、界面表现为未切到该学科 */
+  const subjectOptionsForSelect = useMemo(() => {
+    const base = subjectOptions.length > 0 ? subjectOptions : [];
+    const merged = new Set<string>(base);
+    const cur = subject.trim();
+    if (cur) {
+      merged.add(cur);
+    }
+    const dlg = dlgSubject.trim();
+    if (dlg) {
+      merged.add(dlg);
+    }
+    const arr = [...merged];
+    arr.sort((a, b) => a.localeCompare(b, "zh-Hans-CN"));
+    if (arr.length > 0) {
+      return arr;
+    }
+    return cur ? [cur] : dlg ? [dlg] : [];
+  }, [subjectOptions, subject, dlgSubject]);
 
   const namespaces = useMemo(() => {
     const s = new Set<string>();
@@ -173,6 +213,7 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
   }, [filteredQuestions]);
 
   useEffect(() => {
+    let cancelled = false;
     onError(null);
     void Promise.all([
       apiGet<{ templates: TemplateRow[] }>("/api/templates"),
@@ -180,31 +221,54 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
       apiGet<{ subjects: string[] }>("/api/bank/subjects"),
     ])
       .then(([t, q, subs]) => {
+        if (cancelled) {
+          return;
+        }
         setTemplates(t.templates);
         setQuestions(q.questions);
         const list = subs.subjects.length ? subs.subjects : [...new Set(q.questions.map((x) => x.subject).filter(Boolean) as string[])];
         setSubjectOptions(list);
-        setSubject((prev) => {
-          const p = prev.trim();
-          if (list.length && !list.includes(p)) {
-            return list[0] ?? prev;
-          }
-          return prev;
-        });
-        const first = t.templates[0];
-        if (first) {
-          setTemplatePath(first.path);
-          setTemplateRef(first.id);
-          const init: Record<string, string[]> = {};
-          for (const s of first.sections) {
-            init[s.section_id] = [];
-          }
-          setBySection(init);
-          setActiveSection(first.sections[0]?.section_id ?? null);
+        /** 若用户已先打开某套考试工作区，勿覆盖学科与模板（避免慢请求晚于侧栏加载而冲掉 exam.yaml） */
+        if (!currentExamIdRef.current) {
+          setSubject((prev) => {
+            const p = prev.trim();
+            if (list.length && !list.includes(p)) {
+              return list[0] ?? prev;
+            }
+            return prev;
+          });
         }
       })
       .catch((e: Error) => onError(e.message));
+    return () => {
+      cancelled = true;
+    };
   }, [onError]);
+
+  /** 首屏默认模板：仅在尚未关联考试且未选模板时写入，避免与 loadExamById / applyExamDocument 竞态 */
+  useEffect(() => {
+    if (templates.length === 0) {
+      return;
+    }
+    if (currentExamId) {
+      return;
+    }
+    if (templatePath.trim()) {
+      return;
+    }
+    const first = templates[0];
+    if (!first) {
+      return;
+    }
+    setTemplatePath(first.path);
+    setTemplateRef(first.id);
+    const init: Record<string, string[]> = {};
+    for (const s of first.sections) {
+      init[s.section_id] = [];
+    }
+    setBySection(init);
+    setActiveSection(first.sections[0]?.section_id ?? null);
+  }, [templates, currentExamId, templatePath]);
 
   useEffect(() => {
     setNamespaceFilter("__all__");
@@ -224,7 +288,13 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
       }
       return next;
     });
-    setActiveSection(t.sections[0]?.section_id ?? null);
+    const sectionIds = new Set(t.sections.map((s) => s.section_id));
+    setActiveSection((prev) => {
+      if (prev && sectionIds.has(prev)) {
+        return prev;
+      }
+      return t.sections[0]?.section_id ?? null;
+    });
   }, [templatePath, selectedTpl]);
 
   useEffect(() => {
@@ -271,6 +341,31 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
   useEffect(() => {
     void refreshExamSummaries();
   }, [refreshExamSummaries]);
+
+  useEffect(() => {
+    const onExamsChanged = (ev: Event) => {
+      const detail = (ev as CustomEvent<ExamsChangedDetail>).detail ?? {};
+      void refreshExamSummaries();
+      const examId = detail.examId;
+      if (!examId) {
+        return;
+      }
+      if (currentExamIdRef.current === examId) {
+        setCurrentExamId(null);
+        setDraftName("");
+        setPdfExamId(null);
+        setPreviewPdfId(null);
+      }
+      setLastExportedExamId((prev) => (prev === examId ? null : prev));
+      setPdfExamId((prev) => (prev === examId ? null : prev));
+      setDlgHistorySourceExamId((prev) => (prev === examId ? "" : prev));
+      setExportFailureExamIds((prev) => prev.filter((x) => x !== examId));
+      setConflictTargetId((prev) => (prev === examId ? null : prev));
+      onError(null);
+    };
+    window.addEventListener(SOLAIRE_EXAMS_CHANGED_EVENT, onExamsChanged);
+    return () => window.removeEventListener(SOLAIRE_EXAMS_CHANGED_EVENT, onExamsChanged);
+  }, [refreshExamSummaries, onError]);
 
   useEffect(() => {
     void apiGet<{ index: Record<string, GraphBindingNode[]> }>("/api/graph/question-bindings-index")
@@ -481,12 +576,14 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
     setPreviewWarnings([]);
     setExportLabel(String(doc.export_label ?? ""));
     setSubject(String(doc.subject ?? ""));
-    const tp = String(doc.template_path ?? "");
+    const tp = normTemplatePath(String(doc.template_path ?? ""));
     if (tp) {
       setTemplatePath(tp);
     }
     setTemplateRef(String(doc.template_ref ?? ""));
     const eid = String(doc.exam_id ?? "").trim();
+    /** 同步 ref，避免首屏 subjects 请求的 `.then` 在 React 提交前读到陈旧 ref 而覆盖学科 */
+    currentExamIdRef.current = eid || null;
     setCurrentExamId(eid || null);
     setDraftName(String(doc.name ?? ""));
     const items = doc.selected_items ?? [];
@@ -661,7 +758,7 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
       return;
     }
 
-    const tpl = templates.find((x) => x.path === dlgTemplatePath);
+    const tpl = templates.find((x) => normTemplatePath(x.path) === normTemplatePath(dlgTemplatePath));
     if (!tpl) {
       onError(t("compose:errors.selectTemplateForDraft"));
       return;
@@ -910,6 +1007,7 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
       setPdfExamId((prev) => (prev === examId ? null : prev));
       setMsg(opts?.exported ? t("compose:messages.exportedExamDeleted") : t("compose:messages.draftDeleted"));
       void refreshExamSummaries();
+      dispatchExamsChanged({ examId });
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -923,6 +1021,15 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
     try {
       const r = await apiGet<{ exam: ExamDoc }>(`/api/exams/${encodeURIComponent(examId)}`);
       applyExamDocument(r.exam);
+      setNamespaceFilter("__all__");
+      setTypeFilter("__all__");
+      setSearch("");
+      setComposeFilterExpanded(false);
+      const items = r.exam.selected_items ?? [];
+      const firstSec = items[0]?.section_id;
+      if (firstSec) {
+        setActiveSection(firstSec);
+      }
       setPreviewPdfId(null);
       setPdfExamId(pdfForViewer);
       setPdfVariant("student");
@@ -1101,7 +1208,7 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
                     value={dlgSubject}
                     onChange={(e) => setDlgSubject(e.target.value)}
                   >
-                    {(subjectOptions.length ? subjectOptions : [dlgSubject]).map((s) => (
+                    {subjectOptionsForSelect.map((s) => (
                       <option key={s} value={s}>
                         {s}
                       </option>
@@ -1316,7 +1423,7 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
                     value={subject}
                     onChange={(e) => setSubject(e.target.value)}
                   >
-                    {(subjectOptions.length ? subjectOptions : [subject]).map((s) => (
+                    {subjectOptionsForSelect.map((s) => (
                       <option key={s} value={s}>
                         {s}
                       </option>

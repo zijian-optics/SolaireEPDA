@@ -4,6 +4,24 @@ from __future__ import annotations
 
 import solaire.web.state as st
 from fastapi.testclient import TestClient
+from solaire.web.exam_workspace_service import _fill_identity_from_exam_path_fields, _norm_template_path_rel
+
+
+def test_norm_template_path_rel_strips_parent_segments() -> None:
+    """exam.yaml 中相对考试目录的 ``../templates/…`` 应规范为与模板列表一致的 ``templates/…``。"""
+    assert _norm_template_path_rel("../templates/gaokao2024.yaml") == "templates/gaokao2024.yaml"
+    assert _norm_template_path_rel("templates/x.yaml") == "templates/x.yaml"
+
+
+def test_fill_identity_from_exam_path_fields() -> None:
+    d = {"export_label": "", "subject": ""}
+    _fill_identity_from_exam_path_fields(d, "高考数学/数学")
+    assert d["export_label"] == "高考数学"
+    assert d["subject"] == "数学"
+    d2 = {"export_label": "期中", "subject": "物理"}
+    _fill_identity_from_exam_path_fields(d2, "高考数学/数学")
+    assert d2["export_label"] == "期中"
+    assert d2["subject"] == "物理"
 
 
 def test_post_exams_creates_nested_exams_dir(web_client: TestClient) -> None:

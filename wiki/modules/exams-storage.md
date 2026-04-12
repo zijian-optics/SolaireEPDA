@@ -7,6 +7,8 @@
 - 同目录包含：`exam.yaml`、`config.json`、导出 PDF、`scores/<batch_id>/`。
 - **草稿**与**已导出**仅靠 **`config.json` 的 `status`**（`draft` / `exported`）区分。
 - **`GET /api/exams/{exam_path}` 返回的 `exam_id`**：以 URL 所解析的 **`exams/<标签段>/<学科段>/` 目录为准**，会覆盖 `exam.yaml` 内可能残留的历史单段 id，避免组卷前端仍持有旧标识。
+- **`exam.yaml` 的 `template_path`**：历史上可能写成相对考试目录的 `../templates/xxx.yaml`；加载与保存时会规范为相对项目根的 `templates/xxx.yaml`，以便与 **`GET /api/templates`** 列表一致，避免组卷页无法匹配模板、小节空白。
+- **`export_label` / `subject` 为空**：若 YAML 中未写或导出后未回填，**`GET /api/exams/{id}`** 会用目录 **`exams/<标签段>/<学科段>/`** 补全试卷说明与学科（与组卷中间栏「考试标签」「学科」一致）。
 
 ### 常见误解
 
@@ -25,6 +27,7 @@
 
 ## 组卷界面（ComposeWorkspace）
 
+- **学科筛选下拉**：选项为「题库目录学科 ∪ 当前试卷学科」；若仅依赖 `/api/bank/subjects`，当某套试卷的学科在题库尚无目录时，`select` 无对应 `option`，浏览器无法显示当前学科（表现为未自动筛到该科）。
 - **左侧题库**：Ctrl/⌘ 多选、Shift 区间选，再点箭头加入**当前小节**；混题型时跳过并提示。
 - **右侧试卷**：在同一 **`section_id`（题型小节）** 内 Ctrl/⌘ 多选、Shift 区间选，再点箭头批量移出；**不可跨小节多选**。题组槽位作为一整条参与多选/区间。
 

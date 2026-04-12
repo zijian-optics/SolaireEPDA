@@ -184,3 +184,75 @@
 **验证命令**：`pixi run pytest tests/test_template_web_integration.py -q`；`cd web && npx tsc --noEmit`。
 
 **结果要点**：测试与 tsc 通过。
+
+## [2026-04-12] 前端 | 学情分析删除考试后同步组卷列表与状态
+
+**改动摘要**：新增 `web/src/lib/examEvents.ts`（`solaire-exams-changed` 与 `dispatchExamsChanged`）；学情分析删除成功后广播；组卷页订阅并 `refreshExamSummaries`、若 `examId` 命中则清空当前考试、PDF、历史复制源等；组卷侧删除成功后同样广播。
+
+**验证命令**：`cd web && npx tsc --noEmit`。
+
+**结果要点**：TypeScript 通过。
+
+## [2026-04-12] 组卷 | 侧栏加载考试被首屏请求覆盖
+
+**改动摘要**：首屏 `Promise.all`（模板/题目/学科）晚返回时不再用默认模板清空 `bySection`（若 `currentExamIdRef` 已有工作区则跳过学科纠正）；默认模板改为独立 `useEffect`（仅 `!currentExamId && !templatePath`）；`templatePath` 变更时 `activeSection` 仅在当前节无效时回落到第一节；`loadExamById` 在应用文档后重置题库筛选并收起筛选区、将当前小节设为 `selected_items` 首节。
+
+**验证命令**：`cd web && npx tsc --noEmit`。
+
+**结果要点**：TypeScript 通过。
+
+## [2026-04-12] 组卷 | template_path 含 ../ 导致模板无法匹配
+
+**改动摘要**：`exam_workspace_service._norm_template_path_rel` 去掉前导 `../`，在 `load_exam_workspace`、`list_exam_workspaces` 模板列、`save_exam_workspace`/`_build_exam_doc`、`persist_exam_document`、迁移导入等处统一；前端 `normTemplatePath` 同步。根因：`../templates/foo.yaml` 与 `/api/templates` 返回的 `templates/foo.yaml` 不一致 → `selectedTpl` 为空、保存草稿报「先选模板」、数学卷与历史卷混点时被误认为「学科变 history」（实为另卷或路径问题）。**非**「历史试卷」侧栏文案与「历史」学科名冲突。
+
+**验证命令**：`pixi run pytest tests/test_exams_create_nested_path.py -q`。
+
+**结果要点**：3 passed；新增 `test_norm_template_path_rel_strips_parent_segments`。
+
+## [2026-04-12] 组卷 | 打开试卷后学科下拉不显示 exam 学科
+
+**改动摘要**：`ComposeWorkspace` 增加 `subjectOptionsForSelect`（`subjectOptions` ∪ 当前 `subject` ∪ 对话框 `dlgSubject`），题库筛选与新建试卷学科下拉共用，避免 `value` 无匹配 `option`。
+
+**验证命令**：`cd web && npx tsc --noEmit`。
+
+**结果要点**：TypeScript 通过。
+
+## [2026-04-12] 考试工作区 | 空 export_label 时从目录回填
+
+**改动摘要**：`exam_workspace_service._fill_identity_from_exam_path_fields`：在 `load_exam_workspace` 与 `list_exam_workspaces` 中，若 `export_label` 或 `subject` 为空，用 `exam_id` 的两段路径回填。
+
+**验证命令**：`pixi run pytest tests/test_exams_create_nested_path.py -q`。
+
+**结果要点**：4 passed；新增 `test_fill_identity_from_exam_path_fields`。
+
+## [2026-04-12] 题库 | 移除 BankWorkspace 路径说明文案
+
+**改动摘要**：删除 `BankWorkspace` 标题下灰色说明段落；移除 `zh`/`en` 中仅用于该段的 `structureHint`、`structurePath`、`structureHintTail` 文案键。
+
+**验证命令**：`cd web && npx tsc --noEmit`。
+
+**结果要点**：TypeScript 通过。
+
+## [2026-04-12] 题库 | 新建题目并入顶栏下拉
+
+**改动摘要**：`BankWorkspace` 删除侧栏 `details#bank-new-question`；顶栏「新建题目」改为与筛选类似的浮层（科目/题集/题号/题型、题组附加项、创建按钮），与「筛选条件」互斥展开；`pointerdown` 外部关闭与 Escape；创建成功后自动收起。
+
+**验证命令**：`cd web; npx tsc --noEmit`。
+
+**结果要点**：TypeScript 通过。
+
+## [2026-04-12] 题库 | 侧栏移除导出块与导出按钮文案
+
+**改动摘要**：`BankWorkspace` 侧栏「题库管理」下删除导出按钮及说明段落；`exportBundle` 改为中文「导出题集」、英文「Export collection」；移除仅用于侧栏说明的 `exportHintNeedCollection`、`exportHintScope`。
+
+**验证命令**：`cd web; npx tsc --noEmit`。
+
+**结果要点**：TypeScript 通过。
+
+## [2026-04-12] 题库 | 筛选条件改为顶栏下拉
+
+**改动摘要**：`BankWorkspace` 将「筛选条件」下拉（科目/题集/题型/搜索 + `bankFilterSummary` + 点外部/Escape 关闭）置于顶栏 `ToolBar` 左侧首位；侧栏「题库管理」下不再放置筛选控件。曾删除未再使用的 `filterTapToCollapse` 文案键。
+
+**验证命令**：`cd web; npx tsc --noEmit`。
+
+**结果要点**：TypeScript 通过。
