@@ -351,9 +351,8 @@ export function GraphWorkspace({
   const handleNodeClick = useCallback((nodeId: string) => {
     setSelectedNodeId(nodeId);
     setPanelExpanded(true);
-    setSelectedEdgeId(null);
     setPanelTab("edit");
-  }, [setSelectedNodeId, setPanelExpanded, setSelectedEdgeId, setPanelTab]);
+  }, [setSelectedNodeId, setPanelExpanded, setPanelTab]);
 
   const handleEdgeClick = useCallback((edgeId: string) => {
     setSelectedEdgeId(edgeId);
@@ -369,8 +368,7 @@ export function GraphWorkspace({
 
   const handlePaneClick = useCallback(() => {
     setSelectedNodeId(null);
-    setSelectedEdgeId(null);
-  }, [setSelectedNodeId, setSelectedEdgeId]);
+  }, [setSelectedNodeId]);
 
   const activeGraphInfo = useMemo(
     () => graphs.find((g) => g.slug === activeSlug),

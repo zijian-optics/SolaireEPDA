@@ -336,3 +336,11 @@
 **验证命令**：`pixi run pytest tests/test_user_llm_overrides.py -q`；`cd web && npx tsc --noEmit`。
 
 **结果要点**：与产品「先全局、打开项目后项目优先」一致。
+
+## [2026-04-13] Bug 修复 | 思维导图节点点击不打开编辑面板
+
+**改动摘要**：`GraphWorkspace.tsx` 的 `handleNodeClick` 中，`setSelectedEdgeId(null)` 因 Zustand store 中 setter 的互清逻辑（`setSelectedEdgeId` 会同时置 `selectedNodeId: null`）导致刚设置的 `selectedNodeId` 被覆盖为 `null`。面板虽展开但 `selectedNode` 为空，仅显示占位文案。修复：移除 `handleNodeClick` 中冗余的 `setSelectedEdgeId(null)`（`setSelectedNodeId` 已自动清除 `selectedEdgeId`），同步简化 `handlePaneClick`。
+
+**验证命令**：`cd web && npx tsc --noEmit`（类型检查无新增错误）；运行 `pixi run dev` 后在思维导图点击节点确认右侧编辑面板正常弹出。
+
+**结果要点**：根因为 store setter 的隐式互斥副作用与 handler 中调用顺序冲突。
