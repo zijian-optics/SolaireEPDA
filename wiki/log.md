@@ -152,3 +152,11 @@
 **验证命令**：`curl -s http://127.0.0.1:8000/api/health`（需在仓库根用 `pixi run dev-backend` 或更新后的 `start-web` 启动后端）。
 
 **结果要点**：健康检查可区分「本仓库源码后端」与「旧版已安装包」。
+
+## [2026-04-12] 组卷 | 加载历史导出时 exam_id 以目录为准
+
+**改动摘要**：`load_exam_workspace` 返回的 `exam_id` 固定为路径上的双段标识，不再沿用 `exam.yaml` 内可能存在的旧单段 UUID，避免点击侧栏「历史试卷」后 `currentExamId` 与 PDF/保存仍走旧逻辑；`tests/test_exams_create_nested_path.py` 增加篡改 YAML 后的 GET 回归；`wiki/modules/exams-storage.md` 补充一句。
+
+**验证命令**：`pixi run pytest tests/test_exams_create_nested_path.py -q`。
+
+**结果要点**：测试通过。

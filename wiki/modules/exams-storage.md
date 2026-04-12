@@ -6,6 +6,7 @@
 - 路径：**`exams/<标签段>/<学科段>/`**（由「试卷说明」「学科」规范化并做目录名安全处理得到）。
 - 同目录包含：`exam.yaml`、`config.json`、导出 PDF、`scores/<batch_id>/`。
 - **草稿**与**已导出**仅靠 **`config.json` 的 `status`**（`draft` / `exported`）区分。
+- **`GET /api/exams/{exam_path}` 返回的 `exam_id`**：以 URL 所解析的 **`exams/<标签段>/<学科段>/` 目录为准**，会覆盖 `exam.yaml` 内可能残留的历史单段 id，避免组卷前端仍持有旧标识。
 
 ### 常见误解
 

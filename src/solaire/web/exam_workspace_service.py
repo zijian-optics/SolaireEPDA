@@ -313,9 +313,8 @@ def load_exam_workspace(project_root: Path, exam_id: str) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raise ValueError("无效的考试工作区文件")
     doc = dict(raw)
-    if "exam_id" not in doc:
-        doc["exam_id"] = eid
-    doc["exam_id"] = str(doc["exam_id"])
+    # 目录标识以路径为准（``exams/<标签>/<学科>/``），避免 YAML 内仍为历史单段 id 时污染前端与后续保存。
+    doc["exam_id"] = eid
     return doc
 
 
