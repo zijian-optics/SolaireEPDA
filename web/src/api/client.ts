@@ -695,11 +695,14 @@ export async function apiAgentConfig(): Promise<AgentConfig> {
 
 export type AgentLlmSettingsResponse = {
   persist_available: boolean;
+  /** `global`：未打开项目，写入本机用户目录；`project`：已打开项目，写入项目内文件 */
+  persist_scope?: "global" | "project";
   main_model: string;
   fast_model: string;
   base_url: string;
   llm_configured: boolean;
   api_key_masked: string | null;
+  has_user_api_key_override?: boolean;
   has_project_api_key_override: boolean;
 };
 
@@ -725,6 +728,7 @@ export type AgentSafetyModeOption = {
 
 export type AgentSafetyModeResponse = {
   persist_available: boolean;
+  persist_scope?: "global" | "project";
   mode: string;
   options: AgentSafetyModeOption[];
 };

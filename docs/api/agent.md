@@ -10,15 +10,16 @@
 | `SOLAIRE_LLM_BASE_URL` 或 `OPENAI_BASE_URL` | 可选，兼容 OpenAI 的网关地址 |
 | `SOLAIRE_LLM_MODEL` | 主模型，默认 `gpt-4o-mini` |
 | `SOLAIRE_LLM_FAST_MODEL` | 可选，快模型（与主模型相同时可省略） |
-| `SOLAIRE_LLM_MAX_TOKENS` | 可选，单次助手生成最大 token；未设置时默认 `4096`（亦可通过项目内 `llm_overrides` 覆盖） |
+| `SOLAIRE_LLM_MAX_TOKENS` | 可选，单次助手生成最大 token；未设置时默认 `4096`（亦可通过本机或项目内覆盖文件覆盖） |
+| `SOLAIRE_USER_CONFIG_DIR` | 可选，指定本机用户级配置根目录（默认 Windows `%APPDATA%\SolEdu`，macOS `~/Library/Application Support/SolEdu`，Linux `$XDG_CONFIG_HOME/solaire` 或 `~/.config/solaire`）；其下 `agent/llm_overrides.json` 与 `agent/safety_mode.json` 在未打开项目时由设置页写入 |
 
 ## 端点（前缀 `/api/agent`）
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/config` | 是否已配置密钥、当前模型名等 |
-| GET | `/llm-settings` | 当前生效的模型参数预览（访问密钥脱敏）；未打开项目时仍可读环境变量合并结果 |
-| PUT | `/llm-settings` | 将参数写入当前项目的 `.solaire/agent/llm_overrides.json`（需已打开项目）；覆盖环境变量中的同名项 |
+| GET | `/llm-settings` | 当前生效的模型参数预览（访问密钥脱敏）；合并顺序为环境变量 → 本机用户目录 `agent/llm_overrides.json` → 当前项目 `.solaire/agent/llm_overrides.json`（后者优先）。响应含 `persist_scope`：`global` 表示未打开项目、`project` 表示已打开；`has_user_api_key_override` / `has_project_api_key_override` 标明密钥来源 |
+| PUT | `/llm-settings` | 未打开项目时写入本机 `agent/llm_overrides.json`；已打开项目时写入项目内同名文件（项目层覆盖本机与环境中的同名项） |
 | GET | `/skills` | 内置快捷协助列表（`id` / `label` / `description` / `suggested_user_input`） |
 | GET | `/sessions` | 列出当前项目下的会话摘要（含 `title`：首条用户话摘要） |
 | POST | `/sessions` | 新建会话，返回 `session_id` |

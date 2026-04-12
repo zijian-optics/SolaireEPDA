@@ -328,3 +328,11 @@
 **验证命令**：`cd web; npx tsc --noEmit`（可选）。
 
 **结果要点**：代码恢复为无调试会话硬编码；运行时证据改由常规日志与健康检查承担。
+
+## [2026-04-12] 助手模型配置 | 本机用户目录 + 项目覆盖
+
+**改动摘要**：新增 `user_agent_paths`、`llm/user_llm_overrides`；`load_llm_settings` 合并环境 → 本机 `agent/llm_overrides.json` → 项目内覆盖；`load_safety_mode` / `PUT safety-mode` 与 `PUT llm-settings` 在未打开项目时写本机 `agent/safety_mode.json` 与 `llm_overrides.json`。`agent_api` 的 `llm-settings` / `safety-mode` GET 增加 `persist_scope`、`has_user_api_key_override`。前端欢迎页与设置页可未开项目即保存；文案与按钮区分本机/项目。新增 `tests/test_user_llm_overrides.py`、`wiki/modules/agent-user-settings.md`，更新 `docs/api/agent.md` 与 `wiki/index.md`。
+
+**验证命令**：`pixi run pytest tests/test_user_llm_overrides.py -q`；`cd web && npx tsc --noEmit`。
+
+**结果要点**：与产品「先全局、打开项目后项目优先」一致。
