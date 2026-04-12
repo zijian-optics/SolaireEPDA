@@ -36,11 +36,13 @@
     "importedFromHistory": "已从历史试卷载入到编辑区（未保存为草稿；需要时请点「保存草稿」）",
     "confirmDeleteDraft": "确定删除当前草稿？删除后无法恢复。",
     "confirmDeleteExportedExam": "确定删除该导出试卷及其文件夹？删除后不可恢复。",
-    "exportedExamDeleted": "已删除导出试卷"
+    "exportedExamDeleted": "已删除导出试卷",
+    "multiAddSkipped": "已跳过 {{n}} 道与本节题型不一致的题目。"
   },
   "openPropsPanel": "打开属性与预览",
   "closeSidebar": "关闭侧栏",
   "bankSearchTitle": "题库检索",
+  "bankListMultiSelectHint": "可按住 Ctrl 或 ⌘ 点选多题，按住 Shift 点选区间，再点箭头加入当前小节。",
   "filter": "筛选",
   "filterSummary": "{{subject}} · {{collection}} · {{type}}{{search}}",
   "allCollections": "全部题集",

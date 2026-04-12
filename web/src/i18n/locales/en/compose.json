@@ -35,11 +35,13 @@
     "importedFromHistory": "Loaded from history into the editor (not saved as a draft; use Save draft if needed).",
     "confirmDeleteDraft": "Delete this draft? This cannot be undone.",
     "confirmDeleteExportedExam": "Delete this exported paper and its folder? This cannot be undone.",
-    "exportedExamDeleted": "Exported paper removed"
+    "exportedExamDeleted": "Exported paper removed",
+    "multiAddSkipped": "Skipped {{n}} question(s) that do not match this section type."
   },
   "openPropsPanel": "Open properties and preview",
   "closeSidebar": "Close side panel",
   "bankSearchTitle": "Bank search",
+  "bankListMultiSelectHint": "Ctrl+click or ⌘+click to multi-select; Shift+click for a range; then use the arrow to add to the current section.",
   "filter": "Filter",
   "filterSummary": "{{subject}} · {{collection}} · {{type}}{{search}}",
   "allCollections": "All collections",

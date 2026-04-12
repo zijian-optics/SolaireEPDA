@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { ApiError, apiDelete, apiGet, apiPost, apiPut } from "../api/client";
@@ -41,7 +48,10 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
   const [composeFilterExpanded, setComposeFilterExpanded] = useState(false);
   const [activeSection, setActiveSection] = useState<string | null>(null);
   const [bySection, setBySection] = useState<Record<string, string[]>>({});
-  const [selectedLeft, setSelectedLeft] = useState<QuestionRow | null>(null);
+  /** 左侧题库多选（qualified_id），顺序与列表一致；配合 Ctrl/⌘、Shift 桌面习惯 */
+  const [selectedLeftIds, setSelectedLeftIds] = useState<string[]>([]);
+  /** 用于 Shift+点击 范围选择的锚点（filteredQuestions 下标） */
+  const [leftListAnchorIndex, setLeftListAnchorIndex] = useState<number | null>(null);
   const [selectedRight, setSelectedRight] = useState<RightSelection | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -152,6 +162,13 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
       );
     });
   }, [questionsForSubject, namespaceFilter, typeFilter, search]);
+
+  const selectedLeftIdsSet = useMemo(() => new Set(selectedLeftIds), [selectedLeftIds]);
+
+  useEffect(() => {
+    const allowed = new Set(filteredQuestions.map((q) => q.qualified_id));
+    setSelectedLeftIds((prev) => prev.filter((id) => allowed.has(id)));
+  }, [filteredQuestions]);
 
   useEffect(() => {
     onError(null);
@@ -321,6 +338,37 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
     return m;
   }, [questions]);
 
+  const handleLeftBankClick = useCallback(
+    (q: QuestionRow, index: number, e: MouseEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      if (e.shiftKey) {
+        const anchor = leftListAnchorIndex ?? index;
+        const start = Math.min(anchor, index);
+        const end = Math.max(anchor, index);
+        const range = filteredQuestions.slice(start, end + 1).map((x) => x.qualified_id);
+        setSelectedLeftIds(range);
+        setLeftListAnchorIndex(index);
+        setSelectedRight(null);
+        return;
+      }
+      if (e.metaKey || e.ctrlKey) {
+        setSelectedLeftIds((prev) => {
+          if (prev.includes(q.qualified_id)) {
+            return prev.filter((id) => id !== q.qualified_id);
+          }
+          return [...prev, q.qualified_id];
+        });
+        setLeftListAnchorIndex(index);
+        setSelectedRight(null);
+        return;
+      }
+      setSelectedLeftIds([q.qualified_id]);
+      setLeftListAnchorIndex(index);
+      setSelectedRight(null);
+    },
+    [filteredQuestions, leftListAnchorIndex],
+  );
+
   const dlgSelectedPastExam = useMemo(
     () => examSummaries.find((ex) => ex.exam_id === dlgHistorySourceExamId),
     [examSummaries, dlgHistorySourceExamId],
@@ -387,10 +435,12 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
     setScoreBySection(sc);
     setScoreOverrides(ov);
     setPerQuestionMode(perQ);
+    setSelectedLeftIds([]);
+    setLeftListAnchorIndex(null);
   }, []);
 
   function addFromLeft() {
-    if (!selectedTpl || !activeSection || !selectedLeft) {
+    if (!selectedTpl || !activeSection || selectedLeftIds.length === 0) {
       onError(t("compose:errors.selectQuestionFirst"));
       return;
     }
@@ -403,20 +453,18 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
       onError(t("compose:errors.textSectionNoPick"));
       return;
     }
-    if (sec.type !== selectedLeft.type) {
-      onError(t("compose:errors.typeMismatch", { need: sec.type, got: selectedLeft.type }));
+    const compatible = selectedLeftIds.filter((qid) => {
+      const row = questionMap.get(qid);
+      return row && row.type === sec.type;
+    });
+    const skippedType = selectedLeftIds.length - compatible.length;
+    if (compatible.length === 0) {
+      const first = questionMap.get(selectedLeftIds[0]);
+      onError(t("compose:errors.typeMismatch", { need: sec.type, got: first?.type ?? "?" }));
       return;
     }
-    const idsToAdd = [selectedLeft.qualified_id];
-    for (const qid of idsToAdd) {
-      const row = questionMap.get(qid);
-      if (!row || row.type !== sec.type) {
-        onError(t("compose:errors.questionTypeMismatch", { qid }));
-        return;
-      }
-    }
     const cur = bySection[activeSection] ?? [];
-    const newIds = idsToAdd.filter((id) => !cur.includes(id));
+    const newIds = compatible.filter((id) => !cur.includes(id));
     if (newIds.length === 0) {
       return;
     }
@@ -429,6 +477,9 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
       ...prev,
       [activeSection]: [...(prev[activeSection] ?? []), ...newIds],
     }));
+    if (skippedType > 0) {
+      setMsg(t("compose:messages.multiAddSkipped", { n: skippedType }));
+    }
   }
 
   function removeFromRight() {
@@ -1220,6 +1271,7 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
                 </label>
               </div>
             )}
+            <p className="mt-2 text-[10px] leading-snug text-slate-500">{t("compose:bankListMultiSelectHint")}</p>
           </div>
           <ul className="min-h-0 flex-1 overflow-auto p-2">
             {questions.length === 0 ? (
@@ -1233,19 +1285,16 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
                 <p className="mt-2 text-xs text-slate-500">{t("compose:emptyFilterHint")}</p>
               </li>
             ) : (
-              filteredQuestions.map((q) => {
+              filteredQuestions.map((q, index) => {
                 const isBundle = q.type === "group";
                 return (
                   <li key={q.qualified_id}>
                     <button
                       type="button"
-                      onClick={() => {
-                        setSelectedLeft(q);
-                        setSelectedRight(null);
-                      }}
+                      onClick={(e) => handleLeftBankClick(q, index, e)}
                       className={cn(
                         "mb-1 w-full rounded-lg border px-2 py-2 text-left text-sm transition-colors",
-                        selectedLeft?.qualified_id === q.qualified_id
+                        selectedLeftIdsSet.has(q.qualified_id)
                           ? "border-slate-900 bg-slate-100"
                           : "border-transparent bg-slate-50 hover:border-slate-200 hover:bg-white",
                       )}
@@ -1496,7 +1545,8 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setSelectedRight({ sectionId: s.section_id, qid });
-                                    setSelectedLeft(questionMap.get(qid) ?? null);
+                                    setSelectedLeftIds([qid]);
+                                    setLeftListAnchorIndex(null);
                                   }}
                                   className={cn(
                                     "w-full rounded-md border px-2 py-2 text-left text-sm",
@@ -1569,7 +1619,8 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setSelectedRight({ sectionId: s.section_id, qid: headQid });
-                                  setSelectedLeft(questionMap.get(headQid) ?? null);
+                                  setSelectedLeftIds([headQid]);
+                                  setLeftListAnchorIndex(null);
                                 }}
                                 className={cn(
                                   "w-full rounded-md border px-2 py-2 text-left text-sm",
