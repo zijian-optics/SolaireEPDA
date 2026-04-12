@@ -18,6 +18,7 @@ import {
   apiBankItems,
   resourceApiUrl,
 } from "../api/client";
+import { KatexPlainPreview } from "../components/KatexText";
 import { cn } from "../lib/utils";
 import { QUESTION_TYPE_OPTIONS } from "../lib/questionTypes";
 import { localeCompareStrings } from "../lib/locale";
@@ -39,8 +40,6 @@ interface Props {
   selectedNode: GraphNodeRow | null;
   relations: GraphRelationRow[];
   graphNodes: GraphNodeRow[];
-  subjects: string[];
-  levels: string[];
   activeSlug: string | null;
   tab: PanelTab;
   onTabChange: (tab: PanelTab) => void;
@@ -56,8 +55,6 @@ export function GraphNodePanel({
   selectedNode,
   relations,
   graphNodes,
-  subjects,
-  levels,
   activeSlug,
   tab,
   onTabChange,
@@ -73,7 +70,6 @@ export function GraphNodePanel({
   // Edit state
   const [draftName, setDraftName] = useState("");
   const [draftSubject, setDraftSubject] = useState("");
-  const [draftLevel, setDraftLevel] = useState("");
   const [draftDesc, setDraftDesc] = useState("");
   const [draftTags, setDraftTags] = useState("");
   const [draftAliases, setDraftAliases] = useState("");
@@ -115,7 +111,6 @@ export function GraphNodePanel({
     }
     setDraftName(selectedNode.canonical_name ?? "");
     setDraftSubject(selectedNode.subject ?? "");
-    setDraftLevel(selectedNode.level ?? "");
     setDraftDesc(selectedNode.description ?? "");
     setDraftTags((selectedNode.tags ?? []).join(", "));
     setDraftAliases((selectedNode.aliases ?? []).join(", "));
@@ -193,7 +188,7 @@ export function GraphNodePanel({
           canonical_name: draftName.trim(),
           aliases: splitCsv(draftAliases),
           subject: draftSubject.trim() || null,
-          level: draftLevel.trim() || null,
+          level: (selectedNode.level ?? "").trim() || null,
           description: draftDesc.trim() || null,
           tags: splitCsv(draftTags),
           source: null,
@@ -461,61 +456,25 @@ export function GraphNodePanel({
         {/* Tab 1: Node edit + Relations */}
         {tab === "edit" && (
           <div className="space-y-3">
-            {/* Internal ID */}
-            <div>
-              <div className="text-[11px] font-medium text-slate-500">{t("internalId")}</div>
-              <div className="mt-1 break-all rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-[11px] text-slate-700">
-                {selectedNode.id}
-              </div>
-            </div>
-
-            <label className="block text-[11px] font-medium text-slate-600">
-              {t("canonicalName")}
-              <input
-                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-                value={draftName}
-                onChange={(e) => setDraftName(e.target.value)}
-              />
-            </label>
-
-            <label className="block text-[11px] font-medium text-slate-600">
-              {t("nodeType")}
-              <select
-                className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm"
-                value={draftKind}
-                onChange={(e) => setDraftKind(e.target.value as "concept" | "skill" | "causal")}
-              >
-                <option value="concept">{t("nodeKind.concept")}</option>
-                <option value="skill">{t("nodeKind.skill")}</option>
-                <option value="causal">{t("nodeKind.causal")}</option>
-              </select>
-            </label>
-
             <div className="grid grid-cols-2 gap-2">
-              <label className="block text-[11px] font-medium text-slate-600">
-                {t("subject")}
-                <select
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm"
-                  value={draftSubject}
-                  onChange={(e) => setDraftSubject(e.target.value)}
-                >
-                  <option value="">{t("notSelected")}</option>
-                  {subjects.map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
+              <label className="block min-w-0 text-[11px] font-medium text-slate-600">
+                {t("canonicalName")}
+                <input
+                  className="mt-1 w-full min-w-0 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                  value={draftName}
+                  onChange={(e) => setDraftName(e.target.value)}
+                />
               </label>
-              <label className="block text-[11px] font-medium text-slate-600">
-                {t("level")}
+              <label className="block min-w-0 text-[11px] font-medium text-slate-600">
+                {t("nodeType")}
                 <select
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm"
-                  value={draftLevel}
-                  onChange={(e) => setDraftLevel(e.target.value)}
+                  className="mt-1 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm"
+                  value={draftKind}
+                  onChange={(e) => setDraftKind(e.target.value as "concept" | "skill" | "causal")}
                 >
-                  <option value="">{t("notSelected")}</option>
-                  {levels.map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
+                  <option value="concept">{t("nodeKind.concept")}</option>
+                  <option value="skill">{t("nodeKind.skill")}</option>
+                  <option value="causal">{t("nodeKind.causal")}</option>
                 </select>
               </label>
             </div>
@@ -729,7 +688,14 @@ export function GraphNodePanel({
                   />
                   <div className="min-w-0 flex-1">
                     <div className="font-mono text-[11px]">{q.qualified_id}</div>
-                    {q.content_preview ? <div className="text-slate-600">{q.content_preview}</div> : null}
+                    {q.content_preview ? (
+                      <div className="mt-0.5 block w-full min-w-0">
+                        <KatexPlainPreview
+                          text={q.content_preview}
+                          className="line-clamp-3 text-xs leading-snug text-slate-600 [&_.katex]:text-[0.92em]"
+                        />
+                      </div>
+                    ) : null}
                   </div>
                   <button type="button" className="shrink-0 text-red-600" onClick={() => void unbindQ(q.qualified_id)}>
                     {t("unbind")}
@@ -804,7 +770,12 @@ export function GraphNodePanel({
                             </td>
                             <td className="p-2 font-mono">{it.qualified_id}</td>
                             <td className="p-2">{it.type}</td>
-                            <td className="max-w-xs truncate p-2 text-slate-600">{it.content_preview}</td>
+                            <td className="max-w-xs p-2 align-top text-slate-600">
+                              <KatexPlainPreview
+                                text={String(it.content_preview ?? "")}
+                                className="line-clamp-3 text-xs leading-snug text-slate-600 [&_.katex]:text-[0.92em]"
+                              />
+                            </td>
                           </tr>
                         ))}
                       </tbody>

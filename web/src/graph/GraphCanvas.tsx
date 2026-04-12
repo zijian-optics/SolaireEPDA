@@ -37,7 +37,7 @@ import {
 } from "./layoutGraph";
 import { OVERLAP_DEFAULT } from "./layoutParams";
 import { cn } from "../lib/utils";
-import type { GraphNodeRow, GraphRelationRow, ViewMode } from "./useGraphStore";
+import type { GraphNodeRow, GraphRelationRow } from "./useGraphStore";
 import i18n from "../i18n/i18n";
 
 const REL_KEYS = ["prerequisite", "part_of", "related", "causal"] as const;
@@ -96,7 +96,6 @@ interface Props {
   graphNodes: GraphNodeRow[];
   relations: GraphRelationRow[];
   selectedNodeId: string | null;
-  viewMode: ViewMode;
   layoutNonce: number;
   connectingFromId: string | null;
   onNodeClick: (nodeId: string) => void;
@@ -107,7 +106,6 @@ interface Props {
   onAddNode: () => void;
   onStartConnect: () => void;
   onRelayout: () => void;
-  onViewModeChange: (mode: ViewMode) => void;
   onCancelConnect: () => void;
 }
 
@@ -142,7 +140,6 @@ export function GraphCanvas({
   graphNodes,
   relations,
   selectedNodeId,
-  viewMode,
   layoutNonce,
   connectingFromId,
   onNodeClick,
@@ -153,7 +150,6 @@ export function GraphCanvas({
   onAddNode,
   onStartConnect,
   onRelayout,
-  onViewModeChange,
   onCancelConnect,
 }: Props) {
   const { t } = useTranslation("graph");
@@ -332,24 +328,6 @@ export function GraphCanvas({
     <div className="flex h-full flex-col">
       {/* Canvas toolbar */}
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-3 py-2">
-        {/* View mode toggle */}
-        <div className="flex rounded-md border border-slate-200 p-0.5 text-[11px]">
-          <button
-            type="button"
-            className={cn("rounded px-2.5 py-1 font-medium", viewMode === "mindmap" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50")}
-            onClick={() => onViewModeChange("mindmap")}
-          >
-            {t("viewMindmap")}
-          </button>
-          <button
-            type="button"
-            className={cn("rounded px-2.5 py-1 font-medium", viewMode === "graph" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50")}
-            onClick={() => onViewModeChange("graph")}
-          >
-            {t("viewGraph")}
-          </button>
-        </div>
-
         {/* Action buttons */}
         <button
           type="button"

@@ -6,7 +6,7 @@
  *
  * All shared state is managed via useGraphStore (Zustand).
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   apiGraphCreateGraph,
@@ -21,12 +21,14 @@ import {
   apiGraphUpdateNode,
 } from "../api/client";
 import { useAgentContext } from "../contexts/AgentContext";
+import { useToolBar } from "../contexts/ToolBarContext";
 import { GraphSubjectSidebar } from "../graph/GraphSubjectSidebar";
 import { GraphCanvas } from "../graph/GraphCanvas";
 import { MindMapCanvas } from "../graph/MindMapCanvas";
 import { GraphNodePanel } from "../graph/GraphNodePanel";
 import { useGraphStore } from "../graph/useGraphStore";
 import i18n from "../i18n/i18n";
+import { cn } from "../lib/utils";
 import { SOLAIRE_SAVE_EVENT } from "../lib/saveEvents";
 
 export function GraphWorkspace({
@@ -40,10 +42,11 @@ export function GraphWorkspace({
 }) {
   const { t } = useTranslation(["graph", "common"]);
   const { setPageContext } = useAgentContext();
+  const { setToolBar, clearToolBar } = useToolBar();
 
   const {
     graphs, activeSlug, setGraphs, setActiveSlug,
-    graphNodes, relations, subjects, levels,
+    graphNodes, relations,
     setGraphNodes, setRelations, setSubjects, setLevels, setKindCounts,
     selectedNodeId, selectedEdgeId, setSelectedNodeId, setSelectedEdgeId,
     viewMode, setViewMode,
@@ -86,6 +89,36 @@ export function GraphWorkspace({
     setPanelExpanded(true);
     queueMicrotask(() => onFocusConsumed?.());
   }, [focusNodeId, onFocusConsumed, setSelectedNodeId, setPanelExpanded]);
+
+  // Mind map / graph view toggle in app menubar (ToolBar)
+  useEffect(() => {
+    const left: ReactNode = (
+      <div className="flex rounded-md border border-slate-200 bg-white p-0.5 text-[11px]">
+        <button
+          type="button"
+          className={cn(
+            "rounded px-2.5 py-1 font-medium",
+            viewMode === "mindmap" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50",
+          )}
+          onClick={() => setViewMode("mindmap")}
+        >
+          {t("viewMindmap")}
+        </button>
+        <button
+          type="button"
+          className={cn(
+            "rounded px-2.5 py-1 font-medium",
+            viewMode === "graph" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50",
+          )}
+          onClick={() => setViewMode("graph")}
+        >
+          {t("viewGraph")}
+        </button>
+      </div>
+    );
+    setToolBar({ left });
+    return () => clearToolBar();
+  }, [viewMode, setViewMode, t, setToolBar, clearToolBar]);
 
   // Load graph list on mount
   const loadGraphList = useCallback(async () => {
@@ -411,7 +444,6 @@ export function GraphWorkspace({
               graphNodes={graphNodes}
               relations={relations}
               selectedNodeId={selectedNodeId}
-              viewMode={viewMode}
               layoutNonce={layoutNonce}
               connectingFromId={connectingFromId}
               activeGraphName={activeGraphInfo?.display_name ?? activeSlug ?? ""}
@@ -425,7 +457,6 @@ export function GraphWorkspace({
               onAddSiblingNode={handleAddSiblingNode}
               onStartConnect={handleStartConnect}
               onRelayout={triggerRelayout}
-              onViewModeChange={setViewMode}
               onCancelConnect={handleCancelConnect}
               onRenameNode={handleRenameNode}
             />
@@ -434,7 +465,6 @@ export function GraphWorkspace({
               graphNodes={graphNodes}
               relations={relations}
               selectedNodeId={selectedNodeId}
-              viewMode={viewMode}
               layoutNonce={layoutNonce}
               connectingFromId={connectingFromId}
               onNodeClick={handleNodeClick}
@@ -445,7 +475,6 @@ export function GraphWorkspace({
               onAddNode={handleAddNode}
               onStartConnect={handleStartConnect}
               onRelayout={triggerRelayout}
-              onViewModeChange={setViewMode}
               onCancelConnect={handleCancelConnect}
             />
           )}
@@ -457,8 +486,6 @@ export function GraphWorkspace({
             selectedNode={selectedNode}
             relations={relations}
             graphNodes={graphNodes}
-            subjects={subjects}
-            levels={levels}
             activeSlug={activeSlug}
             tab={panelTab}
             onTabChange={setPanelTab}

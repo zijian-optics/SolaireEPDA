@@ -32,7 +32,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "../lib/utils";
-import type { GraphNodeRow, GraphRelationRow, ViewMode } from "./useGraphStore";
+import type { GraphNodeRow, GraphRelationRow } from "./useGraphStore";
 import i18n from "../i18n/i18n";
 
 // Virtual root sentinel
@@ -239,7 +239,6 @@ interface Props {
   graphNodes: GraphNodeRow[];
   relations: GraphRelationRow[];
   selectedNodeId: string | null;
-  viewMode: ViewMode;
   layoutNonce: number;
   connectingFromId: string | null;
   activeGraphName: string;
@@ -253,7 +252,6 @@ interface Props {
   onAddSiblingNode: (siblingId: string) => void;
   onStartConnect: () => void;
   onRelayout: () => void;
-  onViewModeChange: (mode: ViewMode) => void;
   onCancelConnect: () => void;
   onRenameNode: (nodeId: string, newName: string) => Promise<void>;
 }
@@ -262,7 +260,6 @@ export function MindMapCanvas({
   graphNodes,
   relations,
   selectedNodeId,
-  viewMode,
   layoutNonce,
   connectingFromId,
   activeGraphName,
@@ -276,7 +273,6 @@ export function MindMapCanvas({
   onAddSiblingNode,
   onStartConnect,
   onRelayout,
-  onViewModeChange,
   onCancelConnect,
   onRenameNode,
 }: Props) {
@@ -496,24 +492,6 @@ export function MindMapCanvas({
     <div className="flex h-full flex-col">
       {/* Canvas toolbar */}
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-3 py-2">
-        {/* View mode toggle */}
-        <div className="flex rounded-md border border-slate-200 p-0.5 text-[11px]">
-          <button
-            type="button"
-            className={cn("rounded px-2.5 py-1 font-medium", viewMode === "mindmap" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50")}
-            onClick={() => onViewModeChange("mindmap")}
-          >
-            {t("viewMindmap")}
-          </button>
-          <button
-            type="button"
-            className={cn("rounded px-2.5 py-1 font-medium", viewMode === "graph" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50")}
-            onClick={() => onViewModeChange("graph")}
-          >
-            {t("viewGraph")}
-          </button>
-        </div>
-
         <button type="button" className="rounded border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-800 hover:bg-slate-50" onClick={onAddNode}>
           + {t("addNode")}
         </button>
