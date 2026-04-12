@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import shutil
+import time
 import uuid
 from pathlib import Path
 from typing import Annotated, Any, Literal, Union
@@ -103,12 +105,19 @@ from solaire.web.graph_service import (
 from solaire.web.library_discovery import discover_question_library_refs
 from solaire.web.draft_service import (
     delete_draft,
-    draft_from_result,
     list_drafts,
     load_draft,
-    persist_draft_document,
     save_draft,
     save_draft_after_export_failure,
+)
+from solaire.web.exam_workspace_service import (
+    create_workspace_from_result,
+    delete_exam_workspace,
+    exam_yaml_path,
+    list_exam_workspaces,
+    load_exam_workspace,
+    mark_exported,
+    save_exam_workspace,
 )
 from solaire.web.exam_service import (
     VALIDATE_EXAM_NAME,
@@ -116,12 +125,14 @@ from solaire.web.exam_service import (
     ensure_probe_list_yaml,
     exam_export_error_detail_short,
     export_pdfs,
+    export_preview_pdfs,
     find_export_conflict,
     restore_build_yaml_from_backup,
     run_validate,
     snapshot_build_yaml_before_export,
     write_build_exam_yaml,
     write_exam_yaml,
+    write_preview_exam_yaml,
 )
 from solaire.web.project_layout import ensure_project_layout
 from solaire.web.security import (
@@ -212,6 +223,8 @@ class ExamExportBody(ExamDraftBody):
     overwrite_existing: str | None = None
     draft_ids_to_delete_on_success: list[str] | None = None
     """草稿 id 列表；导出成功后删除（如当前草稿或导出失败时自动保存的草稿）。"""
+    exam_workspace_id: str | None = None
+    """当前考试工作区 id（位于 exams/<id>/）；导出成功后更新状态，不删除该目录。"""
 
 
 class ExamExportConflictBody(BaseModel):
@@ -1245,10 +1258,19 @@ def exam_export(body: ExamExportBody) -> dict[str, Any]:
         discard_build_yaml_backup(backup)
 
     rel = result_dir.relative_to(root)
+    result_folder_id = result_dir.name
+    wid = str(body.exam_workspace_id or "").strip()
+    if wid:
+        try:
+            mark_exported(root, wid, result_folder_id=result_folder_id)
+        except Exception:
+            log.warning("mark exam workspace exported failed: %s", wid, exc_info=True)
+
+    skip_delete = {Path(wid).name} if wid else set()
     to_delete = body.draft_ids_to_delete_on_success or []
     for raw_id in to_delete:
         did = str(raw_id).strip()
-        if not did:
+        if not did or Path(did).name in skip_delete:
             continue
         try:
             delete_draft(root, did)
@@ -1269,9 +1291,274 @@ def exam_export_check_conflict(body: ExamExportConflictBody) -> dict[str, Any]:
     return find_export_conflict(root, body.export_label, body.subject)
 
 
+_PREVIEW_CACHE_MAX_SEC = 3600
+_PREVIEW_CACHE_MAX_DIRS = 48
+
+
+def _cleanup_old_previews(root: Path) -> None:
+    prev_root = root / ".solaire" / "previews"
+    if not prev_root.is_dir():
+        return
+    now = time.time()
+    entries = [p for p in prev_root.iterdir() if p.is_dir()]
+    entries.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    for i, d in enumerate(entries):
+        try:
+            age = now - d.stat().st_mtime
+            if age > _PREVIEW_CACHE_MAX_SEC or i >= _PREVIEW_CACHE_MAX_DIRS:
+                shutil.rmtree(d, ignore_errors=True)
+        except OSError:
+            continue
+
+
+@app.post("/api/exam/preview-pdf")
+def exam_preview_pdf(body: ExamExportBody) -> dict[str, Any]:
+    """
+    Build a non-strict preview PDF under .solaire/previews/<id>/ (not under result/).
+    """
+    root = _require_root()
+    tpl = (root / body.template_path).resolve()
+    assert_within_project(root, tpl)
+    if not tpl.is_file():
+        raise HTTPException(status_code=400, detail=f"Template file not found: {body.template_path}")
+
+    title = body.metadata_title or body.export_label
+    metadata: dict[str, Any] = {
+        "title": title,
+        "subject": body.subject,
+        "export_label": body.export_label,
+    }
+    sections = _draft_to_sections(body)
+    preview_id = uuid.uuid4().hex
+    preview_dir = root / ".solaire" / "previews" / preview_id
+    _cleanup_old_previews(root)
+
+    log = logging.getLogger(__name__)
+    try:
+        exam_yaml = write_preview_exam_yaml(
+            root,
+            preview_dir,
+            exam_id=f"preview_{preview_id}",
+            template_ref=body.template_ref,
+            template_relative=body.template_path,
+            metadata=metadata,
+            selected_items=sections,
+        )
+        s_name, t_name, warnings = export_preview_pdfs(
+            root,
+            exam_yaml=exam_yaml,
+            export_label=body.export_label,
+            subject=body.subject,
+        )
+    except ValueError as e:
+        log.warning("exam preview validation failed: %s", e)
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RuntimeError as e:
+        log.exception("exam preview PDF build failed")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    except Exception as e:
+        log.exception("exam preview failed")
+        raise HTTPException(status_code=500, detail=exam_export_error_detail_short(e)) from e
+
+    manifest = {"student_pdf": s_name, "teacher_pdf": t_name}
+    (preview_dir / "preview_manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False), encoding="utf-8"
+    )
+
+    return {
+        "ok": True,
+        "preview_id": preview_id,
+        "student_pdf": s_name,
+        "teacher_pdf": t_name,
+        "warnings": warnings,
+    }
+
+
+@app.get("/api/exam/preview-pdf/{preview_id}/file")
+def exam_preview_pdf_file(
+    preview_id: str,
+    variant: str = Query("student", description="student 或 teacher"),
+) -> FileResponse:
+    root = _require_root()
+    vid = (preview_id or "").strip()
+    if not vid or not all(c in "0123456789abcdef" for c in vid.lower()) or len(vid) > 64:
+        raise HTTPException(status_code=400, detail="Invalid preview id")
+    preview_dir = (root / ".solaire" / "previews" / vid).resolve()
+    try:
+        preview_dir.relative_to(root.resolve())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="Invalid preview path") from e
+    if not preview_dir.is_dir():
+        raise HTTPException(status_code=404, detail="预览已过期或不存在")
+    manifest_path = preview_dir / "preview_manifest.json"
+    if not manifest_path.is_file():
+        raise HTTPException(status_code=404, detail="预览文件缺失")
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=500, detail="预览清单损坏") from e
+    v = variant.strip().lower()
+    if v not in ("student", "teacher"):
+        raise HTTPException(status_code=400, detail="variant 须为 student 或 teacher")
+    key = "teacher_pdf" if v == "teacher" else "student_pdf"
+    fname = manifest.get(key)
+    if not fname or not isinstance(fname, str):
+        raise HTTPException(status_code=500, detail="预览清单缺少文件名")
+    path = (preview_dir / fname).resolve()
+    try:
+        path.relative_to(preview_dir.resolve())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="Invalid file path") from e
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="预览文件不存在")
+    return FileResponse(
+        path,
+        media_type="application/pdf",
+        filename=path.name,
+        content_disposition_type="inline",
+    )
+
+
+def _merge_compose_summaries(root: Path) -> list[dict[str, Any]]:
+    """考试工作区 + 旧版 ``.solaire/drafts``，按更新时间合并。"""
+    rows: list[tuple[float, dict[str, Any]]] = []
+    for e in list_exam_workspaces(root):
+        eid = str(e.get("exam_id") or "")
+        yp = exam_yaml_path(root, eid)
+        mtime = yp.stat().st_mtime if yp.is_file() else 0.0
+        rows.append(
+            (
+                mtime,
+                {
+                    "draft_id": eid,
+                    "exam_id": eid,
+                    "name": e.get("name"),
+                    "subject": e.get("subject"),
+                    "export_label": e.get("export_label"),
+                    "template_ref": e.get("template_ref"),
+                    "template_path": e.get("template_path"),
+                    "updated_at": e.get("updated_at"),
+                    "status": e.get("status"),
+                    "last_export_result_id": e.get("last_export_result_id"),
+                    "workspace": True,
+                },
+            )
+        )
+    drafts_root = root / ".solaire" / "drafts"
+    for d in list_drafts(root):
+        did = str(d.get("draft_id") or "")
+        p = drafts_root / f"{Path(did).name}.yaml"
+        mtime = p.stat().st_mtime if p.is_file() else 0.0
+        rows.append(
+            (
+                mtime,
+                {
+                    **d,
+                    "exam_id": did,
+                    "status": "draft",
+                    "last_export_result_id": None,
+                    "workspace": False,
+                },
+            )
+        )
+    rows.sort(key=lambda x: x[0], reverse=True)
+    return [r[1] for r in rows]
+
+
+def _load_compose_document(root: Path, doc_id: str) -> tuple[dict[str, Any], bool]:
+    try:
+        return load_exam_workspace(root, doc_id), True
+    except FileNotFoundError:
+        return load_draft(root, doc_id), False
+
+
+def _delete_compose_document(root: Path, doc_id: str) -> None:
+    safe = Path(doc_id).name
+    if exam_yaml_path(root, safe).is_file():
+        delete_exam_workspace(root, safe)
+    else:
+        delete_draft(root, doc_id)
+
+
+@app.get("/api/exams")
+def exams_list() -> dict[str, Any]:
+    return {"exams": list_exam_workspaces(_require_root())}
+
+
+@app.post("/api/exams")
+def exams_create(body: ExamSaveDraftBody) -> dict[str, Any]:
+    root = _require_root()
+    items = [s.model_dump(mode="json", exclude_none=True) for s in body.selected_items]
+    try:
+        doc = save_exam_workspace(
+            root,
+            exam_id=None,
+            name=body.name,
+            subject=body.subject,
+            export_label=body.export_label,
+            template_ref=body.template_ref,
+            template_path=body.template_path,
+            selected_items=items,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "exam": doc}
+
+
+@app.get("/api/exams/{exam_id}")
+def exams_get(exam_id: str) -> dict[str, Any]:
+    root = _require_root()
+    try:
+        doc = load_exam_workspace(root, exam_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="考试工作区不存在") from None
+    return {"exam": doc}
+
+
+@app.put("/api/exams/{exam_id}")
+def exams_put(exam_id: str, body: ExamSaveDraftBody) -> dict[str, Any]:
+    root = _require_root()
+    items = [s.model_dump(mode="json", exclude_none=True) for s in body.selected_items]
+    try:
+        doc = save_exam_workspace(
+            root,
+            exam_id=exam_id,
+            name=body.name,
+            subject=body.subject,
+            export_label=body.export_label,
+            template_ref=body.template_ref,
+            template_path=body.template_path,
+            selected_items=items,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="考试工作区不存在") from None
+    return {"ok": True, "exam": doc}
+
+
+@app.delete("/api/exams/{exam_id}")
+def exams_delete(exam_id: str) -> dict[str, Any]:
+    root = _require_root()
+    if not exam_yaml_path(root, exam_id).is_file():
+        raise HTTPException(status_code=404, detail="考试工作区不存在")
+    delete_exam_workspace(root, exam_id)
+    return {"ok": True}
+
+
+@app.post("/api/exams/from-result/{result_exam_id}")
+def exams_from_result(result_exam_id: str) -> dict[str, Any]:
+    root = _require_root()
+    try:
+        doc = create_workspace_from_result(root, result_exam_id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return {"ok": True, "exam": doc}
+
+
 @app.get("/api/exam/drafts")
 def exam_drafts_list() -> dict[str, Any]:
-    return {"drafts": list_drafts(_require_root())}
+    return {"drafts": _merge_compose_summaries(_require_root())}
 
 
 @app.post("/api/exam/drafts")
@@ -1279,9 +1566,9 @@ def exam_drafts_create(body: ExamSaveDraftBody) -> dict[str, Any]:
     root = _require_root()
     items = [s.model_dump(mode="json", exclude_none=True) for s in body.selected_items]
     try:
-        doc = save_draft(
+        doc = save_exam_workspace(
             root,
-            draft_id=None,
+            exam_id=None,
             name=body.name,
             subject=body.subject,
             export_label=body.export_label,
@@ -1296,24 +1583,42 @@ def exam_drafts_create(body: ExamSaveDraftBody) -> dict[str, Any]:
 
 @app.get("/api/exam/drafts/{draft_id}")
 def exam_drafts_get(draft_id: str) -> dict[str, Any]:
-    return {"draft": load_draft(_require_root(), draft_id)}
+    root = _require_root()
+    try:
+        doc, workspace = _load_compose_document(root, draft_id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail="草稿不存在") from e
+    return {"draft": doc, "workspace": workspace}
 
 
 @app.put("/api/exam/drafts/{draft_id}")
 def exam_drafts_put(draft_id: str, body: ExamSaveDraftBody) -> dict[str, Any]:
     root = _require_root()
     items = [s.model_dump(mode="json", exclude_none=True) for s in body.selected_items]
+    safe = Path(draft_id).name
     try:
-        doc = save_draft(
-            root,
-            draft_id=draft_id,
-            name=body.name,
-            subject=body.subject,
-            export_label=body.export_label,
-            template_ref=body.template_ref,
-            template_path=body.template_path,
-            selected_items=items,
-        )
+        if exam_yaml_path(root, safe).is_file():
+            doc = save_exam_workspace(
+                root,
+                exam_id=draft_id,
+                name=body.name,
+                subject=body.subject,
+                export_label=body.export_label,
+                template_ref=body.template_ref,
+                template_path=body.template_path,
+                selected_items=items,
+            )
+        else:
+            doc = save_draft(
+                root,
+                draft_id=draft_id,
+                name=body.name,
+                subject=body.subject,
+                export_label=body.export_label,
+                template_ref=body.template_ref,
+                template_path=body.template_path,
+                selected_items=items,
+            )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {"ok": True, "draft": doc}
@@ -1321,18 +1626,20 @@ def exam_drafts_put(draft_id: str, body: ExamSaveDraftBody) -> dict[str, Any]:
 
 @app.delete("/api/exam/drafts/{draft_id}")
 def exam_drafts_delete(draft_id: str) -> dict[str, Any]:
-    delete_draft(_require_root(), draft_id)
+    root = _require_root()
+    _delete_compose_document(root, draft_id)
     return {"ok": True}
 
 
 @app.post("/api/exam/drafts/from-result/{exam_id}")
 def exam_drafts_from_result(exam_id: str, body: DraftFromResultBody | None = None) -> dict[str, Any]:
+    """从历史试卷复制为新考试工作区（写入 ``exams/<id>/``）。``persist`` 已废弃，保留字段以兼容旧客户端。"""
     root = _require_root()
-    doc = draft_from_result(root, exam_id)
-    persist = bool(body.persist) if body else False
-    if persist:
-        persist_draft_document(root, doc)
-    return {"ok": True, "draft": doc, "persisted": persist}
+    try:
+        doc = create_workspace_from_result(root, exam_id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return {"ok": True, "draft": doc, "persisted": True}
 
 
 def _preview_text(s: str | None, n: int = 240) -> str:

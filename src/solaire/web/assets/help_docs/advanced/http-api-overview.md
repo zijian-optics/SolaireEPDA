@@ -51,14 +51,22 @@
 | 方法 | 路径 | 作用 |
 |------|------|------|
 | POST | `/api/exam/validate` | 按当前选题与模板做校验 |
-| POST | `/api/exam/export` | 校验通过后生成 PDF 等；可选 `overwrite_existing`（覆盖已有 `result/` 子目录） |
+| POST | `/api/exam/export` | 校验通过后生成 PDF 等；可选 `overwrite_existing`（覆盖已有 `result/` 子目录）；可选 `exam_workspace_id`（对应 `exams/<id>/`，导出成功后更新该目录内状态并保留试卷） |
 | POST | `/api/exam/export/check-conflict` | 请求体：`export_label`、`subject`；返回是否与已有导出记录冲突 |
-| GET | `/api/exam/drafts` | 列出 `.solaire/drafts/` 中的组卷草稿 |
-| POST | `/api/exam/drafts` | 保存新草稿 |
-| GET | `/api/exam/drafts/{draft_id}` | 读取草稿全文 |
-| PUT | `/api/exam/drafts/{draft_id}` | 更新草稿 |
-| DELETE | `/api/exam/drafts/{draft_id}` | 删除草稿 |
-| POST | `/api/exam/drafts/from-result/{exam_id}` | 从 `result/{exam_id}/exam.yaml` 生成草稿 JSON；**默认不落盘**。请求体可选 `persist`（`true` 时写入 `.solaire/drafts/`） |
+| POST | `/api/exam/preview-pdf` | 请求体与导出相同（`export_label`、`subject`、`template_*`、`selected_items`）；在 `.solaire/previews/` 下生成**临时**预览 PDF，不入 `result/`；返回 `preview_id` 与 `warnings` |
+| GET | `/api/exam/preview-pdf/{preview_id}/file` | 查询参数 `variant=student`（默认）或 `teacher`；返回临时预览 PDF（内嵌查看） |
+| GET | `/api/exams` | 列出项目 `exams/` 下各套考试工作区摘要 |
+| POST | `/api/exams` | 新建考试工作区（`exams/<id>/exam.yaml` + 状态文件） |
+| GET | `/api/exams/{exam_id}` | 读取该套考试的组卷内容 |
+| PUT | `/api/exams/{exam_id}` | 更新 |
+| DELETE | `/api/exams/{exam_id}` | 删除该套考试目录 |
+| POST | `/api/exams/from-result/{exam_id}` | 从 `result/{exam_id}/` 复制为新考试工作区并落盘 |
+| GET | `/api/exam/drafts` | **兼容**：合并 `exams/` 与旧版 `.solaire/drafts` 列表（条目含 `workspace` 等字段） |
+| POST | `/api/exam/drafts` | **兼容**：新建时写入 `exams/`（与 POST `/api/exams` 一致） |
+| GET | `/api/exam/drafts/{draft_id}` | **兼容**：优先读 `exams/`，否则读旧版草稿文件 |
+| PUT | `/api/exam/drafts/{draft_id}` | **兼容**：同上 |
+| DELETE | `/api/exam/drafts/{draft_id}` | **兼容**：删除考试工作区或旧版草稿文件 |
+| POST | `/api/exam/drafts/from-result/{exam_id}` | 从历史导出复制为新考试工作区并落盘（旧版 `persist` 请求体已忽略） |
 
 请求体含 `template_ref`、`template_path`、`selected_items`；每项可选 `score_per_item`、`score_overrides`（题目完整编号 → 分值），与界面组卷一致。
 

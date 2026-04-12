@@ -1,12 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { ApiError, apiDelete, apiGet, apiPost, apiPut } from "../api/client";
-import { ContentWithPrimeBrush } from "../components/ContentWithPrimeBrush";
 import { KatexPlainPreview } from "../components/KatexText";
 import { PdfPreview } from "../components/PdfPreview";
 import { TexSetupNotice } from "../components/TexSetupNotice";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { useAgentContext } from "../contexts/AgentContext";
 import { useToolBar } from "../contexts/ToolBarContext";
 import i18n from "../i18n/i18n";
@@ -26,6 +24,8 @@ import type {
   RightSelection,
   TemplateRow,
 } from "../types/compose";
+
+type GraphBindingNode = { id: string; canonical_name: string; node_kind?: string };
 
 type ComposeSubView = "search" | "config" | "preview";
 
@@ -60,6 +60,8 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
   const [scoreOverrides, setScoreOverrides] = useState<Record<string, Record<string, number>>>({});
   const [perQuestionMode, setPerQuestionMode] = useState<Record<string, boolean>>({});
   const [currentDraftId, setCurrentDraftId] = useState<string | null>(null);
+  /** 当前编辑内容是否来自 ``exams/<id>/`` 考试工作区（导出成功时更新状态而非删除目录） */
+  const [isWorkspaceExam, setIsWorkspaceExam] = useState(false);
   /** 导出失败后服务端自动保存的草稿 id；下次导出成功时一并删除 */
   const [exportFailureDraftIds, setExportFailureDraftIds] = useState<string[]>([]);
   const [draftName, setDraftName] = useState("");
@@ -69,6 +71,16 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
   /** `result/` 下目录名，与 `/api/results` 的 exam_id 一致，用于内联打开学生版 PDF */
   const [lastExportedExamId, setLastExportedExamId] = useState<string | null>(null);
   const [viewPdfBusy, setViewPdfBusy] = useState(false);
+  /** 校验生成的临时预览会话 id（不入历史试卷） */
+  const [previewPdfId, setPreviewPdfId] = useState<string | null>(null);
+  const [previewWarnings, setPreviewWarnings] = useState<string[]>([]);
+  const [questionBindingsIndex, setQuestionBindingsIndex] = useState<Record<string, GraphBindingNode[]>>({});
+  const [newPaperDialogOpen, setNewPaperDialogOpen] = useState(false);
+  const [dlgExportLabel, setDlgExportLabel] = useState("");
+  const [dlgSubject, setDlgSubject] = useState("");
+  const [dlgTemplatePath, setDlgTemplatePath] = useState("");
+  const [dlgMode, setDlgMode] = useState<"scratch" | "history">("scratch");
+  const [dlgHistoryExamId, setDlgHistoryExamId] = useState("");
 
   const openViewPdfExternally = useCallback(async () => {
     const id = pdfExamId ?? lastExportedExamId;
@@ -255,6 +267,35 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
     void refreshDraftsExams();
   }, [refreshDraftsExams]);
 
+  useEffect(() => {
+    void apiGet<{ index: Record<string, GraphBindingNode[]> }>("/api/graph/question-bindings-index")
+      .then((r) => setQuestionBindingsIndex(r.index ?? {}))
+      .catch(() => setQuestionBindingsIndex({}));
+  }, []);
+
+  const knowledgeDistributionRows = useMemo(() => {
+    const counts = new Map<string, number>();
+    let unassigned = 0;
+    for (const ids of Object.values(bySection)) {
+      for (const qid of ids) {
+        const nodes = questionBindingsIndex[qid] ?? [];
+        if (nodes.length === 0) {
+          unassigned += 1;
+        } else {
+          for (const n of nodes) {
+            const name = (n.canonical_name || n.id).trim() || n.id;
+            counts.set(name, (counts.get(name) ?? 0) + 1);
+          }
+        }
+      }
+    }
+    const rows: [string, number][] = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+    if (unassigned > 0) {
+      rows.push(["__unassigned__", unassigned]);
+    }
+    return rows.slice(0, 14);
+  }, [bySection, questionBindingsIndex]);
+
   const countsOk = useMemo(() => {
     if (!selectedTpl) {
       return false;
@@ -315,6 +356,8 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
   }, [selectedTpl, bySection, scoreBySection, scoreOverrides]);
 
   const applyDraftDocument = useCallback((doc: DraftDoc) => {
+    setPreviewPdfId(null);
+    setPreviewWarnings([]);
     setExportLabel(String(doc.export_label ?? ""));
     setSubject(String(doc.subject ?? ""));
     const tp = String(doc.template_path ?? "");
@@ -322,8 +365,9 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
       setTemplatePath(tp);
     }
     setTemplateRef(String(doc.template_ref ?? ""));
-    const did = String(doc.draft_id ?? "");
+    const did = String(doc.exam_id ?? doc.draft_id ?? "");
     setCurrentDraftId(did || null);
+    setIsWorkspaceExam(Boolean(doc.exam_id));
     setDraftName(String(doc.name ?? ""));
     const items = doc.selected_items ?? [];
     const by: Record<string, string[]> = {};
@@ -408,14 +452,79 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
     }
     onError(null);
     setBusy(true);
+    setPreviewWarnings([]);
     try {
       const selected_items = buildSelectedItemsForApi();
-      await apiPost("/api/exam/validate", {
+      const res = await apiPost<{
+        ok: boolean;
+        preview_id: string;
+        warnings?: string[];
+      }>("/api/exam/preview-pdf", {
+        export_label: exportLabel.trim() || t("compose:previewDefaultLabel"),
+        subject: subject.trim() || t("compose:previewDefaultSubject"),
+        metadata_title: exportLabel.trim() || t("compose:previewDefaultLabel"),
         template_ref: templateRef,
         template_path: templatePath,
         selected_items,
       });
-      setMsg(t("compose:messages.validateOk"));
+      setPreviewPdfId(res.preview_id);
+      const w = res.warnings ?? [];
+      setPreviewWarnings(w);
+      setMsg(
+        w.length > 0
+          ? t("compose:messages.previewPdfReadyWithWarnings", { n: w.length })
+          : t("compose:messages.previewPdfReady"),
+      );
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmNewPaperDialog() {
+    const tpl = templates.find((x) => x.path === dlgTemplatePath);
+    if (!tpl) {
+      onError(t("compose:errors.selectTemplateForDraft"));
+      return;
+    }
+    onError(null);
+    setBusy(true);
+    try {
+      if (dlgMode === "history") {
+        if (!dlgHistoryExamId.trim()) {
+          onError(t("compose:errors.pickHistoryExam"));
+          return;
+        }
+        const r = await apiPost<{ draft: DraftDoc }>(
+          `/api/exam/drafts/from-result/${encodeURIComponent(dlgHistoryExamId.trim())}`,
+          {},
+        );
+        applyDraftDocument(r.draft);
+        setComposeSubView("config");
+        setNewPaperDialogOpen(false);
+        setMsg(t("compose:messages.draftLoaded"));
+      } else {
+        const selected_items = tpl.sections.map((s) => ({
+          section_id: s.section_id,
+          question_ids: [] as string[],
+          score_per_item: null as number | null,
+          score_overrides: null as Record<string, number> | null,
+        }));
+        const r = await apiPost<{ draft: DraftDoc }>("/api/exam/drafts", {
+          name: undefined,
+          export_label: dlgExportLabel.trim(),
+          subject: dlgSubject.trim(),
+          template_ref: tpl.id,
+          template_path: tpl.path,
+          selected_items,
+        });
+        applyDraftDocument(r.draft);
+        setComposeSubView("config");
+        setNewPaperDialogOpen(false);
+        setMsg(t("compose:messages.draftSaved"));
+      }
+      void refreshDraftsExams();
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -427,6 +536,7 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
     overwriteExisting: string | null,
     draftIdToDeleteAfterSuccess: string | null,
     failureDraftIdsToDeleteAfterSuccess: string[],
+    examWorkspaceIdForExport: string | null,
   ) {
     if (!selectedTpl) {
       return;
@@ -453,6 +563,7 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
       template_path: templatePath,
       selected_items,
       overwrite_existing: overwriteExisting ?? undefined,
+      ...(examWorkspaceIdForExport ? { exam_workspace_id: examWorkspaceIdForExport } : {}),
       ...(idsToDelete.length ? { draft_ids_to_delete_on_success: idsToDelete } : {}),
     });
     const dirNorm = res.result_dir.replace(/\\/g, "/").replace(/^\/+/, "");
@@ -494,7 +605,13 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
         return;
       }
       const draftIdSnapshot = currentDraftId;
-      await runExport(null, draftIdSnapshot, exportFailureDraftIds);
+      const wsSnapshot = isWorkspaceExam;
+      await runExport(
+        null,
+        wsSnapshot ? null : draftIdSnapshot,
+        exportFailureDraftIds,
+        wsSnapshot ? draftIdSnapshot : null,
+      );
     } catch (e) {
       if (e instanceof ApiError && e.draftSaved) {
         setExportFailureDraftIds((prev) => [...new Set([...prev, e.draftSaved!.draft_id])]);
@@ -521,7 +638,13 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
     setBusy(true);
     setMsg(null);
     try {
-      await runExport(overwriteId, draftIdSnapshot, exportFailureDraftIds);
+      const wsSnapshot = isWorkspaceExam;
+      await runExport(
+        overwriteId,
+        wsSnapshot ? null : draftIdSnapshot,
+        exportFailureDraftIds,
+        wsSnapshot ? draftIdSnapshot : null,
+      );
     } catch (e) {
       if (e instanceof ApiError && e.draftSaved) {
         setExportFailureDraftIds((prev) => [...new Set([...prev, e.draftSaved!.draft_id])]);
@@ -586,6 +709,7 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
       const id = currentDraftId;
       await apiDelete<{ ok: boolean }>(`/api/exam/drafts/${encodeURIComponent(id)}`);
       setCurrentDraftId(null);
+      setIsWorkspaceExam(false);
       setDraftName("");
       setMsg(t("compose:messages.draftDeleted"));
       void refreshDraftsExams();
@@ -600,69 +724,18 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
     onError(null);
     setBusy(true);
     try {
-      const r = await apiGet<{ draft: DraftDoc }>(`/api/exam/drafts/${encodeURIComponent(id)}`);
+      const r = await apiGet<{ draft: DraftDoc; workspace?: boolean }>(
+        `/api/exam/drafts/${encodeURIComponent(id)}`,
+      );
       applyDraftDocument(r.draft);
+      if (r.workspace !== undefined) {
+        setIsWorkspaceExam(r.workspace);
+      }
       setMsg(t("compose:messages.draftLoaded"));
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
-    }
-  }
-
-  async function importFromPastExam(examId: string) {
-    onError(null);
-    setBusy(true);
-    try {
-      const r = await apiPost<{ draft: DraftDoc; persisted?: boolean }>(
-        `/api/exam/drafts/from-result/${encodeURIComponent(examId)}`,
-        { persist: false },
-      );
-      applyDraftDocument(r.draft);
-      setCurrentDraftId(null);
-      setComposeSubView("config");
-      setMsg(t("compose:messages.importedFromHistory"));
-      void refreshDraftsExams();
-    } catch (e) {
-      onError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function startNewComposition() {
-    setCurrentDraftId(null);
-    setDraftName("");
-    setMsg(null);
-    setLastExportedExamId(null);
-    setPdfExamId(null);
-    onError(null);
-    if (selectedTpl) {
-      const init: Record<string, string[]> = {};
-      for (const s of selectedTpl.sections) {
-        init[s.section_id] = [];
-      }
-      setBySection(init);
-    }
-    setScoreBySection({});
-    setScoreOverrides({});
-    setPerQuestionMode({});
-    setSelectedLeft(null);
-    setSelectedRight(null);
-  }
-
-  const startNewCompositionRef = useRef(startNewComposition);
-  startNewCompositionRef.current = startNewComposition;
-
-  function onLoadCompositionSelect(value: string) {
-    if (!value) {
-      return;
-    }
-    if (value.startsWith("draft:")) {
-      setPdfExamId(null);
-      void loadDraftById(value.slice(6));
-    } else if (value.startsWith("result:")) {
-      void importFromPastExam(value.slice(7));
     }
   }
 
@@ -681,7 +754,12 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
           className="rounded-md bg-slate-900 px-2.5 py-1 text-xs font-medium text-white hover:bg-slate-800 disabled:opacity-50"
           disabled={busy}
           onClick={() => {
-            startNewCompositionRef.current();
+            setDlgExportLabel(exportLabel.trim() || i18n.t("defaultExamLabel", { ns: "compose" }));
+            setDlgSubject(subject.trim());
+            setDlgTemplatePath(templatePath || templates[0]?.path || "");
+            setDlgMode("scratch");
+            setDlgHistoryExamId(pastExams[0]?.exam_id ?? "");
+            setNewPaperDialogOpen(true);
             setComposeSubView("config");
           }}
         >
@@ -733,7 +811,7 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
           disabled={busy || !selectedTpl}
           onClick={() => void validate()}
         >
-          {t("compose:validate")}
+          {t("compose:validatePreview")}
         </button>
         <button
           type="button"
@@ -755,16 +833,135 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
     composeSubView,
     setToolBar,
     clearToolBar,
+    exportLabel,
+    subject,
+    templatePath,
+    templates,
+    pastExams,
   ]);
 
-  const previewQuestion = selectedLeft ?? (selectedRight ? questionMap.get(selectedRight.qid) ?? null : null);
   const pdfApiPath =
     pdfExamId != null
       ? `/api/results/${encodeURIComponent(pdfExamId)}/pdf-file?variant=${pdfVariant}`
       : null;
 
+  const configPreviewPdfPath =
+    previewPdfId != null && composeSubView === "config"
+      ? `/api/exam/preview-pdf/${encodeURIComponent(previewPdfId)}/file?variant=${pdfVariant}`
+      : null;
+
   return (
     <div className="relative flex h-full min-h-0 flex-col">
+      {newPaperDialogOpen ? (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="new-paper-dialog-title"
+        >
+          <div className="max-w-lg w-full rounded-xl border border-slate-200 bg-white p-5 shadow-xl">
+            <h2 id="new-paper-dialog-title" className="text-base font-semibold text-slate-900">
+              {t("compose:newPaperDialogTitle")}
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">{t("compose:newPaperDialogHint")}</p>
+            <div className="mt-4 flex gap-4 text-sm">
+              <label className="flex cursor-pointer items-center gap-2">
+                <input
+                  type="radio"
+                  name="np-mode"
+                  checked={dlgMode === "scratch"}
+                  onChange={() => setDlgMode("scratch")}
+                />
+                {t("compose:newPaperModeScratch")}
+              </label>
+              <label className="flex cursor-pointer items-center gap-2">
+                <input
+                  type="radio"
+                  name="np-mode"
+                  checked={dlgMode === "history"}
+                  onChange={() => setDlgMode("history")}
+                />
+                {t("compose:newPaperModeHistory")}
+              </label>
+            </div>
+            {dlgMode === "history" ? (
+              <label className="mt-4 block text-xs font-medium text-slate-600">
+                {t("compose:newPaperPickHistory")}
+                <select
+                  className="mt-1 block w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                  value={dlgHistoryExamId}
+                  onChange={(e) => setDlgHistoryExamId(e.target.value)}
+                >
+                  <option value="">{t("compose:newPaperPickHistoryPlaceholder")}</option>
+                  {pastExams.map((ex) => (
+                    <option key={ex.exam_id} value={ex.exam_id}>
+                      {ex.export_label || ex.exam_title || ex.exam_id}
+                      {ex.subject ? ` · ${ex.subject}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <>
+                <label className="mt-4 block text-xs font-medium text-slate-600">
+                  {t("compose:examLabel")}
+                  <input
+                    className="mt-1 block w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                    value={dlgExportLabel}
+                    onChange={(e) => setDlgExportLabel(e.target.value)}
+                  />
+                </label>
+                <label className="mt-4 block text-xs font-medium text-slate-600">
+                  {t("compose:subjectPdf")}
+                  <select
+                    className="mt-1 block w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                    value={dlgSubject}
+                    onChange={(e) => setDlgSubject(e.target.value)}
+                  >
+                    {(subjectOptions.length ? subjectOptions : [dlgSubject]).map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="mt-4 block text-xs font-medium text-slate-600">
+                  {t("compose:template")}
+                  <select
+                    className="mt-1 block w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                    value={dlgTemplatePath}
+                    onChange={(e) => setDlgTemplatePath(e.target.value)}
+                  >
+                    {templates.map((tp) => (
+                      <option key={tp.path} value={tp.path}>
+                        {tp.id}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            )}
+            <div className="mt-6 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800"
+                disabled={busy}
+                onClick={() => setNewPaperDialogOpen(false)}
+              >
+                {t("common:cancel")}
+              </button>
+              <button
+                type="button"
+                className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+                disabled={busy}
+                onClick={() => void confirmNewPaperDialog()}
+              >
+                {t("compose:newPaperDialogConfirm")}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <TexSetupNotice onError={onError} />
       {msg ? (
         <div
@@ -772,6 +969,19 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
           role="status"
         >
           {msg}
+        </div>
+      ) : null}
+      {previewWarnings.length > 0 && composeSubView === "config" ? (
+        <div
+          className="shrink-0 border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950"
+          role="status"
+        >
+          <p className="font-medium">{t("compose:previewWarningsTitle")}</p>
+          <ul className="mt-1 list-inside list-disc space-y-0.5">
+            {previewWarnings.map((w, i) => (
+              <li key={i}>{w}</li>
+            ))}
+          </ul>
         </div>
       ) : null}
       {busy ? (
@@ -814,6 +1024,13 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
                         }}
                       >
                         <span className="font-medium text-slate-900">{d.name || d.draft_id}</span>
+                        {d.workspace ? (
+                          <span className="mt-0.5 block text-[10px] text-slate-500">
+                            {d.status === "exported"
+                              ? t("compose:examStatusExported")
+                              : t("compose:examStatusEditing")}
+                          </span>
+                        ) : null}
                         {d.export_label ? (
                           <span className="mt-0.5 block text-[10px] text-slate-500">{d.export_label}</span>
                         ) : null}
@@ -1203,49 +1420,41 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
           ) : null}
 
           <div className="mb-4 space-y-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-            <div className="flex flex-wrap items-end gap-3">
-              <label className="text-xs font-medium text-slate-600">
-                {t("compose:examLabel")}
-                <input
-                  className="mt-1 block rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-                  value={exportLabel}
-                  onChange={(e) => setExportLabel(e.target.value)}
-                />
-              </label>
-              <label className="text-xs font-medium text-slate-600">
-                {t("compose:subjectPdf")}
-                <select
-                  className="mt-1 block min-w-[120px] rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-                  value={subject}
-                  onChange={(e) => setSubject(e.target.value)}
-                >
-                  {(subjectOptions.length ? subjectOptions : [subject]).map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="text-xs font-medium text-slate-600">
-                {t("compose:template")}
-                <select
-                  className="mt-1 block min-w-[200px] rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-                  value={templatePath}
-                  onChange={(e) => setTemplatePath(e.target.value)}
-                >
-                  {templates.map((t) => (
-                    <option key={t.path} value={t.path}>
-                      {t.id}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="flex min-w-[120px] flex-col justify-end rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-                <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
-                  {t("compose:totalScoreLabel")}
-                </span>
-                <span className="text-lg font-semibold text-slate-900">{totalScore}</span>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div>
+                <p className="text-[10px] font-medium uppercase tracking-wide text-slate-500">{t("compose:examLabel")}</p>
+                <p className="mt-0.5 text-sm font-medium text-slate-900">{exportLabel.trim() || "—"}</p>
               </div>
+              <div>
+                <p className="text-[10px] font-medium uppercase tracking-wide text-slate-500">{t("compose:subjectPdf")}</p>
+                <p className="mt-0.5 text-sm font-medium text-slate-900">{subject.trim() || "—"}</p>
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-medium uppercase tracking-wide text-slate-500">{t("compose:template")}</p>
+                <p className="mt-0.5 truncate text-sm font-medium text-slate-900">{selectedTpl?.id ?? "—"}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-medium uppercase tracking-wide text-slate-500">{t("compose:totalScoreLabel")}</p>
+                <p className="mt-0.5 text-lg font-semibold text-slate-900">{totalScore}</p>
+              </div>
+            </div>
+            <div className="border-t border-slate-100 pt-3">
+              <p className="text-xs font-medium text-slate-700">{t("compose:knowledgeDistributionTitle")}</p>
+              {knowledgeDistributionRows.length === 0 ? (
+                <p className="mt-1 text-xs text-slate-500">{t("compose:knowledgeDistributionEmpty")}</p>
+              ) : (
+                <ul className="mt-2 flex flex-wrap gap-2">
+                  {knowledgeDistributionRows.map(([name, n]) => (
+                    <li
+                      key={name}
+                      className="rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-800"
+                    >
+                      {name === "__unassigned__" ? t("compose:knowledgeUnassigned") : name}
+                      <span className="text-slate-500"> · {n}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
             <div className="flex flex-wrap items-end gap-2 border-t border-slate-100 pt-3">
               <label className="text-xs font-medium text-slate-600">
@@ -1273,49 +1482,6 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
               >
                 {t("compose:deleteDraft")}
               </button>
-              <button
-                type="button"
-                className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-medium text-slate-700 disabled:opacity-50"
-                disabled={busy}
-                onClick={startNewComposition}
-              >
-                {t("compose:newPaper")}
-              </button>
-              <label className="text-xs font-medium text-slate-600">
-                {t("compose:loadLabel")}
-                <select
-                  className="mt-1 block min-w-[220px] rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-                  defaultValue=""
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (v) {
-                      onLoadCompositionSelect(v);
-                    }
-                    e.target.value = "";
-                  }}
-                >
-                  <option value="">{t("compose:loadPlaceholder")}</option>
-                  {draftSummaries.length > 0 ? (
-                    <optgroup label={t("compose:draftsGroup")}>
-                      {draftSummaries.map((d) => (
-                        <option key={d.draft_id} value={`draft:${d.draft_id}`}>
-                          {d.name || d.draft_id}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ) : null}
-                  {pastExams.length > 0 ? (
-                    <optgroup label={t("compose:historyGroup")}>
-                      {pastExams.map((ex) => (
-                        <option key={ex.exam_id} value={`result:${ex.exam_id}`}>
-                          {ex.export_label || ex.exam_title || ex.exam_id}
-                          {ex.subject ? ` · ${ex.subject}` : ""}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ) : null}
-                </select>
-              </label>
               {currentDraftId ? (
                 <span className="self-center text-[11px] text-slate-500">
                   {t("compose:currentDraft", { id: currentDraftId })}
@@ -1610,30 +1776,29 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
         </section>
         <aside
           className={cn(
-            "flex w-full flex-col border-slate-200 bg-white shadow-xl lg:relative lg:z-auto lg:w-80 lg:max-w-[20rem] lg:translate-x-0 lg:shadow-none",
+            "flex min-h-0 w-full flex-col border-slate-200 bg-white shadow-xl lg:relative lg:z-auto lg:w-80 lg:max-w-[20rem] lg:translate-x-0 lg:shadow-none",
             "lg:static lg:h-auto lg:max-w-none",
             composeSubView !== "config" && "hidden lg:flex",
           )}
         >
-          <Tabs defaultValue="preview" className="flex min-h-0 flex-1 flex-col p-3">
-            <TabsList className="grid w-full grid-cols-1">
-              <TabsTrigger value="preview">{t("compose:tabPreview")}</TabsTrigger>
-            </TabsList>
-            <TabsContent value="preview" className="min-h-0 flex-1 overflow-auto border-t border-slate-100 pt-2">
-              {previewQuestion ? (
-                <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm">
-                  <p className="mb-2 font-mono text-[11px] text-slate-500">{previewQuestion.qualified_id}</p>
-                  <ContentWithPrimeBrush text={previewQuestion.content} className="text-slate-900" />
-                  <details className="mt-3 text-xs">
-                    <summary className="cursor-pointer text-slate-600">{t("compose:answer")}</summary>
-                    <ContentWithPrimeBrush text={previewQuestion.answer} className="mt-1" />
-                  </details>
-                </div>
-              ) : (
-                <p className="text-xs text-slate-500">{t("compose:previewHint")}</p>
-              )}
-            </TabsContent>
-          </Tabs>
+          <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2">
+            <span className="text-xs font-medium text-slate-600">{t("compose:pdfVariantLabel")}</span>
+            <select
+              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs"
+              value={pdfVariant}
+              onChange={(e) => setPdfVariant(e.target.value === "teacher" ? "teacher" : "student")}
+            >
+              <option value="student">{t("compose:pdfVariantStudent")}</option>
+              <option value="teacher">{t("compose:pdfVariantTeacher")}</option>
+            </select>
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto p-3">
+            {configPreviewPdfPath ? (
+              <PdfPreview apiPath={configPreviewPdfPath} className="min-h-[min(70vh,560px)]" />
+            ) : (
+              <p className="text-xs text-slate-500">{t("compose:previewPdfEmptyHint")}</p>
+            )}
+          </div>
         </aside>
           </>
         ) : composeSubView === "preview" ? (

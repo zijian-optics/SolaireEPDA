@@ -17,7 +17,7 @@ def _cmd_build(args: argparse.Namespace) -> int:
     exam = Path(args.exam_yaml)
     out = Path(args.out) if args.out else None
     try:
-        sp, tp = build_exam_pdfs(exam, out, clean_workdir=args.clean)
+        sp, tp, _pw = build_exam_pdfs(exam, out, clean_workdir=args.clean)
     except LatexmkError as e:
         print(f"LaTeX build failed:\n{e}", file=sys.stderr)
         return 1

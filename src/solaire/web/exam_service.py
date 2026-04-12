@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -176,6 +177,52 @@ def write_build_exam_yaml(
     )
 
 
+def _template_path_relative_to_exam_file(project_root: Path, exam_yaml: Path, template_relative: str) -> str:
+    """template_relative is relative to project root (e.g. templates/x.yaml)."""
+    rel = template_relative.replace("\\", "/").strip("/")
+    abs_tpl = (project_root / rel).resolve()
+    assert_within_project(project_root, abs_tpl)
+    return os.path.relpath(abs_tpl, exam_yaml.parent.resolve()).replace("\\", "/")
+
+
+def write_preview_exam_yaml(
+    project_root: Path,
+    preview_dir: Path,
+    *,
+    exam_id: str,
+    template_ref: str,
+    template_relative: str,
+    metadata: dict[str, Any],
+    selected_items: list[SelectedSection],
+) -> Path:
+    """Write exam.yaml under preview_dir; template_path is relative to that file."""
+    preview_dir.mkdir(parents=True, exist_ok=True)
+    out = preview_dir / "exam.yaml"
+    refs = discover_question_library_refs(project_root)
+    # discover_question_library_refs 的路径是相对于 project/.solaire/ 下 exam.yaml 的「../resource/…」；
+    # 预览文件在 .solaire/previews/<id>/，不能复用同一相对串，否则会解析到 .solaire/previews/resource/…
+    exam_parent = out.parent.resolve()
+    libs: list[QuestionLibraryRef] = []
+    for r in refs:
+        abs_lib = (project_root / ".solaire" / r["path"]).resolve()
+        assert_within_project(project_root, abs_lib)
+        rel = os.path.relpath(abs_lib, exam_parent).replace("\\", "/")
+        libs.append(QuestionLibraryRef(path=rel, namespace=r["namespace"]))
+    tpl_rel = _template_path_relative_to_exam_file(project_root, out, template_relative)
+    exam = ExamConfig(
+        exam_id=exam_id,
+        template_ref=template_ref,
+        metadata=metadata,
+        question_libraries=libs,
+        template_path=tpl_rel,
+        selected_items=selected_items,
+    )
+    raw = exam.model_dump(mode="json")
+    with out.open("w", encoding="utf-8") as f:
+        yaml.safe_dump(raw, f, allow_unicode=True, sort_keys=False)
+    return out
+
+
 def find_export_conflict(project_root: Path, export_label: str, subject: str) -> dict[str, Any]:
     """If any result exam matches export_label + subject metadata, return its folder id (newest first)."""
     label = export_label.strip()
@@ -283,7 +330,7 @@ def export_pdfs(
         dest.mkdir(parents=True, exist_ok=True)
 
     try:
-        student_pdf, teacher_pdf = build_exam_pdfs(exam_yaml, out_dir=dest)
+        student_pdf, teacher_pdf, _preview_warn = build_exam_pdfs(exam_yaml, out_dir=dest)
     except LatexmkError as e:
         raise RuntimeError(format_latexmk_failure_message(e)) from e
 
@@ -309,3 +356,33 @@ def export_pdfs(
             yaml.safe_dump(exam_data.model_dump(mode="json"), f, allow_unicode=True, sort_keys=False)
 
     return dest, s_name, t_name
+
+
+def export_preview_pdfs(
+    project_root: Path,
+    *,
+    exam_yaml: Path,
+    export_label: str,
+    subject: str,
+) -> tuple[str, str, list[str]]:
+    """
+    Build relaxed preview PDFs in the same folder as exam_yaml (typically .solaire/previews/<id>/).
+    Does not write under result/. Returns localized PDF filenames and warning lines.
+    """
+    assert_within_project(project_root, exam_yaml)
+    dest = exam_yaml.parent.resolve()
+    try:
+        student_pdf, teacher_pdf, warnings = build_exam_pdfs(
+            exam_yaml, out_dir=dest, clean_workdir=True, preview_relaxed=True
+        )
+    except LatexmkError as e:
+        raise RuntimeError(format_latexmk_failure_message(e)) from e
+
+    stem = f"{safe_filename_component(export_label)}-{safe_filename_component(subject)}"
+    s_name = f"{stem}-学生版.pdf"
+    t_name = f"{stem}-教师版.pdf"
+    s_new = dest / s_name
+    t_new = dest / t_name
+    shutil.move(str(student_pdf), s_new)
+    shutil.move(str(teacher_pdf), t_new)
+    return s_name, t_name, warnings

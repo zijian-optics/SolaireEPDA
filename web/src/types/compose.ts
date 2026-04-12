@@ -31,14 +31,35 @@ export type TemplateRow = {
   sections: TemplateSection[];
 };
 
-export type DraftSummary = {
-  draft_id: string;
+export type ExamWorkspaceStatus = "draft" | "exported";
+
+/** 考试工作区列表项（与旧版草稿列表合并返回时兼容） */
+export type ExamWorkspaceSummary = {
+  exam_id: string;
   name?: string | null;
   subject?: string | null;
   export_label?: string | null;
   template_ref?: string | null;
   template_path?: string | null;
   updated_at?: string | null;
+  status?: ExamWorkspaceStatus | null;
+  last_export_result_id?: string | null;
+};
+
+export type DraftSummary = {
+  draft_id: string;
+  /** 与 ``draft_id`` 相同（考试工作区）或指向同一标识 */
+  exam_id?: string | null;
+  name?: string | null;
+  subject?: string | null;
+  export_label?: string | null;
+  template_ref?: string | null;
+  template_path?: string | null;
+  updated_at?: string | null;
+  status?: ExamWorkspaceStatus | null;
+  /** 数据是否位于 ``exams/<id>/`` */
+  workspace?: boolean;
+  last_export_result_id?: string | null;
 };
 
 export type PastExamSummary = {
@@ -50,6 +71,8 @@ export type PastExamSummary = {
 
 export type DraftDoc = {
   draft_id: string;
+  /** 考试工作区 id；存在时表示数据在 ``exams/<exam_id>/`` */
+  exam_id?: string;
   name?: string;
   subject?: string;
   export_label?: string;
