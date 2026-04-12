@@ -197,5 +197,5 @@
 
 ## 兼容说明
 
-- 现有 `results` 统计链路仍可用：`/api/results/*`
+- 考试与成绩数据均位于项目 `exams/<标签段>/<学科段>/`；HTTP 入口为 `/api/exams/*`（含 `GET /api/exams/analysis-list`、成绩导入与统计等，见 `src/solaire/web/app.py`）。
 - 新分析能力建议优先走：`/api/analysis/*`

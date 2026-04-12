@@ -3,7 +3,7 @@
   "hint1": "Start on the left: create or open a project to compose papers, manage the bank, and edit the map.",
   "hint2": "Use Manual in the sidebar when you need help.",
   "title": "Welcome",
-  "intro": "Pick how to enter a project; you can switch modules from the sidebar anytime.",
+  "subtitle": "Choose how to open a project; after that, use the top bar and left navigation to switch modules.",
   "newProject": "New project",
   "newProjectDialogTitle": "New project",
   "newProjectDialogIntro": "Choose a parent folder, enter a project name, and pick a starting layout.",
@@ -30,5 +30,22 @@
   "recentEmpty": "No entries yet. Open a project to see it here next time.",
   "removeFromRecentTitle": "Remove from recent list",
   "removeFromRecentAria": "Remove from recent list",
-  "pickFolderTitle": "Choose project folder"
+  "pickFolderTitle": "Choose project folder",
+  "sidebarIntro": "Overview",
+  "sidebarProject": "Projects",
+  "sidebarModel": "Model",
+  "sidebarExtensions": "Add-ons",
+  "intro": {
+    "lead": "Suggested flow: organize your teaching map, maintain the question bank and layouts, compose papers, then review results. These steps help you get started.",
+    "stepLabel": "Step {{n}}",
+    "step1Title": "Knowledge map",
+    "step1Desc": "Import or organize knowledge so questions align with teaching goals.",
+    "step2Title": "Question bank",
+    "step2Desc": "Enter or import questions; refine by hand or with the assistant as needed.",
+    "step3Title": "Compose",
+    "step3Desc": "Pick templates and questions, validate, then export papers.",
+    "step4Title": "Analysis",
+    "step4Desc": "Collect answers and review stats (features evolve with releases).",
+    "footer": "Capabilities depend on the installed version; we keep improving the experience."
+  }
 }

@@ -205,23 +205,30 @@ def tool_export_paper(ctx: InvocationContext, args: dict[str, Any]) -> ToolResul
         return ToolResult(status="failed", error_code="validation_failed", error_message=str(e))
     template = load_template(tpl)
     try:
-        result_dir, s_name, t_name = export_pdfs(
+        from solaire.web.exam_workspace_service import exam_id_from_labels, workspace_dir
+
+        dest_dir = workspace_dir(root, exam_id_from_labels(export_label, subject))
+    except ValueError as e:
+        return ToolResult(status="failed", error_code="invalid_arguments", error_message=str(e))
+    try:
+        exam_dir, s_name, t_name = export_pdfs(
             root,
             exam_yaml=exam_yaml,
             export_label=export_label,
             subject=subject,
             template=template,
+            dest_dir=dest_dir,
         )
     except FileNotFoundError as e:
         return ToolResult(status="failed", error_code="not_found", error_message=str(e))
     except RuntimeError as e:
         return ToolResult(status="failed", error_code="runtime_error", error_message=str(e))
-    rel = result_dir.relative_to(root).as_posix()
+    rel = exam_dir.relative_to(root).as_posix()
     return ToolResult(
         status="succeeded",
         data={
             "ok": True,
-            "result_dir": rel,
+            "exam_dir": rel,
             "student_pdf": s_name,
             "teacher_pdf": t_name,
         },

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertCircle, CheckCircle2, ExternalLink, RefreshCw } from "lucide-react";
+import { AlertCircle, ExternalLink, RefreshCw } from "lucide-react";
 import { apiGet, apiPost, ensureApiBase } from "../api/client";
 import { openExternalUrl } from "../lib/openExternalUrl";
 
@@ -69,12 +69,7 @@ export function TexSetupNotice({ onError }: Props) {
   }
 
   if (status.pdf_engine_ready) {
-    return (
-      <div className="flex shrink-0 items-center gap-2 border-b border-emerald-100 bg-emerald-50/90 px-4 py-2 text-xs text-emerald-900">
-        <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-700" />
-        <span>{t("compose:texNoticeReady")}</span>
-      </div>
-    );
+    return null;
   }
 
   const showOneClick = status.platform === "win32" && status.winget_on_path;

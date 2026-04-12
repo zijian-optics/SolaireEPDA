@@ -22,6 +22,8 @@
 | 方法 | 路径 | 作用 |
 |------|------|------|
 | GET | `/api/bank/subjects`、`/api/bank/collections` | 科目、题集列表 |
+| POST | `/api/bank/rename-collection` | 题集目录重命名/移动（JSON：`namespace`、`new_subject`、`new_collection`） |
+| POST | `/api/bank/delete-collection` | 删除整个题集目录（JSON：`namespace`） |
 | GET | `/api/bank/items` | 题目列表 |
 | GET | `/api/bank/items/{qualified_id}` | 单题详情（路径需编码） |
 | PUT/DELETE | `/api/bank/items/{qualified_id}` | 更新/删除 |
@@ -39,7 +41,8 @@
 |------|------|------|
 | GET | `/api/templates` | 模板列表 |
 | GET | `/api/templates/parsed` | 解析后的编辑器载荷（`path=` 模板路径） |
-| GET/PUT | `/api/templates/raw` | 读写模板 YAML 原文 |
+| GET/PUT | `/api/templates/raw` | 读写模板 YAML 原文；PUT 可在请求体中加 `rename_to`（与 `path` 同目录），保存成功后重命名文件，响应含 `path`（最终路径） |
+| POST | `/api/templates/rename` | 仅重命名（一般由带 `rename_to` 的 PUT 代替） |
 | POST | `/api/templates/create` | 创建最小模板 |
 
 模板路径须落在项目 `templates/` 下。
@@ -51,25 +54,28 @@
 | 方法 | 路径 | 作用 |
 |------|------|------|
 | POST | `/api/exam/validate` | 按当前选题与模板做校验 |
-| POST | `/api/exam/export` | 校验通过后生成 PDF 等；可选 `overwrite_existing`（覆盖已有 `result/` 子目录） |
+| POST | `/api/exam/export` | 校验通过后生成 PDF 等，写入 `exams/<考试标签目录>/<学科目录>/`；可选 `overwrite_existing`（覆盖已有同路径考试目录）；可选 `exam_workspace_id`（与路径标识一致，导出成功后更新状态）；可选 `exam_ids_to_delete_on_success`（导出成功后删除其它考试工作区） |
 | POST | `/api/exam/export/check-conflict` | 请求体：`export_label`、`subject`；返回是否与已有导出记录冲突 |
-| GET | `/api/exam/drafts` | 列出 `.solaire/drafts/` 中的组卷草稿 |
-| POST | `/api/exam/drafts` | 保存新草稿 |
-| GET | `/api/exam/drafts/{draft_id}` | 读取草稿全文 |
-| PUT | `/api/exam/drafts/{draft_id}` | 更新草稿 |
-| DELETE | `/api/exam/drafts/{draft_id}` | 删除草稿 |
-| POST | `/api/exam/drafts/from-result/{exam_id}` | 从 `result/{exam_id}/exam.yaml` 生成草稿 JSON；**默认不落盘**。请求体可选 `persist`（`true` 时写入 `.solaire/drafts/`） |
+| POST | `/api/exam/preview-pdf` | 请求体与导出相同（`export_label`、`subject`、`template_*`、`selected_items`）；在 `.solaire/previews/` 下生成**临时**预览 PDF；返回 `preview_id` 与 `warnings` |
+| GET | `/api/exam/preview-pdf/{preview_id}/file` | 查询参数 `variant=student`（默认）或 `teacher`；返回临时预览 PDF（内嵌查看） |
+| GET | `/api/exams` | 列出项目 `exams/` 下各套考试工作区摘要；查询参数 `status=draft` \| `exported` \| `all`（默认 `all`，按 `config.json` 的 `status` 筛选） |
+| GET | `/api/exams/analysis-list` | 成绩分析用：列出含 `exam.yaml` 的考试目录（与学情分析列表同源） |
+| POST | `/api/exams` | 新建考试工作区（`exams/<标签段>/<学科段>/exam.yaml` + 状态文件） |
+| GET | `/api/exams/{exam_path}` | 读取该套考试的组卷内容（`exam_path` 为 `标签段/学科段`，路径中含 `/`） |
+| PUT | `/api/exams/{exam_path}` | 更新 |
+| DELETE | `/api/exams/{exam_path}` | 删除该套考试目录 |
+| POST | `/api/exams/from-exam/{exam_path}` | 自已有考试复制为新草稿并落盘；请求体必填 `export_label`（新试卷说明）；学科沿用源考试 |
 
-请求体含 `template_ref`、`template_path`、`selected_items`；每项可选 `score_per_item`、`score_overrides`（题目完整编号 → 分值），与界面组卷一致。
+请求体含 `template_ref`、`template_path`、`selected_items`；每项可选 `score_per_item`、`score_overrides`（题目完整编号 → 分值），与界面组卷一致。草稿与已导出试卷均为同一 `exams/<标签段>/<学科段>/` 目录，由 `config.json` 的 `status`（`draft` / `exported`）区分。
 
 ---
 
-## 5. 导出目录中的 PDF（`result/{exam_id}/`）
+## 5. 考试目录中的 PDF（`exams/{标签段}/{学科段}/`）
 
 | 方法 | 路径 | 作用 |
 |------|------|------|
-| GET | `/api/results/{exam_id}/pdf-file` | 查询参数 `variant=student`（默认）或 `teacher`；返回 `application/pdf`，`Content-Disposition: inline`，供浏览器新标签内嵌查看 |
-| POST | `/api/results/{exam_id}/open-pdf` | 可选 JSON `{"variant":"student"|"teacher"}`；在本机后端用系统默认程序打开对应 PDF（无图形环境或无文件时返回错误说明） |
+| GET | `/api/exams/{exam_path}/pdf-file` | 查询参数 `variant=student`（默认）或 `teacher`；返回 `application/pdf`，`Content-Disposition: inline`，供浏览器新标签内嵌查看 |
+| POST | `/api/exams/{exam_path}/open-pdf` | 可选 JSON `{"variant":"student"|"teacher"}`；在本机后端用系统默认程序打开对应 PDF（无图形环境或无文件时返回错误说明） |
 
 ---
 

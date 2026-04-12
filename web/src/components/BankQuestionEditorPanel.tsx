@@ -62,6 +62,8 @@ export type { EmbedKind, MathFieldKey } from "../lib/bankEditorEmbedKinds";
 type MetaRow = { key: string; value: string };
 
 export type BankQuestionEditorPanelProps = {
+  /** full：表单+源码双 Tab；form / yaml：仅显示对应区块（用于外层「字段 / 源文件」分栏） */
+  panelMode?: "full" | "form" | "yaml";
   detail: BankDetailState;
   setDetail: Dispatch<SetStateAction<BankDetailState | null>>;
   busy: boolean;
@@ -85,6 +87,8 @@ export type BankQuestionEditorPanelProps = {
   onSaveYaml: () => void;
   onClose?: () => void;
   removeLabel?: string;
+  /** 为 true 时不渲染外层白卡片与顶栏（由父级提供标题栏时） */
+  embedded?: boolean;
 };
 
 function giFieldId(i: number, f: "content" | "answer" | "analysis") {
@@ -134,6 +138,7 @@ function BankGiLatexField({
 }
 
 export function BankQuestionEditorPanel({
+  panelMode = "full",
   detail,
   setDetail,
   busy,
@@ -157,6 +162,7 @@ export function BankQuestionEditorPanel({
   onSaveYaml,
   onClose,
   removeLabel,
+  embedded = false,
 }: BankQuestionEditorPanelProps) {
   const { t } = useTranslation(["lib", "components", "bank"]);
   const removeText = removeLabel ?? t("bank:remove");
@@ -170,46 +176,73 @@ export function BankQuestionEditorPanel({
   const unifiedUi = qg ? (qg.unified === false ? "mixed" : String(qg.unified)) : "choice";
   const innerTypeForItems = unifiedUi === "mixed" ? "choice" : unifiedUi;
 
+  const tabsValue =
+    panelMode === "full" ? editorTab : panelMode === "form" ? "form" : "yaml";
+  const showTabSwitch = panelMode === "full";
+
+  const runSave = () => {
+    if (panelMode === "yaml") return onSaveYaml();
+    if (panelMode === "form") return onSave();
+    return editorTab === "yaml" ? onSaveYaml() : onSave();
+  };
+
   return (
-    <div className="mx-auto max-w-3xl rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
-        <div>
-          <p className="font-mono text-sm text-slate-800">{detail.qualified_id}</p>
-          <p className="text-[11px] text-slate-500">
-            {t("components:bankEditor.storage", { kind: detail.storage_kind, path: detail.storage_path })}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {onClose && (
+    <div
+      className={
+        embedded
+          ? "mx-auto w-full max-w-3xl"
+          : "mx-auto max-w-3xl rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+      }
+    >
+      {!embedded ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+          <div>
+            <p className="font-mono text-sm text-slate-800">{detail.qualified_id}</p>
+            <p className="text-[11px] text-slate-500">
+              {t("components:bankEditor.storage", { kind: detail.storage_kind, path: detail.storage_path })}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {onClose && (
+              <button
+                type="button"
+                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800 hover:bg-slate-50"
+                onClick={onClose}
+              >
+                {t("components:bankEditor.close")}
+              </button>
+            )}
             <button
               type="button"
-              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800 hover:bg-slate-50"
-              onClick={onClose}
+              className="rounded-md border border-red-200 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50"
+              disabled={busy}
+              onClick={() => void onRemove()}
             >
-              {t("components:bankEditor.close")}
+              {removeText}
             </button>
-          )}
-          <button
-            type="button"
-            className="rounded-md border border-red-200 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50"
-            disabled={busy}
-            onClick={() => void onRemove()}
-          >
-            {removeText}
-          </button>
-          <button
-            type="button"
-            className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-            disabled={busy}
-            onClick={() => (editorTab === "yaml" ? void onSaveYaml() : void onSave())}
-          >
-            {t("components:bankEditor.save")}
-          </button>
+            <button
+              type="button"
+              className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+              disabled={busy}
+              onClick={() => void runSave()}
+            >
+              {t("components:bankEditor.save")}
+            </button>
+          </div>
         </div>
-      </div>
+      ) : null}
 
-      <Tabs value={editorTab} onValueChange={(v) => setEditorTab(v as "form" | "yaml")} className="mt-4">
-        <TabsList className="grid w-full max-w-md grid-cols-2">
+      <Tabs
+        value={tabsValue}
+        onValueChange={
+          showTabSwitch ? (v) => setEditorTab(v as "form" | "yaml") : () => undefined
+        }
+        className={embedded ? "mt-0" : "mt-4"}
+      >
+        <TabsList
+          className={showTabSwitch ? "grid w-full max-w-md grid-cols-2" : "hidden"}
+          aria-hidden={!showTabSwitch}
+        >
           <TabsTrigger value="form">{t("components:bankEditor.tabForm")}</TabsTrigger>
           <TabsTrigger value="yaml">{t("components:bankEditor.tabYaml")}</TabsTrigger>
         </TabsList>

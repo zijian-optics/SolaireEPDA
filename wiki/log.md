@@ -1,5 +1,13 @@
 # 变更日志（开发者）
 
+## [2026-04-11] LLM Wiki 落地 | Schema、索引与路径速查
+
+**改动摘要**：新增 `wiki/README.md`（Schema 与维护约定）；新建 `wiki/architecture/overview.md`、`wiki/architecture/file-map.md`；新建 `wiki/modules/dev-environment.md`；扩展 `wiki/index.md`（总览、专题、`docs/` 链接）；修正 `wiki/modules/desktop-startup.md` 中健康检查超时描述与默认 120s 一致；根目录新增 `AGENTS.md` 指向 wiki 入口。
+
+**验证命令**：对新增/修改的 Markdown 做路径与链接自检（`docs/api/*.md`、`wiki/**` 相对链接）。
+
+**结果要点**：规则中引用的 `wiki/README.md` 已存在；索引可导向架构、file-map、开发环境、桌面专题与对外文档。
+
 ## [2026-04-11] LaTeX对齐
 **新建文件**
 `web/src/lib/contentTokenizer.ts`内联了 KaTeX splitAtDelimiters 的状态机算法，统一解析：
@@ -88,3 +96,243 @@
 - `cd web && npm run build && npm test`
 
 **结果要点**：Rust 单测与前端构建、Vitest 均通过。
+
+## [2026-04-12] 组卷 | 从历史复制需填考试标签
+
+**改动摘要**：`ComposeWorkspace` 在「从历史试卷复制」模式下增加考试标签输入、只读展示所选历史试卷的学科；`POST /api/exam/drafts/from-result/{id}` 请求体发送 `{ export_label }`。内嵌帮助 `http-api-overview.md` 中两条 `from-result` 接口说明已同步为必填 `export_label`、学科沿用源导出。
+
+**验证命令**：`cd web && npm run build`。
+
+**结果要点**：`tsc -b` 与 Vite 生产构建通过。
+
+## [2026-04-12] 组卷 | 统一 exams 单目录并移除草稿兼容 API
+
+**改动摘要**：删除 `/api/exam/drafts*` 与 `GET /api/results/{id}/compose`；组卷仅使用 `GET/POST/PUT/DELETE /api/exams*`；`GET /api/exams` 支持 `status=draft|exported|all`；`POST /api/exam/export` 使用 `exam_ids_to_delete_on_success`；导出失败快照写入 `exams/`（`save_exam_workspace_after_export_failure`）；`DELETE /api/exams/{id}` 同时删除关联 `result/`；`ComposeWorkspace` 单一列表按 `status` 分「草稿/历史」；PDF 使用 `last_export_result_id`；内嵌帮助已更新。
+
+**验证命令**：`cd web && npm run build`；`python -m compileall -q src/solaire/web/app.py src/solaire/web/exam_workspace_service.py`。
+
+**结果要点**：前端构建与 Python 语法检查通过。
+
+## [2026-04-12] 组卷 | 侧栏点击历史试卷载入中间栏
+
+**改动摘要**：新增 `GET /api/results/{exam_id}/compose`（基于 `draft_from_result`，`draft_id` 置空、`source_result_id` 标明来源）；侧栏「历史试卷」点击改为请求该接口并 `applyDraftDocument`，中间栏与右侧 PDF 与所选导出一致。根因并非 `config.json` 草稿/完成状态，而是此前仅切换 `pdfExamId` 未加载 `exam.yaml` 到编辑区。
+
+**验证命令**：`cd web && npm run build`；`python -m compileall src/solaire/web/app.py`（或等价语法检查）。
+
+**结果要点**：前端构建通过；后端新增路由可导入。
+
+## [2026-04-12] exams 单目录硬切换（弃用 result/）
+
+**改动摘要**：考试落盘统一为 `exams/<标签段>/<学科段>/`（`exam.yaml`、`config.json`、PDF、`scores/`）；草稿/历史仅靠 `config.json.status`；移除 `/api/results/*`，成绩与 PDF 能力并入 `/api/exams/{exam_path}/...`，新增 `GET /api/exams/analysis-list`、`POST /api/exams/from-exam/{exam_path}`；`POST /api/exam/export` 返回 `exam_dir`；`export_pdfs` 与 `result_service` 全部读写 `exams/`；内嵌帮助 `http-api-overview.md` 已同步。
+
+**验证命令**：`cd web && npm run build`；`python -m compileall src/solaire/web/app.py src/solaire/web/exam_service.py src/solaire/web/result_service.py src/solaire/web/exam_workspace_service.py`；`pytest tests/test_result_service.py tests/integration/test_results_analysis_baseline.py -q`（按需）。
+
+**结果要点**：构建与 compileall 通过；核心 API 与集成测试路径已更新为 `exams` 双段目录。
+
+## [2026-04-12] exams 落盘路径说明与回归测试
+
+**改动摘要**：确认 `POST /api/exams` 与 `save_exam_workspace` 新建工作区为 `exams/<试卷说明>/<学科>/`；移除 `exam_workspace_service` 未使用的 `uuid` 导入；`ExamSaveDraftBody` 对 `subject`、`export_label` 要求非空（与落盘规则一致）；修正 `ExamExportBody` 中关于 `exam_workspace_id` 的过时描述；新增 `tests/test_exams_create_nested_path.py`；修复 `test_edu_analysis_builtins` 仍使用 `result/` 单层 `exam_id` 的问题；`wiki/modules/exams-storage.md` 补充「成绩批次目录 vs 考试目录」说明。
+
+**验证命令**：`pixi run pytest tests/ -q`。
+
+**结果要点**：全量 `pytest` 通过；磁盘上若仅见「像 UUID 的子目录」，多为 `scores/<批次>/` 或 `.solaire/previews/`，而非考试根目录。
+
+## [2026-04-12] 组卷 | 新建试卷成功提示含试卷目录路径
+
+**改动摘要**：`ComposeWorkspace` 在「创建并进入编辑」或首次「保存更改」成功后，提示文案包含 `exams/<标签段>/<学科段>` 形式的试卷目录，便于与 `scores/` 下批次目录区分；空白试卷创建前校验试卷说明与学科非空。
+
+**验证命令**：`cd web && npm run build`。
+
+**结果要点**：前端构建通过。
+
+## [2026-04-12] 开发模式 | start-web 须 --app-dir src，健康检查暴露试卷目录模型
+
+**改动摘要**：根目录 `start-web.ps1`、`start-web.sh` 为 Uvicorn 增加 `--app-dir src`（及 `--reload`），避免从已安装旧包加载后端导致 `exam_id` 仍为 UUID；`GET /api/health` 增加 `exam_workspace_layout: two_level` 供自检；`wiki/modules/dev-environment.md` 补充说明。
+
+**验证命令**：`curl -s http://127.0.0.1:8000/api/health`（需在仓库根用 `pixi run dev-backend` 或更新后的 `start-web` 启动后端）。
+
+**结果要点**：健康检查可区分「本仓库源码后端」与「旧版已安装包」。
+
+## [2026-04-12] 组卷 | 加载历史导出时 exam_id 以目录为准
+
+**改动摘要**：`load_exam_workspace` 返回的 `exam_id` 固定为路径上的双段标识，不再沿用 `exam.yaml` 内可能存在的旧单段 UUID，避免点击侧栏「历史试卷」后 `currentExamId` 与 PDF/保存仍走旧逻辑；`tests/test_exams_create_nested_path.py` 增加篡改 YAML 后的 GET 回归；`wiki/modules/exams-storage.md` 补充一句。
+
+**验证命令**：`pixi run pytest tests/test_exams_create_nested_path.py -q`。
+
+**结果要点**：测试通过。
+
+## [2026-04-12] 组卷 | 右侧试卷同题型多选移出
+
+**改动摘要**：`RightSelection` 改为 `sectionId + qids[]`；`ComposeWorkspace` 增加 `rightListAnchor` 与 `handleRightPaperSlotClick`（Ctrl/⌘ 切换、Shift 区间内、跨小节 Shift 时仅选中当前槽，不跨题型）；`removeFromRight` 批量过滤并清理 `scoreOverrides`；`zh/en compose.json` 增加 `paperListMultiSelectHint`；`wiki/modules/exams-storage.md` 增加组卷界面交互说明。
+
+**验证命令**：`cd web && npx tsc --noEmit`。
+
+**结果要点**：TypeScript 检查通过。
+
+## [2026-04-12] 模板工作台 | 保存后按模板编号重命名文件
+
+**改动摘要**：新增 `POST /api/templates/rename`（同目录重命名，Windows 支持仅大小写变更）；保存模板时若规范化后的 `template_id` 与当前文件名不一致则先 `PUT` 再重命名，使磁盘文件名与模板编号一致；`TemplateWorkspace` 从 YAML 页保存时从正文解析 `template_id`；冲突 409 时提示 `renameConflict`；`tests/test_template_web_integration.py::test_template_rename_after_save` 覆盖中文文件名场景。
+
+**验证命令**：`pixi run pytest tests/test_template_web_integration.py::test_template_rename_after_save -q`；`cd web && npx tsc --noEmit`。
+
+**结果要点**：测试与 tsc 通过。
+
+## [2026-04-12] 模板工作台 | 重命名并入 PUT（避免 rename 404）
+
+**改动摘要**：`PUT /api/templates/raw` 增加可选 `rename_to`，在同一请求内写完再重命名并返回 `path`；前端保存改为单次 PUT，不再依赖 `POST /api/templates/rename`（避免未升级后端或代理下 404）；`http-api-overview.md` 补充说明；`test_template_rename_after_save` 改为测 PUT+`rename_to`，另增 `test_template_rename_post_endpoint`。
+
+**验证命令**：`pixi run pytest tests/test_template_web_integration.py -q`；`cd web && npx tsc --noEmit`。
+
+**结果要点**：测试与 tsc 通过。
+
+## [2026-04-12] 前端 | 学情分析删除考试后同步组卷列表与状态
+
+**改动摘要**：新增 `web/src/lib/examEvents.ts`（`solaire-exams-changed` 与 `dispatchExamsChanged`）；学情分析删除成功后广播；组卷页订阅并 `refreshExamSummaries`、若 `examId` 命中则清空当前考试、PDF、历史复制源等；组卷侧删除成功后同样广播。
+
+**验证命令**：`cd web && npx tsc --noEmit`。
+
+**结果要点**：TypeScript 通过。
+
+## [2026-04-12] 组卷 | 侧栏加载考试被首屏请求覆盖
+
+**改动摘要**：首屏 `Promise.all`（模板/题目/学科）晚返回时不再用默认模板清空 `bySection`（若 `currentExamIdRef` 已有工作区则跳过学科纠正）；默认模板改为独立 `useEffect`（仅 `!currentExamId && !templatePath`）；`templatePath` 变更时 `activeSection` 仅在当前节无效时回落到第一节；`loadExamById` 在应用文档后重置题库筛选并收起筛选区、将当前小节设为 `selected_items` 首节。
+
+**验证命令**：`cd web && npx tsc --noEmit`。
+
+**结果要点**：TypeScript 通过。
+
+## [2026-04-12] 组卷 | template_path 含 ../ 导致模板无法匹配
+
+**改动摘要**：`exam_workspace_service._norm_template_path_rel` 去掉前导 `../`，在 `load_exam_workspace`、`list_exam_workspaces` 模板列、`save_exam_workspace`/`_build_exam_doc`、`persist_exam_document`、迁移导入等处统一；前端 `normTemplatePath` 同步。根因：`../templates/foo.yaml` 与 `/api/templates` 返回的 `templates/foo.yaml` 不一致 → `selectedTpl` 为空、保存草稿报「先选模板」、数学卷与历史卷混点时被误认为「学科变 history」（实为另卷或路径问题）。**非**「历史试卷」侧栏文案与「历史」学科名冲突。
+
+**验证命令**：`pixi run pytest tests/test_exams_create_nested_path.py -q`。
+
+**结果要点**：3 passed；新增 `test_norm_template_path_rel_strips_parent_segments`。
+
+## [2026-04-12] 组卷 | 打开试卷后学科下拉不显示 exam 学科
+
+**改动摘要**：`ComposeWorkspace` 增加 `subjectOptionsForSelect`（`subjectOptions` ∪ 当前 `subject` ∪ 对话框 `dlgSubject`），题库筛选与新建试卷学科下拉共用，避免 `value` 无匹配 `option`。
+
+**验证命令**：`cd web && npx tsc --noEmit`。
+
+**结果要点**：TypeScript 通过。
+
+## [2026-04-12] 考试工作区 | 空 export_label 时从目录回填
+
+**改动摘要**：`exam_workspace_service._fill_identity_from_exam_path_fields`：在 `load_exam_workspace` 与 `list_exam_workspaces` 中，若 `export_label` 或 `subject` 为空，用 `exam_id` 的两段路径回填。
+
+**验证命令**：`pixi run pytest tests/test_exams_create_nested_path.py -q`。
+
+**结果要点**：4 passed；新增 `test_fill_identity_from_exam_path_fields`。
+
+## [2026-04-12] 题库 | 移除 BankWorkspace 路径说明文案
+
+**改动摘要**：删除 `BankWorkspace` 标题下灰色说明段落；移除 `zh`/`en` 中仅用于该段的 `structureHint`、`structurePath`、`structureHintTail` 文案键。
+
+**验证命令**：`cd web && npx tsc --noEmit`。
+
+**结果要点**：TypeScript 通过。
+
+## [2026-04-12] 题库 | 题集改名/删除接口路径与错误码
+
+**改动摘要**：`POST /api/bank/collections/rename|delete` 改为 `POST /api/bank/rename-collection`、`POST /api/bank/delete-collection`（与 `export-bundle` 同级，避免与 `GET …/collections` 组合时被误判）；题集目录不存在时由 **404 改为 400** 及明确 `detail`，与「路由未注册」区分。
+
+**验证命令**：`pixi run pytest tests/test_bank_collection_rename_delete.py -q`；`cd web && npx tsc --noEmit`。
+
+**结果要点**：4 passed；TypeScript 通过。
+
+## [2026-04-12] 题库 | 题集改名/删除 API 与顶栏题集管理窗
+
+**改动摘要**：`bank_service` 增加 `rename_question_collection`、`delete_question_collection`；`POST /api/bank/collections/rename|delete`；`BankWorkspace` 顶栏「题库管理」打开弹窗列表题集，支持改名与删除（排除 `main`）；重命名后同步筛选与已选题号。开发者文档 `http-api-overview.md` 补充路由。新增 `tests/test_bank_collection_rename_delete.py`。
+
+**验证命令**：`pixi run pytest tests/test_bank_collection_rename_delete.py tests/test_bank_service_groups.py -q`；`cd web && npx tsc --noEmit`。
+
+**结果要点**：8 passed；TypeScript 通过。
+
+## [2026-04-12] 前端 | 顶栏工具栏切换页刷新与占位高度
+
+**改动摘要**：根因：组卷 `ComposeRoute` 在非组卷页仍挂载，`ComposeWorkspace` 继续 `setToolBar` 会覆盖当前页工具栏。修复：`ComposeRoute`/`ComposeWorkspace` 增加 `toolBarActive={page === "compose"}`，非激活时不再注册工具栏并在 `toolBarActive` 为 false 时 `clearToolBar`；`ToolBar` 在 `left`/`right` 均为空时仍渲染 `min-h-[2.5rem]` 占位条，避免高度跳动。
+
+**验证命令**：`cd web; npx tsc --noEmit`。
+
+**结果要点**：TypeScript 通过。
+
+## [2026-04-12] 前端 | 主导航侧栏略缩窄
+
+**改动摘要**：`App.tsx` 已绑定项目时的左侧 `aside` 宽度由 `w-[4.25rem]` 改为 `w-16`（4rem）。
+
+**验证命令**：`cd web; npx tsc --noEmit`。
+
+**结果要点**：TypeScript 通过。
+
+## [2026-04-12] 题库 | 列表项题号换行与排版
+
+**改动摘要**：`BankWorkspace` 左侧题目列表：题型/题组标签与全限定题号同一行 `flex` 排列，题号 `min-w-0 flex-1 break-all` 可换行；`KatexPlainPreview` 置于下一行独立块；按钮增加 `min-w-0` 以利窄栏收缩。
+
+**验证命令**：`cd web; npx tsc --noEmit`。
+
+**结果要点**：TypeScript 通过。
+
+## [2026-04-12] 题库 | 导入并入顶栏「导入题库」
+
+**改动摘要**：`BankWorkspace` 侧栏「导入题目」`details` 移除；顶栏原「选择文件并导入」改为「导入题库」下拉（展示 `importSummaryHint`、格式说明、导入到科目/题集、选择文件、粘贴导入）；与筛选/新建互斥；文件或粘贴导入成功后收起；`pickAndImport` 键删除，新增 `importToolbar`、`importChooseFile`；空列表提示改为指向顶栏。
+
+**验证命令**：`cd web; npx tsc --noEmit`。
+
+**结果要点**：TypeScript 通过。
+
+## [2026-04-12] 题库 | 新建题目并入顶栏下拉
+
+**改动摘要**：`BankWorkspace` 删除侧栏 `details#bank-new-question`；顶栏「新建题目」改为与筛选类似的浮层（科目/题集/题号/题型、题组附加项、创建按钮），与「筛选条件」互斥展开；`pointerdown` 外部关闭与 Escape；创建成功后自动收起。
+
+**验证命令**：`cd web; npx tsc --noEmit`。
+
+**结果要点**：TypeScript 通过。
+
+## [2026-04-12] 题库 | 侧栏移除导出块与导出按钮文案
+
+**改动摘要**：`BankWorkspace` 侧栏「题库管理」下删除导出按钮及说明段落；`exportBundle` 改为中文「导出题集」、英文「Export collection」；移除仅用于侧栏说明的 `exportHintNeedCollection`、`exportHintScope`。
+
+**验证命令**：`cd web; npx tsc --noEmit`。
+
+**结果要点**：TypeScript 通过。
+
+## [2026-04-12] 题库 | 筛选条件改为顶栏下拉
+
+**改动摘要**：`BankWorkspace` 将「筛选条件」下拉（科目/题集/题型/搜索 + `bankFilterSummary` + 点外部/Escape 关闭）置于顶栏 `ToolBar` 左侧首位；侧栏「题库管理」下不再放置筛选控件。曾删除未再使用的 `filterTapToCollapse` 文案键。
+
+**验证命令**：`cd web; npx tsc --noEmit`。
+
+**结果要点**：TypeScript 通过。
+
+## [2026-04-12] 调试 | 题集改名 404 与 dev-desktop 后端拉起方式
+
+**改动摘要**：`debug-4b9610.log` 仅有 H1（路由已注册 `POST /api/bank/rename-collection`），无 H5/H6，说明失败请求未进入当前仓库 Uvicorn 实例或改名请求未打到该进程。将 `scripts/dev-desktop.ps1` 中 `Start-Process python -m uvicorn ...` 改为 **`pixi run dev-backend`**（工作目录为仓库根），并在启动 Vite 前轮询 `/api/health`（`exam_workspace_layout=two_level`）最多约 45s。`wiki/modules/dev-environment.md` 补充说明。
+
+**验证命令**：待用户 `pixi run dev` 复现后查看 `debug-4b9610.log` 是否出现 H6/H5 及改名是否仍 404。
+
+**结果要点**：根因假说为 Tauri `beforeDevCommand` 子进程误用非 Pixi 的 `python`；修复对齐 `pixi.toml` 的 dev-backend 命令行与环境。
+
+## [2026-04-12] 调试 | NDJSON 镜像与 H12 范围
+
+**改动摘要**：用户反馈 `pixi run dev` 下改名后仓库根 `debug-4b9610.log` 仍无任何行（HF 依赖 7531 ingest 未启动时本就不会出现）。`_agent_debug` 改为同时追加 **`%TEMP%/solaire-debug-4b9610.log`**；H1 增加 `debug_log_repo` / `debug_log_mirror`；题库中间件改为注册在 CORS 之前，且 H12 覆盖「`POST`+`/api/bank` 前缀」或路径含 `rename-collection`/`delete-collection`（含 OPTIONS）。
+
+**验证命令**：`pixi run dev` 后查看两处日志文件是否出现 H1/H12。
+
+**结果要点**：区分「日志路径不可见」与「请求未进本进程」；HF 不作为唯一证据。
+
+## [2026-04-12] 调试收尾 | 移除题集改名排查埋点
+
+**改动摘要**：题集改名问题已确认修复；删除 `app.py` 中 `_agent_debug`、启动路由 dump、题库 HTTP 中间件、`bank_collection_rename` 入口日志及 `Request` 导入；删除 `BankWorkspace.tsx` 中发往 7531 ingest 的 fetch；`wiki/modules/dev-environment.md` 去掉临时 NDJSON 说明；删除仓库根 `debug-4b9610.log`。保留此前对 `scripts/dev-desktop.ps1`（`pixi run dev-backend` + health 等待）的修复。
+
+**验证命令**：`cd web; npx tsc --noEmit`（可选）。
+
+**结果要点**：代码恢复为无调试会话硬编码；运行时证据改由常规日志与健康检查承担。
+
+## [2026-04-12] 助手模型配置 | 本机用户目录 + 项目覆盖
+
+**改动摘要**：新增 `user_agent_paths`、`llm/user_llm_overrides`；`load_llm_settings` 合并环境 → 本机 `agent/llm_overrides.json` → 项目内覆盖；`load_safety_mode` / `PUT safety-mode` 与 `PUT llm-settings` 在未打开项目时写本机 `agent/safety_mode.json` 与 `llm_overrides.json`。`agent_api` 的 `llm-settings` / `safety-mode` GET 增加 `persist_scope`、`has_user_api_key_override`。前端欢迎页与设置页可未开项目即保存；文案与按钮区分本机/项目。新增 `tests/test_user_llm_overrides.py`、`wiki/modules/agent-user-settings.md`，更新 `docs/api/agent.md` 与 `wiki/index.md`。
+
+**验证命令**：`pixi run pytest tests/test_user_llm_overrides.py -q`；`cd web && npx tsc --noEmit`。
+
+**结果要点**：与产品「先全局、打开项目后项目优先」一致。

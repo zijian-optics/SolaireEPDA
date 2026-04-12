@@ -15,8 +15,10 @@ from solaire.agent_layer.guardrails import (
     list_safety_modes_public,
     load_safety_mode,
     save_safety_mode,
+    save_user_safety_mode,
 )
 from solaire.agent_layer.llm.llm_overrides import load_overrides_raw, mask_api_key, save_overrides_raw
+from solaire.agent_layer.llm.user_llm_overrides import load_user_overrides_raw, save_user_overrides_raw
 from solaire.agent_layer.llm.router import load_llm_settings
 from solaire.agent_layer.memory import list_topic_filenames, read_index, read_topic, write_index, write_topic
 from solaire.agent_layer.cancel_signal import clear_cancel, request_cancel
@@ -126,23 +128,26 @@ def agent_config() -> dict[str, Any]:
 def agent_llm_settings_get() -> dict[str, Any]:
     root = state.get_root()
     eff = load_llm_settings(root)
-    raw = load_overrides_raw(root) if root is not None else {}
+    user_raw = load_user_overrides_raw()
+    proj_raw = load_overrides_raw(root) if root is not None else {}
     return {
-        "persist_available": root is not None,
+        "persist_available": True,
+        "persist_scope": "project" if root is not None else "global",
         "main_model": eff.main_model,
         "fast_model": eff.fast_model,
         "base_url": eff.base_url or "",
         "llm_configured": bool(eff.api_key),
         "api_key_masked": mask_api_key(eff.api_key),
-        "has_project_api_key_override": bool(raw.get("api_key")),
+        "has_user_api_key_override": bool(user_raw.get("api_key")),
+        "has_project_api_key_override": bool(proj_raw.get("api_key")),
         "max_tokens": eff.max_tokens,
     }
 
 
 @router.put("/llm-settings")
 def agent_llm_settings_put(body: LLMSettingsPutBody) -> dict[str, Any]:
-    root = _require_root()
-    current = load_overrides_raw(root)
+    root = state.get_root()
+    current = load_overrides_raw(root) if root is not None else load_user_overrides_raw()
     if body.clear_api_key_override:
         current.pop("api_key", None)
     if body.api_key is not None and body.api_key.strip():
@@ -167,7 +172,10 @@ def agent_llm_settings_put(body: LLMSettingsPutBody) -> dict[str, Any]:
             current.pop("max_tokens", None)
         else:
             current["max_tokens"] = str(body.max_tokens)
-    save_overrides_raw(root, current)
+    if root is not None:
+        save_overrides_raw(root, current)
+    else:
+        save_user_overrides_raw(current)
     return {"ok": True}
 
 
@@ -175,7 +183,8 @@ def agent_llm_settings_put(body: LLMSettingsPutBody) -> dict[str, Any]:
 def agent_safety_mode_get() -> dict[str, Any]:
     root = state.get_root()
     return {
-        "persist_available": root is not None,
+        "persist_available": True,
+        "persist_scope": "project" if root is not None else "global",
         "mode": load_safety_mode(root),
         "options": list_safety_modes_public(),
     }
@@ -183,11 +192,14 @@ def agent_safety_mode_get() -> dict[str, Any]:
 
 @router.put("/safety-mode")
 def agent_safety_mode_put(body: SafetyModePutBody) -> dict[str, Any]:
-    root = _require_root()
+    root = state.get_root()
     mode = str(body.mode).strip().lower()
     if mode not in SAFETY_MODE_CHOICES:
         raise HTTPException(status_code=400, detail="无效策略模式")
-    save_safety_mode(root, mode)
+    if root is not None:
+        save_safety_mode(root, mode)
+    else:
+        save_user_safety_mode(mode)
     return {"ok": True}
 
 

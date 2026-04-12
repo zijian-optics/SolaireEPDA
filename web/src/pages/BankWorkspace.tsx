@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { ChevronDown } from "lucide-react";
 import yaml from "js-yaml";
 import {
   apiDelete,
@@ -23,8 +24,12 @@ import { KatexPlainPreview } from "../components/KatexText";
 import { MathInsertOverlay } from "../components/MathInsertOverlay";
 import { MermaidEditorModal } from "../components/MermaidEditorModal";
 import { useAgentContext } from "../contexts/AgentContext";
+import { useToolBar } from "../contexts/ToolBarContext";
+import { TabPanel, type TabItem } from "../components/layout/TabPanel";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import i18n from "../i18n/i18n";
 import { localeCompareStrings } from "../lib/locale";
+import { SOLAIRE_SAVE_EVENT } from "../lib/saveEvents";
 import { cn } from "../lib/utils";
 import { collapseGroupRowsForList } from "../lib/groupQuestions";
 import { QUESTION_TYPE_OPTIONS } from "../lib/questionTypes";
@@ -70,6 +75,13 @@ type BankListItem = {
   group_material?: string | null;
 };
 
+type BankCollectionRow = {
+  id: string;
+  label: string;
+  subject: string;
+  collection: string;
+};
+
 export function BankWorkspace({
   onError,
   onOpenGraphNode,
@@ -79,13 +91,17 @@ export function BankWorkspace({
 }) {
   const { t } = useTranslation(["bank", "lib", "common"]);
   const [items, setItems] = useState<BankListItem[]>([]);
-  const [collections, setCollections] = useState<{ id: string; label: string }[]>([]);
+  const [collections, setCollections] = useState<BankCollectionRow[]>([]);
   const [subjects, setSubjects] = useState<string[]>([]);
   const [filterSubject, setFilterSubject] = useState<string>("__all__");
   const [filterCollection, setFilterCollection] = useState<string>("__all__");
   const [filterType, setFilterType] = useState<string>("__all__");
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  /** 已打开的题目标签（多窗口编辑） */
+  const [openTabs, setOpenTabs] = useState<string[]>([]);
+  /** 中间工作区：字段编辑 / 浏览 / 源文件 */
+  const [workView, setWorkView] = useState<"fields" | "preview" | "source">("fields");
   const [detail, setDetail] = useState<BankDetailState | null>(null);
   const [busy, setBusy] = useState(false);
   const [importYaml, setImportYaml] = useState("");
@@ -94,7 +110,16 @@ export function BankWorkspace({
   const importFileRef = useRef<HTMLInputElement>(null);
   const openModalAfterCreateRef = useRef(false);
   const [editorModalOpen, setEditorModalOpen] = useState(false);
-  const [bankFilterExpanded, setBankFilterExpanded] = useState(false);
+  const [bankFilterMenuOpen, setBankFilterMenuOpen] = useState(false);
+  const bankFilterDropdownRef = useRef<HTMLDivElement | null>(null);
+  const [bankNewQuestionOpen, setBankNewQuestionOpen] = useState(false);
+  const bankNewQuestionRef = useRef<HTMLDivElement | null>(null);
+  const [bankImportOpen, setBankImportOpen] = useState(false);
+  const bankImportRef = useRef<HTMLDivElement | null>(null);
+  const [bankManageOpen, setBankManageOpen] = useState(false);
+  const [manageEditId, setManageEditId] = useState<string | null>(null);
+  const [manageDraftSubject, setManageDraftSubject] = useState("");
+  const [manageDraftCollection, setManageDraftCollection] = useState("");
   const [newSubject, setNewSubject] = useState(() => i18n.t("bank:defaultSubject"));
   const [newCollection, setNewCollection] = useState("main");
   const [newId, setNewId] = useState("new_question_001");
@@ -123,6 +148,8 @@ export function BankWorkspace({
   const embedSelectionRef = useRef<{ start: number; end: number } | null>(null);
 
   const { setPageContext } = useAgentContext();
+  const { setToolBar, clearToolBar } = useToolBar();
+  const baselineRef = useRef<Record<string, { yaml: string; detailJson: string }>>({});
 
   useEffect(() => {
     if (selectedId && detail) {
@@ -330,11 +357,21 @@ export function BankWorkspace({
   const loadList = useCallback(async () => {
     onError(null);
     const [c, it, sub] = await Promise.all([
-      apiGet<{ collections: { id: string; label: string }[] }>("/api/bank/collections"),
+      apiGet<{
+        collections: { id: string; label: string; subject?: string; collection?: string }[];
+      }>("/api/bank/collections"),
       apiGet<{ items: BankListItem[] }>("/api/bank/items"),
       apiGet<{ subjects: string[] }>("/api/bank/subjects"),
     ]);
-    setCollections(c.collections.map((x) => ({ id: x.id, label: x.label })));
+    setCollections(
+      c.collections.map((x) => {
+        const parts = x.id.split("/");
+        const subj = x.subject ?? parts[0] ?? "";
+        const coll =
+          x.collection ?? (parts.length > 1 ? parts.slice(1).join("/") : parts[0] ?? "");
+        return { id: x.id, label: x.label, subject: subj, collection: coll };
+      }),
+    );
     setItems(it.items);
     setSubjects(sub.subjects);
     try {
@@ -348,6 +385,18 @@ export function BankWorkspace({
   useEffect(() => {
     void loadList().catch((e: Error) => onError(e.message));
   }, [loadList, onError]);
+
+  useEffect(() => {
+    if (!bankManageOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setBankManageOpen(false);
+        setManageEditId(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [bankManageOpen]);
 
   const collectionOptions = useMemo(() => {
     if (filterSubject === "__all__") {
@@ -405,6 +454,63 @@ export function BankWorkspace({
     const suffix = search.trim() ? t("bank:filterSearchActive") : "";
     return `${sub} · ${collLabel} · ${typLabel}${suffix}`;
   }, [filterSubject, filterCollection, filterType, search, collections, t]);
+
+  useEffect(() => {
+    if (!bankFilterMenuOpen) return;
+    const root = bankFilterDropdownRef.current;
+    if (!root) return;
+    const onPointerDownCapture = (e: PointerEvent) => {
+      if (e.composedPath().includes(root)) return;
+      setBankFilterMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDownCapture, true);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setBankFilterMenuOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDownCapture, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [bankFilterMenuOpen]);
+
+  useEffect(() => {
+    if (!bankNewQuestionOpen) return;
+    const root = bankNewQuestionRef.current;
+    if (!root) return;
+    const onPointerDownCapture = (e: PointerEvent) => {
+      if (e.composedPath().includes(root)) return;
+      setBankNewQuestionOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDownCapture, true);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setBankNewQuestionOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDownCapture, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [bankNewQuestionOpen]);
+
+  useEffect(() => {
+    if (!bankImportOpen) return;
+    const root = bankImportRef.current;
+    if (!root) return;
+    const onPointerDownCapture = (e: PointerEvent) => {
+      if (e.composedPath().includes(root)) return;
+      setBankImportOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDownCapture, true);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setBankImportOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDownCapture, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [bankImportOpen]);
 
   /** 导入目标科目：接口科目 + 列表中已出现的科目 */
   const importSubjectList = useMemo(() => {
@@ -473,6 +579,10 @@ export function BankWorkspace({
       const m = detailState.question.metadata ?? {};
       setMetaRows(Object.keys(m).length ? Object.entries(m).map(([k, v]) => ({ key: k, value: String(v) })) : [{ key: "", value: "" }]);
       setEditorTab("form");
+      baselineRef.current[qid] = {
+        yaml: detailState.file_yaml,
+        detailJson: JSON.stringify(detailState),
+      };
     },
     [onError],
   );
@@ -656,7 +766,9 @@ export function BankWorkspace({
       const r = await apiPost<{ ok: boolean; qualified_id: string }>("/api/bank/items", body);
       await loadList();
       openModalAfterCreateRef.current = true;
+      setOpenTabs((prev) => (prev.includes(r.qualified_id) ? prev : [...prev, r.qualified_id]));
       setSelectedId(r.qualified_id);
+      setBankNewQuestionOpen(false);
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -675,6 +787,7 @@ export function BankWorkspace({
       });
       setImportYaml("");
       await loadList();
+      setBankImportOpen(false);
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -704,6 +817,7 @@ export function BankWorkspace({
           );
         }
         await loadList();
+        setBankImportOpen(false);
       } else if (name.endsWith(".yaml") || name.endsWith(".yml")) {
         const text = await f.text();
         await apiPost("/api/bank/import", {
@@ -712,6 +826,7 @@ export function BankWorkspace({
           target_collection: importTarget.trim() || "imported",
         });
         await loadList();
+        setBankImportOpen(false);
       } else {
         onError(t("errors.pickYamlZip"));
       }
@@ -731,6 +846,64 @@ export function BankWorkspace({
     onError(null);
     try {
       await downloadBankExportBundle(filterCollection);
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function applyManageRename() {
+    if (!manageEditId) {
+      return;
+    }
+    const oldNs = manageEditId;
+    const newSub = manageDraftSubject.trim();
+    const newColl = manageDraftCollection.trim();
+    if (!newSub || !newColl) {
+      onError(t("manageNameEmpty"));
+      return;
+    }
+    setBusy(true);
+    onError(null);
+    try {
+      const r = await apiPost<{ ok: boolean; namespace: string }>("/api/bank/rename-collection", {
+        namespace: oldNs,
+        new_subject: newSub,
+        new_collection: newColl,
+      });
+      const newNs = r.namespace;
+      const prefix = `${oldNs}/`;
+      const mapQid = (qid: string) => (qid.startsWith(prefix) ? `${newNs}/${qid.slice(prefix.length)}` : qid);
+      setSelectedId((cur) => (cur ? mapQid(cur) : null));
+      setOpenTabs((tabs) => tabs.map(mapQid));
+      if (filterCollection === oldNs) {
+        setFilterCollection(newNs);
+      }
+      setManageEditId(null);
+      await loadList();
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeCollectionRow(namespace: string, label: string) {
+    if (!window.confirm(t("manageDeleteConfirm", { name: label }))) {
+      return;
+    }
+    setBusy(true);
+    onError(null);
+    try {
+      await apiPost("/api/bank/delete-collection", { namespace });
+      const prefix = `${namespace}/`;
+      setSelectedId((cur) => (cur && (cur.startsWith(prefix) || cur === namespace) ? null : cur));
+      setOpenTabs((tabs) => tabs.filter((id) => id !== namespace && !id.startsWith(prefix)));
+      if (filterCollection === namespace) {
+        setFilterCollection("__all__");
+      }
+      await loadList();
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -760,6 +933,8 @@ export function BankWorkspace({
         ? `?storage_path=${encodeURIComponent(detail.storage_path)}`
         : "";
       await apiDelete(`/api/bank/items/${enc}${sp}`);
+      setOpenTabs((prev) => prev.filter((x) => x !== selectedId));
+      delete baselineRef.current[selectedId];
       setSelectedId(null);
       setDetail(null);
       await loadList();
@@ -784,6 +959,589 @@ export function BankWorkspace({
     return { ...g, material: p.material, items: p.items };
   }, [detail]);
 
+  const dirty = useMemo(() => {
+    if (!selectedId || !detail) return false;
+    const b = baselineRef.current[selectedId];
+    if (!b) return false;
+    const yamlDirty = rawYaml !== b.yaml;
+    const formDirty = JSON.stringify(detail) !== b.detailJson;
+    return yamlDirty || formDirty;
+  }, [selectedId, detail, rawYaml]);
+
+  const trySelectId = useCallback(
+    (qid: string | null) => {
+      if (qid === selectedId) return true;
+      if (dirty && !window.confirm(t("switchTabDiscard"))) {
+        return false;
+      }
+      setSelectedId(qid);
+      return true;
+    },
+    [selectedId, dirty, t],
+  );
+
+  const openOrFocusTab = useCallback(
+    (qid: string) => {
+      if (!trySelectId(qid)) return;
+      setOpenTabs((prev) => (prev.includes(qid) ? prev : [...prev, qid]));
+      setEditorModalOpen(false);
+    },
+    [trySelectId],
+  );
+
+  const closeTab = useCallback(
+    (qid: string) => {
+      if (qid === selectedId && dirty && !window.confirm(t("closeTabConfirm"))) {
+        return;
+      }
+      setOpenTabs((prev) => {
+        const next = prev.filter((x) => x !== qid);
+        if (selectedId === qid) {
+          const fallback = next[next.length - 1] ?? null;
+          setSelectedId(fallback);
+          if (!fallback) {
+            setDetail(null);
+          }
+        }
+        return next;
+      });
+      delete baselineRef.current[qid];
+    },
+    [selectedId, dirty, t],
+  );
+
+  useEffect(() => {
+    const left: ReactNode = (
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative shrink-0" ref={bankFilterDropdownRef}>
+          <button
+            type="button"
+            className={cn(
+              "flex max-w-[min(100vw-8rem,20rem)] items-center gap-2 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-left text-xs font-medium text-slate-800 hover:bg-slate-50",
+              bankFilterMenuOpen && "border-slate-400 bg-slate-100",
+            )}
+            aria-expanded={bankFilterMenuOpen}
+            aria-haspopup="dialog"
+            onClick={() => {
+              setBankNewQuestionOpen(false);
+              setBankImportOpen(false);
+              setBankFilterMenuOpen((v) => !v);
+            }}
+          >
+            <span className="shrink-0">{t("filter")}</span>
+            <span className="flex min-w-0 flex-1 items-center gap-1">
+              <span className="truncate text-[10px] font-normal text-slate-500">{bankFilterSummary}</span>
+              <ChevronDown
+                className={cn(
+                  "h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-200",
+                  bankFilterMenuOpen && "rotate-180",
+                )}
+                aria-hidden
+              />
+            </span>
+          </button>
+          {bankFilterMenuOpen ? (
+            <div
+              className="absolute left-0 top-full z-[100] mt-1 w-72 max-h-[min(70vh,28rem)] overflow-y-auto rounded-md border border-slate-200 bg-white p-2 shadow-lg"
+              role="dialog"
+              aria-label={t("filter")}
+            >
+              <div className="space-y-2">
+                <label className="block text-[11px] font-medium text-slate-600">
+                  {t("subject")}
+                  <select
+                    className="mt-0.5 w-full rounded-md border border-slate-300 bg-slate-50 px-2 py-1.5 text-sm"
+                    value={filterSubject}
+                    onChange={(e) => {
+                      setFilterSubject(e.target.value);
+                      setFilterCollection("__all__");
+                    }}
+                  >
+                    <option value="__all__">{t("filterAllLabel")}</option>
+                    {(subjects.length ? subjects : [...new Set(items.map((i) => i.subject).filter(Boolean) as string[])]).map(
+                      (s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ),
+                    )}
+                  </select>
+                </label>
+                <label className="block text-[11px] font-medium text-slate-600">
+                  {t("collection")}
+                  <select
+                    className="mt-0.5 w-full rounded-md border border-slate-300 bg-slate-50 px-2 py-1.5 text-sm"
+                    value={filterCollection}
+                    onChange={(e) => setFilterCollection(e.target.value)}
+                  >
+                    <option value="__all__">{t("filterAllLabel")}</option>
+                    {collectionOptions.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-[11px] font-medium text-slate-600">
+                  {t("questionType")}
+                  <select
+                    className="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                    value={filterType}
+                    onChange={(e) => setFilterType(e.target.value)}
+                  >
+                    <option value="__all__">{t("filterAllLabel")}</option>
+                    <option value="group">{t("typeGroup")}</option>
+                    {QUESTION_TYPE_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {t(`lib:questionTypes.${o.value}`)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-[11px] font-medium text-slate-600">
+                  {t("search")}
+                  <input
+                    className="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder={t("searchPlaceholder")}
+                  />
+                </label>
+              </div>
+            </div>
+          ) : null}
+        </div>
+        <div className="relative shrink-0" ref={bankNewQuestionRef}>
+          <button
+            type="button"
+            className={cn(
+              "flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50",
+              bankNewQuestionOpen && "border-slate-400 bg-slate-100",
+            )}
+            disabled={busy}
+            aria-expanded={bankNewQuestionOpen}
+            aria-haspopup="dialog"
+            onClick={() => {
+              setBankFilterMenuOpen(false);
+              setBankImportOpen(false);
+              setBankNewQuestionOpen((v) => !v);
+            }}
+          >
+            {t("newQuestion")}
+            <ChevronDown
+              className={cn(
+                "h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-200",
+                bankNewQuestionOpen && "rotate-180",
+              )}
+              aria-hidden
+            />
+          </button>
+          {bankNewQuestionOpen ? (
+            <div
+              className="absolute left-0 top-full z-[100] mt-1 w-80 max-h-[min(85vh,32rem)] overflow-y-auto rounded-md border border-slate-200 bg-white p-2 shadow-lg"
+              role="dialog"
+              aria-label={t("newQuestion")}
+            >
+              <div className="space-y-2">
+                <label className="block text-[11px] font-medium text-slate-600">
+                  {t("newSubject")}
+                  <input
+                    className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                    value={newSubject}
+                    onChange={(e) => setNewSubject(e.target.value)}
+                    placeholder={t("newSubjectPh")}
+                  />
+                </label>
+                <label className="block text-[11px] font-medium text-slate-600">
+                  {t("newCollection")}
+                  <input
+                    className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                    value={newCollection}
+                    onChange={(e) => setNewCollection(e.target.value)}
+                  />
+                </label>
+                <label className="block text-[11px] font-medium text-slate-600">
+                  {t("newId")}
+                  <input
+                    className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1 font-mono text-sm"
+                    value={newId}
+                    onChange={(e) => setNewId(e.target.value)}
+                  />
+                </label>
+                <label className="block text-[11px] font-medium text-slate-600">
+                  {t("newType")}
+                  <select
+                    className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                    value={newType}
+                    onChange={(e) => setNewType(e.target.value)}
+                  >
+                    <option value="group">{t("typeGroup")}</option>
+                    {QUESTION_TYPE_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {t(`lib:questionTypes.${o.value}`)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {newType === "group" && (
+                  <div className="space-y-2 rounded border border-slate-200 bg-slate-50 p-2">
+                    <label className="block text-[11px] font-medium text-slate-600">
+                      {t("subItemMode")}
+                      <select
+                        className="mt-0.5 w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm"
+                        value={newGroupUnified}
+                        onChange={(e) => setNewGroupUnified(e.target.value)}
+                      >
+                        <option value="mixed">{t("mixedMode")}</option>
+                        {QUESTION_TYPE_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {t("sameType", { label: t(`lib:questionTypes.${o.value}`) })}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="block text-[11px] font-medium text-slate-600">
+                      {t("sharedMaterial")}
+                      <textarea
+                        className="mt-0.5 w-full rounded border border-slate-300 bg-white px-2 py-1.5 font-mono text-xs"
+                        rows={4}
+                        value={newGroupMaterial}
+                        onChange={(e) => setNewGroupMaterial(e.target.value)}
+                        placeholder={t("sharedMaterialPh")}
+                      />
+                    </label>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  className="w-full rounded-md border border-slate-300 py-1.5 text-xs font-medium hover:bg-slate-50 disabled:opacity-50"
+                  disabled={busy || !newSubject.trim() || !newCollection.trim() || !newId.trim()}
+                  onClick={() => void createQuestion()}
+                >
+                  {newType === "group" ? t("createGroup") : t("createDraft")}
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+        <div className="relative shrink-0" ref={bankImportRef}>
+          <button
+            type="button"
+            className={cn(
+              "flex max-w-[min(100vw-8rem,22rem)] items-center gap-2 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-left text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50",
+              bankImportOpen && "border-slate-400 bg-slate-100",
+            )}
+            disabled={busy}
+            aria-expanded={bankImportOpen}
+            aria-haspopup="dialog"
+            onClick={() => {
+              setBankFilterMenuOpen(false);
+              setBankNewQuestionOpen(false);
+              setBankImportOpen((v) => !v);
+            }}
+          >
+            <span className="shrink-0">{t("importToolbar")}</span>
+            <span className="flex min-w-0 flex-1 items-center justify-end gap-1">
+              <span className="truncate text-[10px] font-normal text-slate-500">{importSummaryHint}</span>
+              <ChevronDown
+                className={cn(
+                  "h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-200",
+                  bankImportOpen && "rotate-180",
+                )}
+                aria-hidden
+              />
+            </span>
+          </button>
+          {bankImportOpen ? (
+            <div
+              className="absolute left-0 top-full z-[100] mt-1 w-80 max-h-[min(85vh,32rem)] overflow-y-auto rounded-md border border-slate-200 bg-white p-2 shadow-lg"
+              role="dialog"
+              aria-label={t("importToolbar")}
+            >
+              <p className="text-[10px] leading-snug text-slate-500">{t("importFormats")}</p>
+              <label className="mt-2 block text-[11px] font-medium text-slate-600">
+                {t("targetSubject")}
+                {importSubjectList.length > 0 ? (
+                  <div className="mt-0.5 space-y-1">
+                    <select
+                      className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm"
+                      value={importSubjectSelectValue}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (v === "__custom__") {
+                          setImportSubject("");
+                        } else {
+                          setImportSubject(v);
+                        }
+                      }}
+                    >
+                      {importSubjectList.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                      <option value="__custom__">{t("otherSubject")}</option>
+                    </select>
+                    {importSubjectSelectValue === "__custom__" && (
+                      <input
+                        className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                        value={importSubject}
+                        onChange={(e) => setImportSubject(e.target.value)}
+                        placeholder={t("folderNamePh")}
+                      />
+                    )}
+                  </div>
+                ) : (
+                  <input
+                    className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                    value={importSubject}
+                    onChange={(e) => setImportSubject(e.target.value)}
+                    placeholder={t("folderNamePh")}
+                  />
+                )}
+              </label>
+              <label className="mt-2 block text-[11px] font-medium text-slate-600">
+                {t("targetCollection")}
+                <input
+                  className="mt-0.5 w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm"
+                  value={importTarget}
+                  onChange={(e) => setImportTarget(e.target.value)}
+                  placeholder={t("targetCollectionPh")}
+                />
+              </label>
+              <input
+                ref={importFileRef}
+                type="file"
+                accept=".yaml,.yml,.zip,application/zip,application/x-yaml,text/yaml"
+                className="hidden"
+                aria-hidden
+                onChange={(e) => void doImportFromFile(e)}
+              />
+              <button
+                type="button"
+                className="mt-2 w-full rounded-md bg-slate-900 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                disabled={busy}
+                onClick={() => importFileRef.current?.click()}
+              >
+                {t("importChooseFile")}
+              </button>
+              <details className="mt-2 rounded border border-slate-200 bg-slate-50 p-2">
+                <summary className="cursor-pointer text-[11px] font-medium text-slate-700">{t("pasteYaml")}</summary>
+                <p className="mt-1 text-[10px] text-slate-500">{t("pasteYamlHint")}</p>
+                <textarea
+                  className="mt-2 w-full rounded border border-slate-300 bg-white font-mono text-xs"
+                  rows={5}
+                  placeholder={t("pasteYamlTextareaPh")}
+                  value={importYaml}
+                  onChange={(e) => setImportYaml(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="mt-2 w-full rounded-md border border-slate-800 bg-slate-50 py-1.5 text-xs font-medium text-slate-800 disabled:opacity-50"
+                  disabled={busy || !importYaml.trim()}
+                  onClick={() => void doImport()}
+                >
+                  {t("importToCollection")}
+                </button>
+              </details>
+            </div>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+          disabled={busy || filterCollection === "__all__"}
+          title={filterCollection === "__all__" ? t("exportNeedCollection") : undefined}
+          onClick={() => void doExportBundle()}
+        >
+          {t("exportBundle")}
+        </button>
+        <button
+          type="button"
+          className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+          disabled={busy}
+          onClick={() => {
+            setBankFilterMenuOpen(false);
+            setBankNewQuestionOpen(false);
+            setBankImportOpen(false);
+            setBankManageOpen(true);
+          }}
+        >
+          {t("title")}
+        </button>
+      </div>
+    );
+    const right: ReactNode =
+      selectedId && detail ? (
+        <div className="flex items-center gap-2">
+          {dirty ? (
+            <span className="text-[11px] text-amber-700">{t("common:unsavedHint")}</span>
+          ) : null}
+          <button
+            type="button"
+            className="rounded-md bg-slate-900 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
+            disabled={busy || !dirty}
+            onClick={() => {
+              if (workView === "source") {
+                void saveRawYaml();
+              } else {
+                void saveForm();
+              }
+            }}
+          >
+            {t("components:bankEditor.save")}
+          </button>
+        </div>
+      ) : null;
+    setToolBar({ left, right });
+    return () => clearToolBar();
+  }, [
+    t,
+    busy,
+    selectedId,
+    detail,
+    dirty,
+    workView,
+    editorTab,
+    filterCollection,
+    bankFilterMenuOpen,
+    bankFilterSummary,
+    filterSubject,
+    filterType,
+    search,
+    subjects,
+    items,
+    collectionOptions,
+    bankNewQuestionOpen,
+    newSubject,
+    newCollection,
+    newId,
+    newType,
+    newGroupUnified,
+    newGroupMaterial,
+    bankImportOpen,
+    importYaml,
+    importSubject,
+    importTarget,
+    importSubjectList,
+    importSubjectSelectValue,
+    importSummaryHint,
+    setToolBar,
+    clearToolBar,
+  ]);
+
+  const saveFormRef = useRef(saveForm);
+  saveFormRef.current = saveForm;
+  const saveRawYamlRef = useRef(saveRawYaml);
+  saveRawYamlRef.current = saveRawYaml;
+
+  useEffect(() => {
+    if (workView === "source") {
+      setEditorTab("yaml");
+    } else if (workView === "fields") {
+      setEditorTab("form");
+    }
+  }, [workView]);
+
+  useEffect(() => {
+    const onSave = () => {
+      if (!selectedId || !detail || !dirty) return;
+      if (workView === "source") {
+        void saveRawYamlRef.current();
+      } else {
+        void saveFormRef.current();
+      }
+    };
+    window.addEventListener(SOLAIRE_SAVE_EVENT, onSave);
+    return () => window.removeEventListener(SOLAIRE_SAVE_EVENT, onSave);
+  }, [selectedId, detail, dirty, workView]);
+
+  const tabItems: TabItem[] = useMemo(
+    () =>
+      openTabs.map((id) => {
+        const short = id.includes("/") ? id.split("/").pop() ?? id : id;
+        return { id, label: short, dirty: id === selectedId && dirty, closable: true };
+      }),
+    [openTabs, selectedId, dirty],
+  );
+
+  const previewBlock =
+    !previewQ && !previewGroup ? (
+      <p className="mt-4 text-sm text-slate-500">{t("previewEmpty")}</p>
+    ) : previewGroup ? (
+      <div className="mt-3 space-y-4 text-sm">
+        <div>
+          <p className="text-[11px] font-medium text-slate-500">{t("sharedMaterialLabel")}</p>
+          <ContentWithPrimeBrush text={previewGroup.material} className="mt-1 text-slate-900" />
+        </div>
+        {previewGroup.items.map((it, i) => {
+          const rowIsChoice =
+            previewGroup.unified === false
+              ? (it.type ?? "choice") === "choice"
+              : typeof previewGroup.unified === "string" && previewGroup.unified === "choice";
+          return (
+            <div key={i} className="border-t border-slate-100 pt-3">
+              <p className="text-[11px] font-medium text-slate-500">{t("subItemIndex", { n: i + 1 })}</p>
+              <ContentWithPrimeBrush text={it.content} className="mt-1 text-slate-900" />
+              {rowIsChoice && (
+                <div>
+                  <p className="text-[11px] font-medium text-slate-500">{t("options")}</p>
+                  <ul className="mt-1 list-inside list-disc text-slate-700">
+                    {Object.entries(it.options ?? { A: "", B: "", C: "", D: "" }).map(([k, v]) => (
+                      <li key={k}>
+                        <strong>{k}</strong>{" "}
+                        <span className="inline-block align-top">
+                          <ContentWithPrimeBrush text={v} className="inline" />
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <details>
+                <summary className="cursor-pointer text-xs text-slate-600">{t("answer")}</summary>
+                <ContentWithPrimeBrush text={it.answer} className="mt-1" />
+              </details>
+              <details>
+                <summary className="cursor-pointer text-xs text-slate-600">{t("analysis")}</summary>
+                <ContentWithPrimeBrush text={it.analysis || ""} className="mt-1" />
+              </details>
+            </div>
+          );
+        })}
+      </div>
+    ) : (
+      <div className="mt-3 space-y-4 text-sm">
+        <div>
+          <p className="text-[11px] font-medium text-slate-500">{t("stem")}</p>
+          <ContentWithPrimeBrush text={previewQ!.content} className="mt-1 text-slate-900" />
+        </div>
+        {previewQ!.type === "choice" && previewQ!.options && (
+          <div>
+            <p className="text-[11px] font-medium text-slate-500">{t("options")}</p>
+            <ul className="mt-1 list-inside list-disc text-slate-700">
+              {Object.entries(previewQ!.options).map(([k, v]) => (
+                <li key={k}>
+                  <strong>{k}</strong>{" "}
+                  <span className="inline-block align-top">
+                    <ContentWithPrimeBrush text={v} className="inline" />
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <details>
+          <summary className="cursor-pointer text-xs text-slate-600">{t("answer")}</summary>
+          <ContentWithPrimeBrush text={previewQ!.answer} className="mt-1" />
+        </details>
+        <details>
+          <summary className="cursor-pointer text-xs text-slate-600">{t("analysis")}</summary>
+          <ContentWithPrimeBrush text={previewQ!.analysis || ""} className="mt-1" />
+        </details>
+      </div>
+    );
+
   return (
     <>
     <div className="flex h-full min-h-0 flex-col lg:flex-row">
@@ -791,289 +1549,6 @@ export function BankWorkspace({
       <section className="flex w-full shrink-0 flex-col border-slate-200 bg-white lg:w-[min(100%,300px)] lg:border-r">
         <div className="border-b border-slate-100 p-3">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("title")}</h2>
-          <p className="mt-1 text-[11px] text-slate-500">
-            {t("structureHint")}{" "}
-            <code className="rounded bg-slate-100 px-0.5">{t("structurePath")}</code>
-            {t("structureHintTail")}
-          </p>
-          <button
-            type="button"
-            className="mt-3 flex w-full items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-left text-xs font-medium text-slate-800 hover:bg-slate-100"
-            onClick={() => setBankFilterExpanded((v) => !v)}
-          >
-            <span>{t("filter")}</span>
-            <span className="truncate pl-2 text-[10px] font-normal text-slate-500">
-              {bankFilterExpanded ? t("filterTapToCollapse") : bankFilterSummary}
-            </span>
-          </button>
-          {bankFilterExpanded && (
-            <div className="mt-2 space-y-2">
-              <label className="block text-[11px] font-medium text-slate-600">
-                {t("subject")}
-                <select
-                  className="mt-0.5 w-full rounded-md border border-slate-300 bg-slate-50 px-2 py-1.5 text-sm"
-                  value={filterSubject}
-                  onChange={(e) => {
-                    setFilterSubject(e.target.value);
-                    setFilterCollection("__all__");
-                  }}
-                >
-                  <option value="__all__">{t("filterAllLabel")}</option>
-                  {(subjects.length ? subjects : [...new Set(items.map((i) => i.subject).filter(Boolean) as string[])]).map(
-                    (s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ),
-                  )}
-                </select>
-              </label>
-              <label className="block text-[11px] font-medium text-slate-600">
-                {t("collection")}
-                <select
-                  className="mt-0.5 w-full rounded-md border border-slate-300 bg-slate-50 px-2 py-1.5 text-sm"
-                  value={filterCollection}
-                  onChange={(e) => setFilterCollection(e.target.value)}
-                >
-                  <option value="__all__">{t("filterAllLabel")}</option>
-                  {collectionOptions.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block text-[11px] font-medium text-slate-600">
-                {t("questionType")}
-                <select
-                  className="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-                  value={filterType}
-                  onChange={(e) => setFilterType(e.target.value)}
-                >
-                  <option value="__all__">{t("filterAllLabel")}</option>
-                  <option value="group">{t("typeGroup")}</option>
-                  {QUESTION_TYPE_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {t(`lib:questionTypes.${o.value}`)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block text-[11px] font-medium text-slate-600">
-                {t("search")}
-                <input
-                  className="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder={t("searchPlaceholder")}
-                />
-              </label>
-            </div>
-          )}
-          <div className="mt-2">
-            <button
-              type="button"
-              className="w-full rounded-md border border-slate-800 bg-slate-50 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-100 disabled:opacity-50"
-              disabled={busy || filterCollection === "__all__"}
-              title={
-                filterCollection === "__all__" ? t("exportNeedCollection") : undefined
-              }
-              onClick={() => void doExportBundle()}
-            >
-              {t("exportBundle")}
-            </button>
-            <p className="mt-1 text-[10px] leading-snug text-slate-500">
-              {filterCollection === "__all__"
-                ? t("exportHintNeedCollection")
-                : t("exportHintScope", { path: filterCollection })}
-            </p>
-          </div>
-          <details className="mt-3 rounded-md border border-slate-200 bg-white p-2">
-            <summary className="cursor-pointer text-xs font-medium text-slate-700">{t("newQuestion")}</summary>
-            <label className="mt-2 block text-[11px] font-medium text-slate-600">
-              {t("newSubject")}
-              <input
-                className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1 text-sm"
-                value={newSubject}
-                onChange={(e) => setNewSubject(e.target.value)}
-                placeholder={t("newSubjectPh")}
-              />
-            </label>
-            <label className="mt-2 block text-[11px] font-medium text-slate-600">
-              {t("newCollection")}
-              <input
-                className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1 text-sm"
-                value={newCollection}
-                onChange={(e) => setNewCollection(e.target.value)}
-              />
-            </label>
-            <label className="mt-2 block text-[11px] font-medium text-slate-600">
-              {t("newId")}
-              <input
-                className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1 font-mono text-sm"
-                value={newId}
-                onChange={(e) => setNewId(e.target.value)}
-              />
-            </label>
-            <label className="mt-2 block text-[11px] font-medium text-slate-600">
-              {t("newType")}
-              <select
-                className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1 text-sm"
-                value={newType}
-                onChange={(e) => setNewType(e.target.value)}
-              >
-                <option value="group">{t("typeGroup")}</option>
-                {QUESTION_TYPE_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {t(`lib:questionTypes.${o.value}`)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {newType === "group" && (
-              <div className="mt-2 space-y-2 rounded border border-slate-200 bg-slate-50 p-2">
-                <label className="block text-[11px] font-medium text-slate-600">
-                  {t("subItemMode")}
-                  <select
-                    className="mt-0.5 w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm"
-                    value={newGroupUnified}
-                    onChange={(e) => setNewGroupUnified(e.target.value)}
-                  >
-                    <option value="mixed">{t("mixedMode")}</option>
-                    {QUESTION_TYPE_OPTIONS.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {t("sameType", { label: t(`lib:questionTypes.${o.value}`) })}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block text-[11px] font-medium text-slate-600">
-                  {t("sharedMaterial")}
-                  <textarea
-                    className="mt-0.5 w-full rounded border border-slate-300 bg-white px-2 py-1.5 font-mono text-xs"
-                    rows={4}
-                    value={newGroupMaterial}
-                    onChange={(e) => setNewGroupMaterial(e.target.value)}
-                    placeholder={t("sharedMaterialPh")}
-                  />
-                </label>
-              </div>
-            )}
-            <button
-              type="button"
-              className="mt-2 w-full rounded-md border border-slate-300 py-1.5 text-xs font-medium disabled:opacity-50"
-              disabled={busy || !newSubject.trim() || !newCollection.trim() || !newId.trim()}
-              onClick={() => void createQuestion()}
-            >
-              {newType === "group" ? t("createGroup") : t("createDraft")}
-            </button>
-          </details>
-          <details className="group mt-3 rounded-md border border-slate-200 bg-slate-50 p-2">
-            <summary className="cursor-pointer list-none marker:hidden [&::-webkit-details-marker]:hidden">
-              <span className="flex w-full items-start gap-2 text-left">
-                <span
-                  className="mt-0.5 inline-block shrink-0 text-[10px] text-slate-400 transition-transform duration-200 group-open:rotate-90"
-                  aria-hidden
-                >
-                  ▸
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
-                    <span className="text-xs font-medium text-slate-800">{t("importTitle")}</span>
-                    <span className="max-w-[min(100%,11rem)] truncate text-[10px] font-normal text-slate-500">
-                      {importSummaryHint}
-                    </span>
-                  </span>
-                </span>
-              </span>
-            </summary>
-            <p className="mt-2 text-[10px] leading-snug text-slate-500">{t("importFormats")}</p>
-            <label className="mt-2 block text-[11px] font-medium text-slate-600">
-              {t("targetSubject")}
-              {importSubjectList.length > 0 ? (
-                <div className="mt-0.5 space-y-1">
-                  <select
-                    className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm"
-                    value={importSubjectSelectValue}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (v === "__custom__") {
-                        setImportSubject("");
-                      } else {
-                        setImportSubject(v);
-                      }
-                    }}
-                  >
-                    {importSubjectList.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                    <option value="__custom__">{t("otherSubject")}</option>
-                  </select>
-                  {importSubjectSelectValue === "__custom__" && (
-                    <input
-                      className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
-                      value={importSubject}
-                      onChange={(e) => setImportSubject(e.target.value)}
-                      placeholder={t("folderNamePh")}
-                    />
-                  )}
-                </div>
-              ) : (
-                <input
-                  className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1 text-sm"
-                  value={importSubject}
-                  onChange={(e) => setImportSubject(e.target.value)}
-                  placeholder={t("folderNamePh")}
-                />
-              )}
-            </label>
-            <label className="mt-2 block text-[11px] font-medium text-slate-600">
-              {t("targetCollection")}
-              <input
-                className="mt-0.5 w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm"
-                value={importTarget}
-                onChange={(e) => setImportTarget(e.target.value)}
-                placeholder={t("targetCollectionPh")}
-              />
-            </label>
-            <input
-              ref={importFileRef}
-              type="file"
-              accept=".yaml,.yml,.zip,application/zip,application/x-yaml,text/yaml"
-              className="hidden"
-              aria-hidden
-              onChange={(e) => void doImportFromFile(e)}
-            />
-            <button
-              type="button"
-              className="mt-2 w-full rounded-md bg-slate-900 py-1.5 text-xs font-medium text-white disabled:opacity-50"
-              disabled={busy}
-              onClick={() => importFileRef.current?.click()}
-            >
-              {t("pickAndImport")}
-            </button>
-            <details className="mt-2 rounded border border-slate-200 bg-white p-2">
-              <summary className="cursor-pointer text-[11px] font-medium text-slate-700">{t("pasteYaml")}</summary>
-              <p className="mt-1 text-[10px] text-slate-500">{t("pasteYamlHint")}</p>
-              <textarea
-                className="mt-2 w-full rounded border border-slate-300 font-mono text-xs"
-                rows={5}
-                placeholder={t("pasteYamlTextareaPh")}
-                value={importYaml}
-                onChange={(e) => setImportYaml(e.target.value)}
-              />
-              <button
-                type="button"
-                className="mt-2 w-full rounded-md border border-slate-800 bg-slate-50 py-1.5 text-xs font-medium text-slate-800 disabled:opacity-50"
-                disabled={busy || !importYaml.trim()}
-                onClick={() => void doImport()}
-              >
-                {t("importToCollection")}
-              </button>
-            </details>
-          </details>
         </div>
         <ul className="min-h-0 flex-1 overflow-auto p-2">
           {items.length === 0 ? (
@@ -1102,27 +1577,28 @@ export function BankWorkspace({
                 >
                   <button
                     type="button"
-                    className="w-full text-left text-sm"
-                    onClick={() => {
-                      setSelectedId(it.qualified_id);
-                      setEditorModalOpen(false);
-                    }}
+                    className="w-full min-w-0 text-left text-sm"
+                    onClick={() => openOrFocusTab(it.qualified_id)}
                   >
-                    <span className="rounded bg-slate-200 px-1 py-0.5 text-[10px] font-medium text-slate-700">
-                      {t(`lib:questionTypes.${it.type}`, { defaultValue: it.type })}
-                    </span>
-                    {isBundle ? (
-                      <span className="ml-1 rounded bg-emerald-100 px-1 py-0.5 text-[10px] font-medium text-emerald-900">
-                        {t("groupNItems", { n: it.group_member_qualified_ids!.length })}
+                    <div className="flex w-full min-w-0 flex-wrap items-baseline gap-x-1 gap-y-0.5">
+                      <span className="shrink-0 rounded bg-slate-200 px-1 py-0.5 text-[10px] font-medium text-slate-700">
+                        {t(`lib:questionTypes.${it.type}`, { defaultValue: it.type })}
                       </span>
-                    ) : null}
-                    <span className="ml-1 font-mono text-[11px] text-slate-800">
-                      {isBundle && it.group_id ? `${it.collection} / ${it.group_id}` : it.qualified_id}
-                    </span>
-                    <KatexPlainPreview
-                      text={it.content_preview}
-                      className="line-clamp-3 text-xs leading-snug text-slate-600 [&_.katex]:text-[0.92em]"
-                    />
+                      {isBundle ? (
+                        <span className="shrink-0 rounded bg-emerald-100 px-1 py-0.5 text-[10px] font-medium text-emerald-900">
+                          {t("groupNItems", { n: it.group_member_qualified_ids!.length })}
+                        </span>
+                      ) : null}
+                      <span className="min-w-0 flex-1 break-all font-mono text-[11px] leading-snug text-slate-800">
+                        {isBundle && it.group_id ? `${it.collection} / ${it.group_id}` : it.qualified_id}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 block w-full min-w-0">
+                      <KatexPlainPreview
+                        text={it.content_preview}
+                        className="line-clamp-3 text-xs leading-snug text-slate-600 [&_.katex]:text-[0.92em]"
+                      />
+                    </div>
                     {Object.keys(it.metadata ?? {}).length > 0 && (
                       <div className="mt-1 flex flex-wrap gap-1">
                         {Object.entries(it.metadata).map(([k, v]) => (
@@ -1155,137 +1631,118 @@ export function BankWorkspace({
         </ul>
       </section>
 
-      {/* 中：编辑 */}
-      <section className="min-w-0 flex-1 overflow-auto border-slate-200 bg-slate-50 p-4 lg:border-r">
-        {!detail ? (
-          <p className="text-sm text-slate-500">{t("selectLeft")}</p>
-        ) : editorModalOpen ? (
-          <p className="text-sm text-slate-600">{t("editingInModal")}</p>
-        ) : (
-          <>
-            {graphLinkIndex[detail.qualified_id]?.length ? (
-              <div className="mb-3 rounded-lg border border-sky-200 bg-sky-50/80 px-3 py-2">
-                <p className="text-[11px] font-medium text-sky-900">{t("linkedNodes")}</p>
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {graphLinkIndex[detail.qualified_id]!.map((n) => (
-                    <button
-                      key={n.id}
-                      type="button"
-                      className="rounded-full bg-white px-2 py-0.5 text-xs font-medium text-sky-800 shadow-sm ring-1 ring-sky-200 hover:bg-sky-100"
-                      onClick={() => onOpenGraphNode?.(n.id)}
-                    >
-                      {n.canonical_name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-            <BankQuestionEditorPanel
-            detail={detail}
-            setDetail={setDetail}
-            busy={busy}
-            editorTab={editorTab}
-            setEditorTab={setEditorTab}
-            rawYaml={rawYaml}
-            setRawYaml={setRawYaml}
-            metaRows={metaRows}
-            setMetaRows={setMetaRows}
-            contentRef={contentRef}
-            answerRef={answerRef}
-            analysisRef={analysisRef}
-            materialGroupRef={materialGroupRef}
-            imageInputRef={imageInputRef}
-            beginMathEmbed={beginMathEmbed}
-            beginMermaidEmbed={beginMermaidEmbed}
-            beginImageEmbed={beginImageEmbed}
-            onImageFileSelected={onImageFileSelected}
-            onRemove={removeQuestion}
-            onSave={saveForm}
-            onSaveYaml={saveRawYaml}
-            removeLabel={detail.question_group ? t("removeGroup") : t("remove")}
-          />
-          </>
-        )}
-      </section>
-
-      {/* 右：预览 */}
-      <section className="w-full shrink-0 border-slate-200 bg-white p-4 lg:w-[min(100%,340px)] lg:border-l">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("livePreview")}</h3>
-        {!previewQ && !previewGroup ? (
-          <p className="mt-4 text-sm text-slate-500">{t("previewEmpty")}</p>
-        ) : previewGroup ? (
-          <div className="mt-3 space-y-4 text-sm">
-            <div>
-              <p className="text-[11px] font-medium text-slate-500">{t("sharedMaterialLabel")}</p>
-              <ContentWithPrimeBrush text={previewGroup.material} className="mt-1 text-slate-900" />
-            </div>
-            {previewGroup.items.map((it, i) => {
-              const rowIsChoice =
-                previewGroup.unified === false
-                  ? (it.type ?? "choice") === "choice"
-                  : typeof previewGroup.unified === "string" && previewGroup.unified === "choice";
-              return (
-              <div key={i} className="border-t border-slate-100 pt-3">
-                <p className="text-[11px] font-medium text-slate-500">{t("subItemIndex", { n: i + 1 })}</p>
-                <ContentWithPrimeBrush text={it.content} className="mt-1 text-slate-900" />
-                {rowIsChoice && (
-                  <div>
-                    <p className="text-[11px] font-medium text-slate-500">{t("options")}</p>
-                    <ul className="mt-1 list-inside list-disc text-slate-700">
-                      {Object.entries(it.options ?? { A: "", B: "", C: "", D: "" }).map(([k, v]) => (
-                        <li key={k}>
-                          <strong>{k}</strong>{" "}
-                          <span className="inline-block align-top">
-                            <ContentWithPrimeBrush text={v} className="inline" />
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
+      {/* 中：多标签 + 字段 / 浏览 / 源文件 */}
+      <section className="flex min-w-0 flex-1 flex-col overflow-hidden border-slate-200 bg-slate-50 lg:border-r">
+        <TabPanel
+          tabs={tabItems}
+          activeId={selectedId}
+          onSelect={(id) => {
+            if (trySelectId(id)) {
+              setEditorModalOpen(false);
+            }
+          }}
+          onClose={closeTab}
+          onCloseOthers={() => {
+            if (!selectedId) return;
+            const keep = selectedId;
+            setOpenTabs([keep]);
+            setSelectedId(keep);
+          }}
+        />
+        <div className="min-h-0 flex-1 overflow-auto p-4">
+          {!detail ? (
+            <p className="text-sm text-slate-500">{t("selectLeft")}</p>
+          ) : editorModalOpen ? (
+            <p className="text-sm text-slate-600">{t("editingInModal")}</p>
+          ) : (
+            <>
+              {graphLinkIndex[detail.qualified_id]?.length ? (
+                <div className="mb-3 rounded-lg border border-sky-200 bg-sky-50/80 px-3 py-2">
+                  <p className="text-[11px] font-medium text-sky-900">{t("linkedNodes")}</p>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {graphLinkIndex[detail.qualified_id]!.map((n) => (
+                      <button
+                        key={n.id}
+                        type="button"
+                        className="rounded-full bg-white px-2 py-0.5 text-xs font-medium text-sky-800 shadow-sm ring-1 ring-sky-200 hover:bg-sky-100"
+                        onClick={() => onOpenGraphNode?.(n.id)}
+                      >
+                        {n.canonical_name}
+                      </button>
+                    ))}
                   </div>
-                )}
-                <details>
-                  <summary className="cursor-pointer text-xs text-slate-600">{t("answer")}</summary>
-                  <ContentWithPrimeBrush text={it.answer} className="mt-1" />
-                </details>
-                <details>
-                  <summary className="cursor-pointer text-xs text-slate-600">{t("analysis")}</summary>
-                  <ContentWithPrimeBrush text={it.analysis || ""} className="mt-1" />
-                </details>
-              </div>
-            );
-            })}
-          </div>
-        ) : (
-          <div className="mt-3 space-y-4 text-sm">
-            <div>
-              <p className="text-[11px] font-medium text-slate-500">{t("stem")}</p>
-              <ContentWithPrimeBrush text={previewQ!.content} className="mt-1 text-slate-900" />
-            </div>
-            {previewQ!.type === "choice" && previewQ!.options && (
-              <div>
-                <p className="text-[11px] font-medium text-slate-500">{t("options")}</p>
-                <ul className="mt-1 list-inside list-disc text-slate-700">
-                  {Object.entries(previewQ!.options).map(([k, v]) => (
-                    <li key={k}>
-                      <strong>{k}</strong>{" "}
-                      <span className="inline-block align-top">
-                        <ContentWithPrimeBrush text={v} className="inline" />
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            <details>
-              <summary className="cursor-pointer text-xs text-slate-600">{t("answer")}</summary>
-              <ContentWithPrimeBrush text={previewQ!.answer} className="mt-1" />
-            </details>
-            <details>
-              <summary className="cursor-pointer text-xs text-slate-600">{t("analysis")}</summary>
-              <ContentWithPrimeBrush text={previewQ!.analysis || ""} className="mt-1" />
-            </details>
-          </div>
-        )}
+                </div>
+              ) : null}
+              <Tabs value={workView} onValueChange={(v) => setWorkView(v as "fields" | "preview" | "source")}>
+                <TabsList className="mb-3 grid w-full max-w-md grid-cols-3">
+                  <TabsTrigger value="fields">{t("workViewFields")}</TabsTrigger>
+                  <TabsTrigger value="preview">{t("workViewPreview")}</TabsTrigger>
+                  <TabsTrigger value="source">{t("workViewSource")}</TabsTrigger>
+                </TabsList>
+                <TabsContent value="fields" className="mt-0">
+                  <BankQuestionEditorPanel
+                    embedded
+                    panelMode="form"
+                    detail={detail}
+                    setDetail={setDetail}
+                    busy={busy}
+                    editorTab="form"
+                    setEditorTab={setEditorTab}
+                    rawYaml={rawYaml}
+                    setRawYaml={setRawYaml}
+                    metaRows={metaRows}
+                    setMetaRows={setMetaRows}
+                    contentRef={contentRef}
+                    answerRef={answerRef}
+                    analysisRef={analysisRef}
+                    materialGroupRef={materialGroupRef}
+                    imageInputRef={imageInputRef}
+                    beginMathEmbed={beginMathEmbed}
+                    beginMermaidEmbed={beginMermaidEmbed}
+                    beginImageEmbed={beginImageEmbed}
+                    onImageFileSelected={onImageFileSelected}
+                    onRemove={removeQuestion}
+                    onSave={saveForm}
+                    onSaveYaml={saveRawYaml}
+                    removeLabel={detail.question_group ? t("removeGroup") : t("remove")}
+                  />
+                </TabsContent>
+                <TabsContent value="preview" className="mt-0 rounded-xl border border-slate-200 bg-white p-4">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("livePreview")}</h3>
+                  {previewBlock}
+                </TabsContent>
+                <TabsContent value="source" className="mt-0">
+                  <BankQuestionEditorPanel
+                    embedded
+                    panelMode="yaml"
+                    detail={detail}
+                    setDetail={setDetail}
+                    busy={busy}
+                    editorTab="yaml"
+                    setEditorTab={setEditorTab}
+                    rawYaml={rawYaml}
+                    setRawYaml={setRawYaml}
+                    metaRows={metaRows}
+                    setMetaRows={setMetaRows}
+                    contentRef={contentRef}
+                    answerRef={answerRef}
+                    analysisRef={analysisRef}
+                    materialGroupRef={materialGroupRef}
+                    imageInputRef={imageInputRef}
+                    beginMathEmbed={beginMathEmbed}
+                    beginMermaidEmbed={beginMermaidEmbed}
+                    beginImageEmbed={beginImageEmbed}
+                    onImageFileSelected={onImageFileSelected}
+                    onRemove={removeQuestion}
+                    onSave={saveForm}
+                    onSaveYaml={saveRawYaml}
+                    removeLabel={detail.question_group ? t("removeGroup") : t("remove")}
+                  />
+                </TabsContent>
+              </Tabs>
+            </>
+          )}
+        </div>
       </section>
     </div>
     {detail && editorModalOpen && (
@@ -1328,6 +1785,122 @@ export function BankWorkspace({
         </div>
       </div>
     )}
+    {bankManageOpen ? (
+      <div
+        className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/40 p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="bank-manage-title"
+        onMouseDown={(e) => {
+          if (e.target === e.currentTarget) {
+            setBankManageOpen(false);
+            setManageEditId(null);
+          }
+        }}
+      >
+        <div
+          className="flex max-h-[min(90vh,40rem)] w-full max-w-lg flex-col rounded-lg border border-slate-200 bg-white shadow-xl"
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-4 py-2.5">
+            <h2 id="bank-manage-title" className="text-sm font-semibold text-slate-900">
+              {t("manageModalTitle")}
+            </h2>
+            <button
+              type="button"
+              className="rounded px-2 py-1 text-xs text-slate-600 hover:bg-slate-100"
+              onClick={() => {
+                setBankManageOpen(false);
+                setManageEditId(null);
+              }}
+            >
+              {t("common:close")}
+            </button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto p-3">
+            <p className="text-xs leading-relaxed text-slate-500">{t("manageModalHint")}</p>
+            {collections.filter((c) => c.id !== "main").length === 0 ? (
+              <p className="mt-4 text-center text-sm text-slate-500">{t("manageEmpty")}</p>
+            ) : null}
+            <ul className="mt-3 space-y-2">
+              {collections
+                .filter((c) => c.id !== "main")
+                .map((c) => (
+                  <li key={c.id} className="rounded-lg border border-slate-200 bg-slate-50/80 p-2.5">
+                    {manageEditId === c.id ? (
+                      <div className="space-y-2">
+                        <label className="block text-[11px] font-medium text-slate-600">
+                          {t("manageSubjectField")}
+                          <input
+                            className="mt-0.5 w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm"
+                            value={manageDraftSubject}
+                            onChange={(e) => setManageDraftSubject(e.target.value)}
+                          />
+                        </label>
+                        <label className="block text-[11px] font-medium text-slate-600">
+                          {t("manageCollectionField")}
+                          <input
+                            className="mt-0.5 w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm"
+                            value={manageDraftCollection}
+                            onChange={(e) => setManageDraftCollection(e.target.value)}
+                          />
+                        </label>
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          <button
+                            type="button"
+                            className="rounded-md bg-slate-900 px-2.5 py-1 text-xs font-medium text-white disabled:opacity-50"
+                            disabled={busy}
+                            onClick={() => void applyManageRename()}
+                          >
+                            {t("manageSave")}
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50"
+                            disabled={busy}
+                            onClick={() => setManageEditId(null)}
+                          >
+                            {t("manageCancel")}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-medium text-slate-800">{c.label}</p>
+                          <p className="mt-0.5 break-all font-mono text-[10px] text-slate-500">{c.id}</p>
+                        </div>
+                        <div className="flex shrink-0 flex-wrap gap-1.5">
+                          <button
+                            type="button"
+                            className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-800 hover:bg-slate-100 disabled:opacity-50"
+                            disabled={busy}
+                            onClick={() => {
+                              setManageEditId(c.id);
+                              setManageDraftSubject(c.subject);
+                              setManageDraftCollection(c.collection);
+                            }}
+                          >
+                            {t("manageEdit")}
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-md border border-red-200 bg-white px-2 py-1 text-[11px] font-medium text-red-800 hover:bg-red-50 disabled:opacity-50"
+                            disabled={busy}
+                            onClick={() => void removeCollectionRow(c.id, c.label)}
+                          >
+                            {t("manageDelete")}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </li>
+                ))}
+            </ul>
+          </div>
+        </div>
+      </div>
+    ) : null}
     <MathInsertOverlay
       open={mathOpen}
       onClose={() => {

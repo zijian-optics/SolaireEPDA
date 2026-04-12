@@ -35,7 +35,7 @@ vi.mock("../../api/client", () => ({
 
 function primeDefaultApi() {
   mocks.apiGet.mockImplementation(async (path: string) => {
-    if (path === "/api/results") {
+    if (path === "/api/exams/analysis-list") {
       return {
         exams: [
           {
@@ -47,13 +47,13 @@ function primeDefaultApi() {
             score_batch_count: 1,
             has_score: true,
             latest_batch_id: "b1",
-            result_dir: "e1",
+            exam_dir: "e1",
             mtime: new Date().toISOString(),
           },
         ],
       };
     }
-    if (path === "/api/results/e1/summary") {
+    if (path === "/api/exams/e1/summary") {
       return {
         exam_id: "e1",
         exam_title: "期末考试",
@@ -63,7 +63,7 @@ function primeDefaultApi() {
         score_batch_count: 1,
         has_score: true,
         latest_batch_id: "b1",
-        result_dir: "e1",
+        exam_dir: "e1",
         mtime: new Date().toISOString(),
         questions: [],
         score_batches: [
@@ -76,7 +76,7 @@ function primeDefaultApi() {
         ],
       };
     }
-    if (path === "/api/results/e1/scores/b1") {
+    if (path === "/api/exams/e1/scores/b1") {
       return {
         batch_id: "b1",
         exam_id: "e1",

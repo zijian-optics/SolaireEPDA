@@ -17,6 +17,23 @@
     "log": "Log",
     "logTitle": "Runtime log"
   },
+  "menu": {
+    "file": "File",
+    "fileNew": "New project…",
+    "fileOpen": "Open project…",
+    "fileRecent": "Recent",
+    "fileRecentEmpty": "No recent projects",
+    "fileSave": "Save",
+    "filePreferences": "Preferences…",
+    "fileCloseProject": "Close project",
+    "fileWelcome": "Welcome screen",
+    "view": "View",
+    "viewAssistant": "Toggle assistant"
+  },
+  "status": {
+    "saved": "Saved",
+    "dirty": "Unsaved changes"
+  },
   "header": {
     "project": "Project: "
   },

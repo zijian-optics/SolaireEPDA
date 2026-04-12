@@ -8,6 +8,7 @@ from pathlib import Path
 
 from solaire.agent_layer import registry as tool_registry
 from solaire.agent_layer.models import GuardrailDecision, InvocationContext, SessionState, ToolRisk
+from solaire.agent_layer.user_agent_paths import user_agent_state_dir
 from solaire.common.security import assert_within_project
 
 
@@ -42,20 +43,42 @@ def _safety_mode_path(project_root: Path) -> Path:
     return p
 
 
-def load_safety_mode(project_root: Path | None) -> str:
-    if project_root is None:
-        return SAFETY_MODE_ALLEGRO
-    p = _safety_mode_path(project_root)
-    if not p.is_file():
-        return SAFETY_MODE_ALLEGRO
+def _user_safety_mode_path() -> Path:
+    return user_agent_state_dir() / _SAFETY_MODE_FILE
+
+
+def _read_safety_mode_file(path: Path) -> str | None:
+    if not path.is_file():
+        return None
     try:
-        raw = json.loads(p.read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return SAFETY_MODE_ALLEGRO
+        return None
     mode = str(raw.get("mode") or "").strip().lower()
     if mode in SAFETY_MODE_CHOICES:
         return mode
-    return SAFETY_MODE_ALLEGRO
+    return None
+
+
+def load_safety_mode(project_root: Path | None) -> str:
+    mode = SAFETY_MODE_ALLEGRO
+    u = _read_safety_mode_file(_user_safety_mode_path())
+    if u is not None:
+        mode = u
+    if project_root is not None:
+        p = _read_safety_mode_file(_safety_mode_path(project_root))
+        if p is not None:
+            mode = p
+    return mode
+
+
+def save_user_safety_mode(mode: str) -> None:
+    m = mode.strip().lower()
+    if m not in SAFETY_MODE_CHOICES:
+        raise ValueError("invalid safety mode")
+    p = _user_safety_mode_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps({"mode": m}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def save_safety_mode(project_root: Path, mode: str) -> None:

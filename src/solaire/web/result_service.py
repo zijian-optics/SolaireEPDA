@@ -1,8 +1,6 @@
-"""Result exam management: history listing, score template, import, and statistics.
+"""考试目录（``exams/<标签>/<学科>/``）的成绩模板、导入与统计分析。
 
-Exports exam.yaml to result/{exam_name}/ during PDF export (see exam_service.export_pdfs).
-This module provides history browsing, score template generation, CSV/Excel import,
-and fuzzy-statistics computation linked to the knowledge graph.
+导出 PDF 时写入同目录（见 ``exam_service.export_pdfs``），成绩批次位于 ``scores/<batch_id>/``。
 """
 
 from __future__ import annotations
@@ -24,6 +22,8 @@ import yaml
 
 from solaire.exam_compiler.facade import ExamConfig, SelectedSection
 from solaire.knowledge_forge import load_graph
+from solaire.web.exam_service import _iter_exam_workspace_dirs, _load_exam_config
+from solaire.web.exam_workspace_service import workspace_dir
 from solaire.web.security import assert_within_project
 
 
@@ -65,45 +65,17 @@ class ExamQuestion:
 # Core service functions
 # ---------------------------------------------------------------------------
 
-def _iter_result_dirs(project_root: Path):
-    """Yield (exam_id, dir_path, exam_yaml_path) for result subdirs that have exam.yaml."""
-    result_root = (project_root / "result").resolve()
-    if not result_root.is_dir():
-        return
-    assert_within_project(project_root, result_root)
-    for d in sorted(result_root.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
-        if not d.is_dir():
-            continue
-        exam_yaml = d / "exam.yaml"
-        if exam_yaml.is_file():
-            yield d.name, d, exam_yaml
-
-
-def _load_exam_config(exam_yaml_path: Path) -> ExamConfig:
-    with exam_yaml_path.open(encoding="utf-8") as f:
-        raw = yaml.safe_load(f)
-    return ExamConfig.model_validate(raw)
-
-
-def _safe_result_exam_id(exam_id: str) -> str:
-    s = exam_id.strip().replace("\\", "/")
-    if not s or "/" in s or ".." in s or s.startswith("."):
-        raise ValueError("无效的考试目录标识")
-    return Path(s).name
-
-
 def find_exported_pdf_path(
     project_root: Path,
     exam_id: str,
     *,
     variant: Literal["student", "teacher"],
 ) -> Path:
-    """Return path to student or teacher PDF under result/{exam_id}/ (export naming uses 学生版 / 教师版)."""
-    eid = _safe_result_exam_id(exam_id)
-    d = (project_root / "result" / eid).resolve()
+    """Return path to student or teacher PDF under ``exams/<标签>/<学科>/`` (export naming uses 学生版 / 教师版)."""
+    d = workspace_dir(project_root, exam_id)
     assert_within_project(project_root, d)
     if not d.is_dir():
-        raise FileNotFoundError(f"未找到考试结果目录: {eid}")
+        raise FileNotFoundError(f"未找到考试目录: {exam_id}")
     marker = "学生版" if variant == "student" else "教师版"
     for p in sorted(d.glob("*.pdf")):
         if marker in p.name:
@@ -153,7 +125,7 @@ def _flatten_questions(exam: ExamConfig) -> list[ExamQuestion]:
 def list_exam_results(project_root: Path) -> list[dict[str, Any]]:
     """Return list of past exams (newest first) with basic metadata."""
     exams: list[dict[str, Any]] = []
-    for exam_id, dir_path, exam_yaml_path in _iter_result_dirs(project_root):
+    for exam_id, dir_path, exam_yaml_path in _iter_exam_workspace_dirs(project_root):
         mtime = datetime.fromtimestamp(dir_path.stat().st_mtime, tz=timezone.utc)
         try:
             exam = _load_exam_config(exam_yaml_path)
@@ -171,7 +143,7 @@ def list_exam_results(project_root: Path) -> list[dict[str, Any]]:
                 "score_batch_count": len(score_batches),
                 "has_score": len(score_batches) > 0,
                 "latest_batch_id": score_batches[0]["batch_id"] if score_batches else None,
-                "result_dir": exam_id,
+                "exam_dir": exam_id,
                 "mtime": mtime.isoformat(),
             })
         except Exception:
@@ -187,7 +159,7 @@ def list_exam_results(project_root: Path) -> list[dict[str, Any]]:
                 "score_batch_count": 0,
                 "has_score": False,
                 "latest_batch_id": None,
-                "result_dir": exam_id,
+                "exam_dir": exam_id,
                 "mtime": mtime.isoformat(),
             })
     return exams
@@ -195,8 +167,7 @@ def list_exam_results(project_root: Path) -> list[dict[str, Any]]:
 
 def get_exam_summary(project_root: Path, exam_id: str) -> dict[str, Any]:
     """Return exam detail: metadata + question list with scores."""
-    result_root = (project_root / "result").resolve()
-    dir_path = result_root / exam_id
+    dir_path = workspace_dir(project_root, exam_id)
     assert_within_project(project_root, dir_path)
     if not dir_path.is_dir():
         raise FileNotFoundError(f"Exam not found: {exam_id}")
@@ -230,7 +201,7 @@ def get_exam_summary(project_root: Path, exam_id: str) -> dict[str, Any]:
         "section_count": len(exam.selected_items),
         "question_count": len(questions),
         "score_batches": score_batches,
-        "result_dir": exam_id,
+        "exam_dir": exam_id,
     }
 
 
@@ -310,11 +281,10 @@ def import_scores(
     filename: str,
 ) -> dict[str, Any]:
     """
-    Parse uploaded CSV/Excel, validate, save to result/scores/{batch_id}/.
+    Parse uploaded CSV/Excel, validate, save to exams/.../scores/{batch_id}/.
     Returns batch summary + unbound question warnings.
     """
-    result_root = (project_root / "result").resolve()
-    dir_path = result_root / exam_id
+    dir_path = workspace_dir(project_root, exam_id)
     assert_within_project(project_root, dir_path)
 
     exam_yaml = dir_path / "exam.yaml"
@@ -458,9 +428,9 @@ def import_scores(
 
 
 def delete_score_batch(project_root: Path, exam_id: str, batch_id: str) -> dict[str, Any]:
-    """Delete one imported score batch directory under result/{exam_id}/scores/{batch_id}."""
-    result_root = (project_root / "result").resolve()
-    batch_dir = (result_root / exam_id / "scores" / batch_id).resolve()
+    """Delete one imported score batch directory under exams/.../scores/{batch_id}."""
+    exam_d = workspace_dir(project_root, exam_id)
+    batch_dir = (exam_d / "scores" / batch_id).resolve()
     assert_within_project(project_root, batch_dir)
     if not batch_dir.is_dir():
         raise FileNotFoundError(f"Score batch not found: {batch_id}")
@@ -469,13 +439,10 @@ def delete_score_batch(project_root: Path, exam_id: str, batch_id: str) -> dict[
 
 
 def delete_exam_result(project_root: Path, exam_id: str) -> dict[str, Any]:
-    """Delete one exam result directory under result/{exam_id}."""
-    result_root = (project_root / "result").resolve()
-    exam_dir = (result_root / exam_id).resolve()
-    assert_within_project(project_root, exam_dir)
-    if not exam_dir.is_dir():
-        raise FileNotFoundError(f"Exam not found: {exam_id}")
-    shutil.rmtree(exam_dir)
+    """Delete one exam workspace under exams/<标签>/<学科>/（与组卷删除一致）。"""
+    from solaire.web.exam_workspace_service import delete_exam_workspace
+
+    delete_exam_workspace(project_root, exam_id)
     return {"ok": True, "exam_id": exam_id}
 
 
@@ -489,8 +456,7 @@ def compute_statistics(
     Fuzzy scoring: score_ratio = actual / score_per_item (0~1 float).
     Node error rate = 1 - fuzzy_AND(score_ratios of bound questions).
     """
-    result_root = (project_root / "result").resolve()
-    dir_path = result_root / exam_id
+    dir_path = workspace_dir(project_root, exam_id)
     assert_within_project(project_root, dir_path)
 
     exam_yaml = dir_path / "exam.yaml"
@@ -720,8 +686,7 @@ def compute_statistics(
 
 def get_score_analysis(project_root: Path, exam_id: str, batch_id: str) -> dict[str, Any]:
     """Return cached analysis for a score batch (recompute if stale)."""
-    result_root = (project_root / "result").resolve()
-    dir_path = result_root / exam_id
+    dir_path = workspace_dir(project_root, exam_id)
     assert_within_project(project_root, dir_path)
     analysis_path = dir_path / "scores" / batch_id / "analysis.json"
     if not analysis_path.is_file():

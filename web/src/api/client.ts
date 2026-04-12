@@ -190,23 +190,26 @@ function filenameFromContentDisposition(cd: string | null): string | null {
   return m?.[1] ?? null;
 }
 
-export type DraftSavedPayload = { draft_id: string; name: string };
+export type ExamSavedPayload = { exam_id: string; name: string };
+
+/** @deprecated 使用 ExamSavedPayload */
+export type DraftSavedPayload = ExamSavedPayload;
 
 export class ApiError extends Error {
   readonly status: number;
-  readonly draftSaved?: DraftSavedPayload;
+  readonly examSaved?: ExamSavedPayload;
 
-  constructor(message: string, status: number, opts?: { draftSaved?: DraftSavedPayload }) {
+  constructor(message: string, status: number, opts?: { examSaved?: ExamSavedPayload }) {
     super(message);
     this.name = "ApiError";
     this.status = status;
-    this.draftSaved = opts?.draftSaved;
+    this.examSaved = opts?.examSaved;
   }
 }
 
 async function parseDetailFromResponse(r: Response): Promise<{
   message: string;
-  draftSaved?: DraftSavedPayload;
+  examSaved?: ExamSavedPayload;
 }> {
   try {
     const j = (await r.json()) as { detail?: unknown };
@@ -227,15 +230,16 @@ async function parseDetailFromResponse(r: Response): Promise<{
         typeof d.message === "string" && d.message.trim()
           ? d.message
           : r.statusText || "Request failed";
-      const raw = d.draft_saved;
-      let draftSaved: DraftSavedPayload | undefined;
+      const raw = d.exam_saved ?? d.draft_saved;
+      let examSaved: ExamSavedPayload | undefined;
       if (raw && typeof raw === "object" && raw !== null) {
         const o = raw as Record<string, unknown>;
-        if (typeof o.draft_id === "string") {
-          draftSaved = { draft_id: o.draft_id, name: typeof o.name === "string" ? o.name : "" };
+        const eid = typeof o.exam_id === "string" ? o.exam_id : typeof o.draft_id === "string" ? o.draft_id : "";
+        if (eid) {
+          examSaved = { exam_id: eid, name: typeof o.name === "string" ? o.name : "" };
         }
       }
-      return { message: msg, draftSaved };
+      return { message: msg, examSaved };
     }
   } catch {
     /* ignore */
@@ -279,7 +283,7 @@ async function fetchWithLog(path: string, init?: RequestInit): Promise<Response>
   if (!r.ok) {
     const parsed = await parseDetailFromResponse(r);
     logApiCall({ path, method, ok: false, status: r.status, ms, detail: parsed.message });
-    throw new ApiError(parsed.message, r.status, { draftSaved: parsed.draftSaved });
+    throw new ApiError(parsed.message, r.status, { examSaved: parsed.examSaved });
   }
   if (method !== "GET" || isHeavyApiPath(path)) {
     logApiCall({ path, method, ok: true, status: r.status, ms });
@@ -351,7 +355,7 @@ export async function downloadBankExportBundle(namespace: string): Promise<void>
   if (!r.ok) {
     const parsed = await parseDetailFromResponse(r);
     logApiCall({ path, method: "POST", ok: false, status: r.status, ms, detail: parsed.message });
-    throw new ApiError(parsed.message, r.status, { draftSaved: parsed.draftSaved });
+    throw new ApiError(parsed.message, r.status, { examSaved: parsed.examSaved });
   }
   logApiCall({ path, method: "POST", ok: true, status: r.status, ms });
   const cd = r.headers.get("Content-Disposition");
@@ -691,11 +695,14 @@ export async function apiAgentConfig(): Promise<AgentConfig> {
 
 export type AgentLlmSettingsResponse = {
   persist_available: boolean;
+  /** `global`：未打开项目，写入本机用户目录；`project`：已打开项目，写入项目内文件 */
+  persist_scope?: "global" | "project";
   main_model: string;
   fast_model: string;
   base_url: string;
   llm_configured: boolean;
   api_key_masked: string | null;
+  has_user_api_key_override?: boolean;
   has_project_api_key_override: boolean;
 };
 
@@ -721,6 +728,7 @@ export type AgentSafetyModeOption = {
 
 export type AgentSafetyModeResponse = {
   persist_available: boolean;
+  persist_scope?: "global" | "project";
   mode: string;
   options: AgentSafetyModeOption[];
 };
@@ -846,7 +854,7 @@ export async function apiAgentChatStream(
   });
   if (!r.ok) {
     const parsed = await parseDetailFromResponse(r);
-    throw new ApiError(parsed.message, r.status, { draftSaved: parsed.draftSaved });
+    throw new ApiError(parsed.message, r.status, { examSaved: parsed.examSaved });
   }
   const reader = r.body?.getReader();
   if (!reader) throw new Error(i18n.t("noResponseStream", { ns: "common" }));

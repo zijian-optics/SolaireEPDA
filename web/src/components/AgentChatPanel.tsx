@@ -13,7 +13,6 @@ import {
   ChevronRight,
   History,
   Loader2,
-  PanelRightClose,
   Paperclip,
   Send,
   Sparkles,
@@ -516,23 +515,24 @@ export function AgentChatPanel({
 
   return (
     <div className="flex h-full min-h-[320px] flex-col border-t border-slate-200 bg-white">
-      <div className="flex items-center justify-between border-b border-slate-100 px-2 py-1.5">
-        <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
-          <Sparkles className="h-3.5 w-3.5 text-violet-500" />
-          {t("title")}
-        </div>
-        <div className="flex items-center gap-1">
-          {onRequestCollapse && (
-            <button
-              type="button"
-              title={t("collapseSidebar")}
-              aria-label={t("collapseSidebar")}
-              onClick={() => onRequestCollapse()}
-              className="rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-            >
-              <PanelRightClose className="h-3.5 w-3.5" />
-            </button>
-          )}
+      <div className="relative shrink-0 border-b border-slate-100 px-2 py-1.5 pr-10">
+        {onRequestCollapse ? (
+          <button
+            type="button"
+            title={t("collapseSidebar")}
+            aria-label={t("collapseSidebar")}
+            onClick={() => onRequestCollapse()}
+            className="absolute right-1.5 top-1/2 z-10 -translate-y-1/2 rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+          >
+            <X className="h-4 w-4" strokeWidth={2} />
+          </button>
+        ) : null}
+        <div className="flex min-w-0 items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-slate-700">
+            <Sparkles className="h-3.5 w-3.5 shrink-0 text-violet-500" />
+            <span className="truncate">{t("title")}</span>
+          </div>
+          <div className="flex min-w-0 shrink items-center justify-end gap-1 overflow-x-auto">
           <div className="relative">
             <button
               type="button"
@@ -576,6 +576,7 @@ export function AgentChatPanel({
           >
             {t("newChat")}
           </button>
+          </div>
         </div>
       </div>
       {memoryOpen && (

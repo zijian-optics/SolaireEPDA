@@ -8,6 +8,32 @@ from pathlib import Path
 
 from solaire.agent_layer.llm.llm_overrides import load_overrides_raw
 from solaire.agent_layer.llm.openai_compat import OpenAICompatAdapter
+from solaire.agent_layer.llm.user_llm_overrides import load_user_overrides_raw
+
+
+def _merge_override_dict(
+    ov: dict[str, str],
+    *,
+    api_key: str | None,
+    base_url: str | None,
+    main_model: str,
+    fast_model: str,
+    max_tokens: int | None,
+) -> tuple[str | None, str | None, str, str, int | None]:
+    if ov.get("api_key"):
+        api_key = ov["api_key"]
+    if "base_url" in ov:
+        base_url = ov["base_url"] or None
+    if ov.get("main_model"):
+        main_model = ov["main_model"]
+    if ov.get("fast_model"):
+        fast_model = ov["fast_model"]
+    if ov.get("max_tokens") is not None and str(ov["max_tokens"]).strip() != "":
+        try:
+            max_tokens = int(ov["max_tokens"])
+        except (ValueError, TypeError):
+            pass
+    return api_key, base_url, main_model, fast_model, max_tokens
 
 
 @dataclass
@@ -28,21 +54,25 @@ def load_llm_settings(project_root: Path | None = None) -> LLMSettings:
     max_tokens_str = os.environ.get("SOLAIRE_LLM_MAX_TOKENS")
     max_tokens: int | None = int(max_tokens_str) if max_tokens_str and max_tokens_str.isdigit() else None
 
+    user_ov = load_user_overrides_raw()
+    api_key, base_url, main_model, fast_model, max_tokens = _merge_override_dict(
+        user_ov,
+        api_key=api_key,
+        base_url=base_url,
+        main_model=main_model,
+        fast_model=fast_model,
+        max_tokens=max_tokens,
+    )
     if project_root is not None:
-        ov = load_overrides_raw(project_root)
-        if ov.get("api_key"):
-            api_key = ov["api_key"]
-        if "base_url" in ov:
-            base_url = ov["base_url"] or None
-        if ov.get("main_model"):
-            main_model = ov["main_model"]
-        if ov.get("fast_model"):
-            fast_model = ov["fast_model"]
-        if ov.get("max_tokens") is not None and str(ov["max_tokens"]).strip() != "":
-            try:
-                max_tokens = int(ov["max_tokens"])
-            except (ValueError, TypeError):
-                pass
+        proj_ov = load_overrides_raw(project_root)
+        api_key, base_url, main_model, fast_model, max_tokens = _merge_override_dict(
+            proj_ov,
+            api_key=api_key,
+            base_url=base_url,
+            main_model=main_model,
+            fast_model=fast_model,
+            max_tokens=max_tokens,
+        )
 
     if max_tokens is None:
         max_tokens = 4096
