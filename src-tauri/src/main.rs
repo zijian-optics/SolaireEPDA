@@ -128,13 +128,6 @@ fn dev_backend_health_wait_secs() -> u64 {
     }
 }
 
-fn missing_icon_msg(lang: &str) -> &'static str {
-    match lang {
-        "en" => "Missing application icon",
-        _ => "缺少应用图标",
-    }
-}
-
 /// `/api/health` JSON 中用于识别本产品的字段值（与 FastAPI 一致）。
 const SOLAIRE_HEALTH_PRODUCT: &str = "sol_edu";
 
@@ -355,7 +348,6 @@ fn wait_for_health(
 
         match client.get(&url).send() {
             Ok(resp) => {
-                let status = resp.status().as_u16();
                 if resp.status().is_success() {
                     match resp.text() {
                         Ok(text) => {
@@ -582,8 +574,7 @@ fn main() {
                         state_th.backend_port.store(port, Ordering::SeqCst);
                         *state_th.sidecar.lock().unwrap() = child;
 
-                                                let main_window_exists = h.get_webview_window("main").is_some();
-                                                close_splash(&h);
+                        close_splash(&h);
 
                         let ready_payload = json!({ "port": port });
                         let _ = h.emit("backend-ready", ready_payload);
@@ -599,8 +590,8 @@ fn main() {
                             "../icons/tray-icon.png"
                         )) {
                             Ok(i) => i,
-                            Err(e) => {
-                                                                return;
+                            Err(_) => {
+                                return;
                             }
                         };
 
@@ -613,8 +604,8 @@ fn main() {
                             None::<&str>,
                         ) {
                             Ok(m) => m,
-                            Err(e) => {
-                                                                return;
+                            Err(_) => {
+                                return;
                             }
                         };
                         let quit = match MenuItem::with_id(
@@ -625,19 +616,19 @@ fn main() {
                             None::<&str>,
                         ) {
                             Ok(m) => m,
-                            Err(e) => {
-                                                                return;
+                            Err(_) => {
+                                return;
                             }
                         };
                         let menu = match Menu::with_items(&h, &[&show, &quit]) {
                             Ok(m) => m,
-                            Err(e) => {
-                                                                return;
+                            Err(_) => {
+                                return;
                             }
                         };
 
                         let app_handle = h.clone();
-                        if let Err(e) = TrayIconBuilder::with_id("tray")
+                        if let Err(_) = TrayIconBuilder::with_id("tray")
                             .icon(tray_icon)
                             .menu(&menu)
                             .tooltip("SolEdu")
@@ -698,7 +689,7 @@ fn main() {
                             json!({ "message": e.clone() }),
                         );
                         let h_close = handle_th.clone();
-                        let r_close = handle_th.run_on_main_thread(move || {
+                        let _ = handle_th.run_on_main_thread(move || {
                             close_splash(&h_close);
                         });
                                                 let h_dialog = handle_th.clone();
