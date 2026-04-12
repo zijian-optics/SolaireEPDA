@@ -33,6 +33,7 @@ import {
   apiAgentMemoryTopicList,
   apiAgentMemoryTopicPut,
   apiAgentSessionCancel,
+  apiAgentSessionDelete,
   apiAgentSessionGet,
   apiAgentSessionsList,
   apiAgentSkillsList,
@@ -140,6 +141,7 @@ export function AgentChatPanel({
   const [currentFocus, setCurrentFocus] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const historyShellRef = useRef<HTMLDivElement>(null);
   const assistantSegmentClosedRef = useRef(false);
   const streamAbortRef = useRef<AbortController | null>(null);
 
@@ -168,6 +170,25 @@ export function AgentChatPanel({
   useEffect(() => {
     void refreshSessionList();
   }, [refreshSessionList]);
+
+  useEffect(() => {
+    if (!sessionMenuOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSessionMenuOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [sessionMenuOpen]);
+
+  useEffect(() => {
+    if (!sessionMenuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const el = historyShellRef.current;
+      if (!el?.contains(e.target as Node)) setSessionMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [sessionMenuOpen]);
 
   const refreshMemoryIndex = useCallback(async () => {
     setMemoryBusy(true);
@@ -513,71 +534,128 @@ export function AgentChatPanel({
     setInput(s.suggested_user_input);
   }, []);
 
+  const removeHistorySession = useCallback(
+    async (id: string) => {
+      if (!window.confirm(t("confirmDeleteSession"))) return;
+      try {
+        await apiAgentSessionDelete(id);
+        await refreshSessionList();
+        if (sessionId === id) {
+          await newChat();
+        }
+      } catch (e) {
+        window.alert(`${t("sessionDeleteErr")}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    },
+    [t, refreshSessionList, sessionId, newChat],
+  );
+
   return (
-    <div className="flex h-full min-h-[320px] flex-col border-t border-slate-200 bg-white">
-      <div className="relative shrink-0 border-b border-slate-100 px-2 py-1.5 pr-10">
-        {onRequestCollapse ? (
-          <button
-            type="button"
-            title={t("collapseSidebar")}
-            aria-label={t("collapseSidebar")}
-            onClick={() => onRequestCollapse()}
-            className="absolute right-1.5 top-1/2 z-10 -translate-y-1/2 rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-          >
-            <X className="h-4 w-4" strokeWidth={2} />
-          </button>
-        ) : null}
-        <div className="flex min-w-0 items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-slate-700">
-            <Sparkles className="h-3.5 w-3.5 shrink-0 text-violet-500" />
-            <span className="truncate">{t("title")}</span>
-          </div>
-          <div className="flex min-w-0 shrink items-center justify-end gap-1 overflow-x-auto">
-          <div className="relative">
+    <div className="relative flex h-full min-h-[320px] flex-col border-t border-slate-200 bg-white">
+      <div ref={historyShellRef} className="relative shrink-0 border-b border-slate-100">
+        <div className="relative px-2 py-1.5 pr-10">
+          {onRequestCollapse ? (
             <button
               type="button"
-              onClick={() => setSessionMenuOpen((o) => !o)}
-              className="flex items-center gap-0.5 rounded px-2 py-0.5 text-[11px] text-slate-600 hover:bg-slate-100"
+              title={t("collapseSidebar")}
+              aria-label={t("collapseSidebar")}
+              onClick={() => onRequestCollapse()}
+              className="absolute right-1.5 top-1/2 z-10 -translate-y-1/2 rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
             >
-              <History className="h-3 w-3" />
-              {t("history")}
-              {sessionMenuOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              <X className="h-4 w-4" strokeWidth={2} />
             </button>
-            {sessionMenuOpen && (
-              <div className="absolute right-0 top-full z-20 mt-0.5 max-h-48 w-52 overflow-y-auto rounded border border-slate-200 bg-white py-1 text-[11px] shadow-md">
-                {sessionList.length === 0 && <div className="px-2 py-1 text-slate-400">{t("noHistory")}</div>}
-                {sessionList.map((s) => (
+          ) : null}
+          <div className="flex min-w-0 items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-slate-700">
+              <Sparkles className="h-3.5 w-3.5 shrink-0 text-violet-500" />
+              <span className="truncate">{t("title")}</span>
+            </div>
+            <div className="flex min-w-0 shrink items-center justify-end gap-1">
+              <div className="shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSessionMenuOpen((o) => {
+                      if (!o) void refreshSessionList();
+                      return !o;
+                    });
+                  }}
+                  className="flex items-center gap-0.5 rounded px-2 py-0.5 text-[11px] text-slate-600 hover:bg-slate-100"
+                >
+                  <History className="h-3 w-3" />
+                  {t("history")}
+                  {sessionMenuOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                </button>
+              </div>
+              <div className="flex min-w-0 shrink items-center justify-end gap-1 overflow-x-auto">
+                <button
+                  type="button"
+                  onClick={() => setMemoryOpen((o) => !o)}
+                  className="flex shrink-0 items-center gap-0.5 rounded px-2 py-0.5 text-[11px] text-slate-600 hover:bg-slate-100"
+                >
+                  <BookMarked className="h-3 w-3" />
+                  {t("longTermMemory")}
+                  {memoryOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void newChat()}
+                  className="shrink-0 rounded px-2 py-0.5 text-[11px] text-slate-500 hover:bg-slate-100"
+                >
+                  {t("newChat")}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        {sessionMenuOpen && (
+          <div
+            className="absolute left-0 right-0 top-full z-30 max-h-[min(52vh,21rem)] overflow-hidden border-b border-slate-200 bg-white text-[11px] shadow-md"
+            role="region"
+            aria-label={t("historyDialogTitle")}
+          >
+            <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-2 py-1.5">
+              <span className="font-semibold text-slate-700">{t("historyDialogTitle")}</span>
+              <button
+                type="button"
+                className="rounded p-0.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                aria-label={t("closeAria")}
+                title={t("closeAria")}
+                onClick={() => setSessionMenuOpen(false)}
+              >
+                <X className="h-3.5 w-3.5" strokeWidth={2} />
+              </button>
+            </div>
+            <ul className="max-h-[min(46vh,17.5rem)] overflow-y-auto py-0.5">
+              {sessionList.length === 0 && (
+                <li className="px-2 py-4 text-center text-slate-400">{t("noHistory")}</li>
+              )}
+              {sessionList.map((s) => (
+                <li key={s.session_id} className="flex items-stretch border-b border-slate-50 last:border-0">
                   <button
-                    key={s.session_id}
                     type="button"
-                    className="block w-full truncate px-2 py-1 text-left hover:bg-violet-50"
+                    className="min-w-0 flex-1 truncate px-2 py-2 text-left text-slate-800 hover:bg-violet-50 disabled:opacity-50"
                     title={s.title}
+                    disabled={busy}
                     onClick={() => void loadHistorySession(s.session_id)}
                   >
                     {s.title}
                   </button>
-                ))}
-              </div>
-            )}
+                  <button
+                    type="button"
+                    className="flex w-8 shrink-0 items-center justify-center text-[15px] leading-none text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                    title={t("removeSessionTitle")}
+                    aria-label={t("removeSessionTitle")}
+                    disabled={busy}
+                    onClick={() => void removeHistorySession(s.session_id)}
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
           </div>
-          <button
-            type="button"
-            onClick={() => setMemoryOpen((o) => !o)}
-            className="flex items-center gap-0.5 rounded px-2 py-0.5 text-[11px] text-slate-600 hover:bg-slate-100"
-          >
-            <BookMarked className="h-3 w-3" />
-            {t("longTermMemory")}
-            {memoryOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-          </button>
-          <button
-            type="button"
-            onClick={() => void newChat()}
-            className="rounded px-2 py-0.5 text-[11px] text-slate-500 hover:bg-slate-100"
-          >
-            {t("newChat")}
-          </button>
-          </div>
-        </div>
+        )}
       </div>
       {memoryOpen && (
         <div className="border-b border-slate-100 px-2 py-2 text-[11px] text-slate-700">

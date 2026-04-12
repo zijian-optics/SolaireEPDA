@@ -102,6 +102,7 @@ export function GraphNodePanel({
   // Notes (separate from legacy description; persisted as `notes` on node)
   const [notesList, setNotesList] = useState<GraphNodeNoteRow[]>([]);
   const [noteComposerOpen, setNoteComposerOpen] = useState(false);
+  const [noteEditingId, setNoteEditingId] = useState<string | null>(null);
   const [noteDraftBody, setNoteDraftBody] = useState("");
   const noteTextAreaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -130,6 +131,7 @@ export function GraphNodePanel({
       })),
     );
     setNoteComposerOpen(false);
+    setNoteEditingId(null);
     setNoteDraftBody("");
   }, [selectedNode]);
 
@@ -914,6 +916,7 @@ export function GraphNodePanel({
                 className="w-full rounded-md bg-slate-900 py-2 text-sm font-medium text-white disabled:opacity-50"
                 disabled={busy}
                 onClick={() => {
+                  setNoteEditingId(null);
                   setNoteDraftBody("");
                   setNoteComposerOpen(true);
                 }}
@@ -922,9 +925,12 @@ export function GraphNodePanel({
               </button>
             ) : (
               <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-2">
+                {noteEditingId ? (
+                  <p className="text-[11px] font-medium text-slate-600">{t("editNoteBanner")}</p>
+                ) : null}
                 <LatexRichTextField
                   textAreaRef={noteTextAreaRef}
-                  syncTextAreaId={`graph-node-note-${selectedNode.id}`}
+                  syncTextAreaId={`graph-node-note-${selectedNode.id}-${noteEditingId ?? "new"}`}
                   minRows={4}
                   value={noteDraftBody}
                   onChange={setNoteDraftBody}
@@ -936,9 +942,16 @@ export function GraphNodePanel({
                     className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
                     disabled={busy}
                     onClick={() => void (async () => {
-                      const ok = await persistNotes([...notesList, { id: crypto.randomUUID(), body: noteDraftBody }]);
+                      const next =
+                        noteEditingId != null
+                          ? notesList.map((n) =>
+                              n.id === noteEditingId ? { ...n, body: noteDraftBody } : n,
+                            )
+                          : [...notesList, { id: crypto.randomUUID(), body: noteDraftBody }];
+                      const ok = await persistNotes(next);
                       if (ok) {
                         setNoteComposerOpen(false);
+                        setNoteEditingId(null);
                         setNoteDraftBody("");
                       }
                     })()}
@@ -951,6 +964,7 @@ export function GraphNodePanel({
                     disabled={busy}
                     onClick={() => {
                       setNoteComposerOpen(false);
+                      setNoteEditingId(null);
                       setNoteDraftBody("");
                     }}
                   >
@@ -963,18 +977,34 @@ export function GraphNodePanel({
               {notesList.map((note) => (
                 <li
                   key={note.id}
-                  className="relative rounded-md border border-slate-200 bg-white p-2 pr-8 text-sm"
+                  className="relative rounded-md border border-slate-200 bg-white p-2 pr-[4.25rem] text-sm"
                 >
-                  <button
-                    type="button"
-                    className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded text-[14px] leading-none text-slate-500 hover:bg-slate-100 hover:text-red-600"
-                    title={t("removeNoteTitle")}
-                    disabled={busy}
-                    onClick={() => void persistNotes(notesList.filter((n) => n.id !== note.id))}
-                    aria-label={t("removeNoteTitle")}
-                  >
-                    ×
-                  </button>
+                  <div className="absolute right-1 top-1 flex items-center gap-0.5">
+                    <button
+                      type="button"
+                      className="rounded px-1.5 py-0.5 text-[11px] font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                      title={t("editNoteTitle")}
+                      disabled={busy}
+                      onClick={() => {
+                        setNoteEditingId(note.id);
+                        setNoteDraftBody(note.body);
+                        setNoteComposerOpen(true);
+                      }}
+                      aria-label={t("editNoteTitle")}
+                    >
+                      {t("editNote")}
+                    </button>
+                    <button
+                      type="button"
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-[14px] leading-none text-slate-500 hover:bg-slate-100 hover:text-red-600"
+                      title={t("removeNoteTitle")}
+                      disabled={busy}
+                      onClick={() => void persistNotes(notesList.filter((n) => n.id !== note.id))}
+                      aria-label={t("removeNoteTitle")}
+                    >
+                      ×
+                    </button>
+                  </div>
                   <ContentWithPrimeBrush text={note.body} className="text-slate-900" />
                 </li>
               ))}

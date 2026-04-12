@@ -868,6 +868,10 @@ export async function apiAgentSessionCancel(sessionId: string): Promise<{ ok: bo
   return apiPost<{ ok: boolean }>(`/api/agent/sessions/${encodeURIComponent(sessionId)}/cancel`, {});
 }
 
+export async function apiAgentSessionDelete(sessionId: string): Promise<{ ok: boolean }> {
+  return apiDelete<{ ok: boolean }>(`/api/agent/sessions/${encodeURIComponent(sessionId)}`);
+}
+
 export type AgentSkillInfo = {
   id: string;
   label: string;

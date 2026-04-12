@@ -432,3 +432,35 @@
 **验证命令**：`cd web; npx tsc --noEmit`（通过）。
 
 **结果要点**：离开图谱或取消选中节点时不再因 hooks 数量不一致而崩溃。
+
+## [2026-04-13] UI | 图谱节点笔记列表支持编辑
+
+**改动摘要**：`GraphNodePanel` 笔记 Tab 每条笔记在「×」旁增加「编辑」；`noteEditingId` 区分新建与编辑；保存时对列表 `map` 更新对应 `body` 并 `persistNotes`；撰写区展示简短说明文案；`LatexRichTextField` 的 `syncTextAreaId` 含编辑 id 以便切换笔记时编辑器同步。`zh`/`en` graph.json 增加 `editNote`、`editNoteTitle`、`editNoteBanner`。
+
+**验证命令**：`cd web; npx tsc --noEmit`（通过）。
+
+**结果要点**：可就地打开编辑器修改已有笔记并保存到节点。
+
+## [2026-04-13] Bug 修复 | 助手侧栏「历史」下拉被裁剪不可见
+
+**改动摘要**：`AgentChatPanel` 顶栏右侧将「历史」与含 `overflow-x-auto` 的按钮组拆成兄弟节点；`absolute` 会话列表不再处于横向滚动容器内，避免 `overflow-x` 非 `visible` 时纵向溢出被裁切。下拉 `z-index` 调至 `z-30`。
+
+**验证命令**：`cd web; npx tsc --noEmit`（通过）。
+
+**结果要点**：overlay 模式下点击「历史」可正常看到会话列表。
+
+## [2026-04-13] UI | 助手历史对话居中弹层与删除
+
+**改动摘要**：`AgentChatPanel` 将「历史」由按钮下绝对定位改为在面板根节点 `relative` 内全屏半透明遮罩 + 居中卡片；标题栏含关闭；列表每行左侧打开会话、右侧「×」调用 `DELETE /api/agent/sessions/{id}`（新增 `apiAgentSessionDelete`）；删当前会话时走 `newChat`；打开历史时刷新列表；`Escape` 关闭。`zh`/`en` agent.json 增加 `historyDialogTitle`、`removeSessionTitle`、`confirmDeleteSession`、`sessionDeleteErr`。
+
+**验证命令**：`cd web; npx tsc --noEmit`（通过）。
+
+**结果要点**：历史列表在智能助手区域内居中显示，不易被侧栏裁切；可删除单条对话。
+
+## [2026-04-13] UI | 助手历史改为顶栏下锚定下拉
+
+**改动摘要**：移除全屏居中遮罩与居中卡片；历史面板改为紧贴顶栏容器下缘（`absolute left-0 right-0 top-full`），与 Cursor 类「顶栏下展开」一致；`historyShellRef` + `document` `mousedown` 在区域外关闭；保留标题行、× 关闭、行内删除与 `Escape`。
+
+**验证命令**：`cd web; npx tsc --noEmit`（通过）。
+
+**结果要点**：下拉从「智能助手 / 历史…」那一行正下方展开，宽度与侧栏内容区一致，仍叠在聊天区之上（`z-30`）。
