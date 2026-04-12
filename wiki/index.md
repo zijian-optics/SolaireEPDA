@@ -11,6 +11,7 @@
 
 - [开发环境与验证命令](modules/dev-environment.md) — Pixi 初始化、`dev` / `test` / `build-desktop` 等常用命令。
 - [桌面启动与握手](modules/desktop-startup.md) — 嵌入式 Python 与 `tauri dev` 下的端口、健康检查与前端事件。
+- [考试目录与接口（exams）](modules/exams-storage.md) — `exams/<标签段>/<学科段>/` 落盘与 `/api/exams` 硬切换说明。
 
 ## 对外开发者文档（仓库 `docs/`）
 

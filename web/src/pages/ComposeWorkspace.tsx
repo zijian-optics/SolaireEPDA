@@ -16,25 +16,15 @@ import {
 import { QUESTION_TYPE_OPTIONS } from "../lib/questionTypes";
 import { cn } from "../lib/utils";
 import { isTauriShell } from "../lib/tauriEnv";
-import type {
-  DraftDoc,
-  DraftSummary,
-  PastExamSummary,
-  QuestionRow,
-  RightSelection,
-  TemplateRow,
-} from "../types/compose";
+import type { ExamDoc, ExamWorkspaceSummary, QuestionRow, RightSelection, TemplateRow } from "../types/compose";
 
 type GraphBindingNode = { id: string; canonical_name: string; node_kind?: string };
-
-type ComposeSubView = "search" | "config" | "preview";
 
 export function ComposeWorkspace({ onError }: { onError: (s: string | null) => void }) {
   const { t } = useTranslation(["compose", "common", "lib"]);
   const { setPageContext } = useAgentContext();
   const { setToolBar, clearToolBar } = useToolBar();
-  const [composeSubView, setComposeSubView] = useState<ComposeSubView>("config");
-  /** 内嵌预览所展示的试卷目录 id（与 `/api/results/{id}` 一致） */
+  /** 用于右侧 PDF 的考试目录标识（``标签段/学科段``），与 ``GET /api/exams/{path}/pdf-file`` 一致 */
   const [pdfExamId, setPdfExamId] = useState<string | null>(null);
   const [pdfVariant, setPdfVariant] = useState<"student" | "teacher">("student");
 
@@ -59,16 +49,13 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
   const [scoreBySection, setScoreBySection] = useState<Record<string, number | undefined>>({});
   const [scoreOverrides, setScoreOverrides] = useState<Record<string, Record<string, number>>>({});
   const [perQuestionMode, setPerQuestionMode] = useState<Record<string, boolean>>({});
-  const [currentDraftId, setCurrentDraftId] = useState<string | null>(null);
-  /** 当前编辑内容是否来自 ``exams/<id>/`` 考试工作区（导出成功时更新状态而非删除目录） */
-  const [isWorkspaceExam, setIsWorkspaceExam] = useState(false);
-  /** 导出失败后服务端自动保存的草稿 id；下次导出成功时一并删除 */
-  const [exportFailureDraftIds, setExportFailureDraftIds] = useState<string[]>([]);
+  const [currentExamId, setCurrentExamId] = useState<string | null>(null);
+  /** 导出失败后服务端自动保存的考试工作区 id；下次导出成功时一并删除 */
+  const [exportFailureExamIds, setExportFailureExamIds] = useState<string[]>([]);
   const [draftName, setDraftName] = useState("");
-  const [draftSummaries, setDraftSummaries] = useState<DraftSummary[]>([]);
-  const [pastExams, setPastExams] = useState<PastExamSummary[]>([]);
+  const [examSummaries, setExamSummaries] = useState<ExamWorkspaceSummary[]>([]);
   const [conflictTargetId, setConflictTargetId] = useState<string | null>(null);
-  /** `result/` 下目录名，与 `/api/results` 的 exam_id 一致，用于内联打开学生版 PDF */
+  /** 最近一次导出成功后的考试目录标识（用于在未打开侧栏项时仍可从右侧打开 PDF） */
   const [lastExportedExamId, setLastExportedExamId] = useState<string | null>(null);
   const [viewPdfBusy, setViewPdfBusy] = useState(false);
   /** 校验生成的临时预览会话 id（不入历史试卷） */
@@ -80,7 +67,10 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
   const [dlgSubject, setDlgSubject] = useState("");
   const [dlgTemplatePath, setDlgTemplatePath] = useState("");
   const [dlgMode, setDlgMode] = useState<"scratch" | "history">("scratch");
-  const [dlgHistoryExamId, setDlgHistoryExamId] = useState("");
+  /** 从历史复制时的源考试目录标识（须为已导出试卷的 ``exam_id``） */
+  const [dlgHistorySourceExamId, setDlgHistorySourceExamId] = useState("");
+  /** 从历史复制时的新考试标签（学科沿用源导出） */
+  const [dlgHistoryExportLabel, setDlgHistoryExportLabel] = useState("");
 
   const openViewPdfExternally = useCallback(async () => {
     const id = pdfExamId ?? lastExportedExamId;
@@ -90,7 +80,7 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
     if (isTauriShell()) {
       setViewPdfBusy(true);
       try {
-        await apiPost<{ ok?: boolean }>(`/api/results/${encodeURIComponent(id)}/open-pdf`, {
+        await apiPost<{ ok?: boolean }>(`/api/exams/${encodeURIComponent(id)}/open-pdf`, {
           variant: pdfVariant,
         });
       } catch (e) {
@@ -100,7 +90,7 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
         setViewPdfBusy(false);
       }
     } else {
-      const url = `${window.location.origin}/api/results/${encodeURIComponent(id)}/pdf-file?variant=${pdfVariant}`;
+      const url = `${window.location.origin}/api/exams/${encodeURIComponent(id)}/pdf-file?variant=${pdfVariant}`;
       window.open(url, "_blank", "noopener,noreferrer");
     }
   }, [pdfExamId, lastExportedExamId, pdfVariant]);
@@ -250,22 +240,18 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
     });
   }, [selectedTpl]);
 
-  const refreshDraftsExams = useCallback(async () => {
+  const refreshExamSummaries = useCallback(async () => {
     try {
-      const [d, e] = await Promise.all([
-        apiGet<{ drafts: DraftSummary[] }>("/api/exam/drafts"),
-        apiGet<{ exams: PastExamSummary[] }>("/api/results"),
-      ]);
-      setDraftSummaries(d.drafts ?? []);
-      setPastExams(e.exams ?? []);
+      const r = await apiGet<{ exams: ExamWorkspaceSummary[] }>("/api/exams");
+      setExamSummaries(r.exams ?? []);
     } catch {
       /* ignore */
     }
   }, []);
 
   useEffect(() => {
-    void refreshDraftsExams();
-  }, [refreshDraftsExams]);
+    void refreshExamSummaries();
+  }, [refreshExamSummaries]);
 
   useEffect(() => {
     void apiGet<{ index: Record<string, GraphBindingNode[]> }>("/api/graph/question-bindings-index")
@@ -335,6 +321,20 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
     return m;
   }, [questions]);
 
+  const dlgSelectedPastExam = useMemo(
+    () => examSummaries.find((ex) => ex.exam_id === dlgHistorySourceExamId),
+    [examSummaries, dlgHistorySourceExamId],
+  );
+
+  const draftExamRows = useMemo(
+    () => examSummaries.filter((e) => (e.status ?? "draft") !== "exported"),
+    [examSummaries],
+  );
+  const exportedExamRows = useMemo(
+    () => examSummaries.filter((e) => e.status === "exported"),
+    [examSummaries],
+  );
+
   const buildSelectedItemsForApi = useCallback(() => {
     if (!selectedTpl) {
       return [];
@@ -355,7 +355,7 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
     });
   }, [selectedTpl, bySection, scoreBySection, scoreOverrides]);
 
-  const applyDraftDocument = useCallback((doc: DraftDoc) => {
+  const applyExamDocument = useCallback((doc: ExamDoc) => {
     setPreviewPdfId(null);
     setPreviewWarnings([]);
     setExportLabel(String(doc.export_label ?? ""));
@@ -365,9 +365,8 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
       setTemplatePath(tp);
     }
     setTemplateRef(String(doc.template_ref ?? ""));
-    const did = String(doc.exam_id ?? doc.draft_id ?? "");
-    setCurrentDraftId(did || null);
-    setIsWorkspaceExam(Boolean(doc.exam_id));
+    const eid = String(doc.exam_id ?? "").trim();
+    setCurrentExamId(eid || null);
     setDraftName(String(doc.name ?? ""));
     const items = doc.selected_items ?? [];
     const by: Record<string, string[]> = {};
@@ -483,48 +482,75 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
   }
 
   async function confirmNewPaperDialog() {
+    onError(null);
+    if (dlgMode === "history") {
+      if (!dlgHistorySourceExamId.trim()) {
+        onError(t("compose:errors.pickHistoryExam"));
+        return;
+      }
+      if (!dlgHistoryExportLabel.trim()) {
+        onError(t("compose:errors.historyExamLabelRequired"));
+        return;
+      }
+      setBusy(true);
+      try {
+        const r = await apiPost<{ exam: ExamDoc }>(
+          `/api/exams/from-exam/${encodeURIComponent(dlgHistorySourceExamId.trim())}`,
+          { export_label: dlgHistoryExportLabel.trim() },
+        );
+        applyExamDocument(r.exam);
+        setPdfExamId(null);
+        setNewPaperDialogOpen(false);
+        const eid = String(r.exam.exam_id ?? "").trim();
+        setMsg(
+          eid
+            ? t("compose:messages.draftLoadedWithPath", { path: `exams/${eid.replace(/\\/g, "/")}` })
+            : t("compose:messages.draftLoaded"),
+        );
+        void refreshExamSummaries();
+      } catch (e) {
+        onError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
     const tpl = templates.find((x) => x.path === dlgTemplatePath);
     if (!tpl) {
       onError(t("compose:errors.selectTemplateForDraft"));
       return;
     }
-    onError(null);
+    if (!dlgExportLabel.trim() || !dlgSubject.trim()) {
+      onError(t("compose:errors.examLabelAndSubjectRequired"));
+      return;
+    }
     setBusy(true);
     try {
-      if (dlgMode === "history") {
-        if (!dlgHistoryExamId.trim()) {
-          onError(t("compose:errors.pickHistoryExam"));
-          return;
-        }
-        const r = await apiPost<{ draft: DraftDoc }>(
-          `/api/exam/drafts/from-result/${encodeURIComponent(dlgHistoryExamId.trim())}`,
-          {},
-        );
-        applyDraftDocument(r.draft);
-        setComposeSubView("config");
-        setNewPaperDialogOpen(false);
-        setMsg(t("compose:messages.draftLoaded"));
-      } else {
-        const selected_items = tpl.sections.map((s) => ({
-          section_id: s.section_id,
-          question_ids: [] as string[],
-          score_per_item: null as number | null,
-          score_overrides: null as Record<string, number> | null,
-        }));
-        const r = await apiPost<{ draft: DraftDoc }>("/api/exam/drafts", {
-          name: undefined,
-          export_label: dlgExportLabel.trim(),
-          subject: dlgSubject.trim(),
-          template_ref: tpl.id,
-          template_path: tpl.path,
-          selected_items,
-        });
-        applyDraftDocument(r.draft);
-        setComposeSubView("config");
-        setNewPaperDialogOpen(false);
-        setMsg(t("compose:messages.draftSaved"));
-      }
-      void refreshDraftsExams();
+      const selected_items = tpl.sections.map((s) => ({
+        section_id: s.section_id,
+        question_ids: [] as string[],
+        score_per_item: null as number | null,
+        score_overrides: null as Record<string, number> | null,
+      }));
+      const r = await apiPost<{ exam: ExamDoc }>("/api/exams", {
+        name: undefined,
+        export_label: dlgExportLabel.trim(),
+        subject: dlgSubject.trim(),
+        template_ref: tpl.id,
+        template_path: tpl.path,
+        selected_items,
+      });
+      applyExamDocument(r.exam);
+      setPdfExamId(null);
+      setNewPaperDialogOpen(false);
+      const eid = String(r.exam.exam_id ?? "").trim();
+      setMsg(
+        eid
+          ? t("compose:messages.draftSavedWithPath", { path: `exams/${eid.replace(/\\/g, "/")}` })
+          : t("compose:messages.draftSaved"),
+      );
+      void refreshExamSummaries();
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -534,8 +560,8 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
 
   async function runExport(
     overwriteExisting: string | null,
-    draftIdToDeleteAfterSuccess: string | null,
-    failureDraftIdsToDeleteAfterSuccess: string[],
+    examIdToDeleteAfterSuccess: string | null,
+    failureExamIdsToDeleteAfterSuccess: string[],
     examWorkspaceIdForExport: string | null,
   ) {
     if (!selectedTpl) {
@@ -545,14 +571,14 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
     const idsToDelete = [
       ...new Set(
         [
-          ...(draftIdToDeleteAfterSuccess ? [draftIdToDeleteAfterSuccess] : []),
-          ...failureDraftIdsToDeleteAfterSuccess,
+          ...(examIdToDeleteAfterSuccess ? [examIdToDeleteAfterSuccess] : []),
+          ...failureExamIdsToDeleteAfterSuccess,
         ].filter(Boolean),
       ),
     ];
     const res = await apiPost<{
       ok: boolean;
-      result_dir: string;
+      exam_dir: string;
       student_pdf: string;
       teacher_pdf: string;
     }>("/api/exam/export", {
@@ -564,24 +590,28 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
       selected_items,
       overwrite_existing: overwriteExisting ?? undefined,
       ...(examWorkspaceIdForExport ? { exam_workspace_id: examWorkspaceIdForExport } : {}),
-      ...(idsToDelete.length ? { draft_ids_to_delete_on_success: idsToDelete } : {}),
+      ...(idsToDelete.length ? { exam_ids_to_delete_on_success: idsToDelete } : {}),
     });
-    const dirNorm = res.result_dir.replace(/\\/g, "/").replace(/^\/+/, "");
-    const segments = dirNorm.split("/").filter(Boolean);
-    const examFolderId = segments.length ? segments[segments.length - 1]! : null;
-    setLastExportedExamId(examFolderId);
+    const dirNorm = res.exam_dir.replace(/\\/g, "/").replace(/^\/+/, "");
+    const m = /^exams\/(.+)$/.exec(dirNorm);
+    const examPathId = m ? m[1]! : null;
+    setLastExportedExamId(examPathId);
+    if (examPathId) {
+      setPdfExamId(examPathId);
+      setPdfVariant("student");
+    }
     let successText = t("compose:messages.exportOk", {
       student: res.student_pdf,
       teacher: res.teacher_pdf,
-      dir: res.result_dir,
+      dir: res.exam_dir,
     });
     if (idsToDelete.length) {
-      setCurrentDraftId((cur) => (cur && idsToDelete.includes(cur) ? null : cur));
-      setExportFailureDraftIds([]);
+      setCurrentExamId((cur) => (cur && idsToDelete.includes(cur) ? null : cur));
+      setExportFailureExamIds([]);
       successText += t("compose:messages.draftRemovedAfterExport");
     }
     setMsg(successText);
-    void refreshDraftsExams();
+    void refreshExamSummaries();
   }
 
   async function exportExam() {
@@ -604,20 +634,20 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
         setBusy(false);
         return;
       }
-      const draftIdSnapshot = currentDraftId;
-      const wsSnapshot = isWorkspaceExam;
+      const examIdSnapshot = currentExamId;
+      const hasWorkspace = Boolean(examIdSnapshot);
       await runExport(
         null,
-        wsSnapshot ? null : draftIdSnapshot,
-        exportFailureDraftIds,
-        wsSnapshot ? draftIdSnapshot : null,
+        hasWorkspace ? null : examIdSnapshot,
+        exportFailureExamIds,
+        hasWorkspace ? examIdSnapshot : null,
       );
     } catch (e) {
-      if (e instanceof ApiError && e.draftSaved) {
-        setExportFailureDraftIds((prev) => [...new Set([...prev, e.draftSaved!.draft_id])]);
-        void refreshDraftsExams();
+      if (e instanceof ApiError && e.examSaved) {
+        setExportFailureExamIds((prev) => [...new Set([...prev, e.examSaved!.exam_id])]);
+        void refreshExamSummaries();
         onError(
-          t("compose:errors.exportWithDraftSaved", { name: e.draftSaved.name, detail: e.message }),
+          t("compose:errors.exportWithDraftSaved", { name: e.examSaved.name, detail: e.message }),
         );
       } else {
         onError(e instanceof Error ? e.message : String(e));
@@ -632,25 +662,25 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
       return;
     }
     const overwriteId = conflictTargetId;
-    const draftIdSnapshot = currentDraftId;
+    const examIdSnapshot = currentExamId;
     setConflictTargetId(null);
     onError(null);
     setBusy(true);
     setMsg(null);
     try {
-      const wsSnapshot = isWorkspaceExam;
+      const hasWorkspace = Boolean(examIdSnapshot);
       await runExport(
         overwriteId,
-        wsSnapshot ? null : draftIdSnapshot,
-        exportFailureDraftIds,
-        wsSnapshot ? draftIdSnapshot : null,
+        hasWorkspace ? null : examIdSnapshot,
+        exportFailureExamIds,
+        hasWorkspace ? examIdSnapshot : null,
       );
     } catch (e) {
-      if (e instanceof ApiError && e.draftSaved) {
-        setExportFailureDraftIds((prev) => [...new Set([...prev, e.draftSaved!.draft_id])]);
-        void refreshDraftsExams();
+      if (e instanceof ApiError && e.examSaved) {
+        setExportFailureExamIds((prev) => [...new Set([...prev, e.examSaved!.exam_id])]);
+        void refreshExamSummaries();
         onError(
-          t("compose:errors.exportWithDraftSaved", { name: e.draftSaved.name, detail: e.message }),
+          t("compose:errors.exportWithDraftSaved", { name: e.examSaved.name, detail: e.message }),
         );
       } else {
         onError(e instanceof Error ? e.message : String(e));
@@ -660,7 +690,7 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
     }
   }
 
-  async function saveDraftToServer() {
+  const saveDraftToServer = useCallback(async () => {
     if (!selectedTpl || !templatePath.trim()) {
       onError(t("compose:errors.selectTemplateForDraft"));
       return;
@@ -677,18 +707,64 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
         template_path: templatePath,
         selected_items,
       };
-      if (currentDraftId) {
-        const r = await apiPut<{ draft: DraftDoc }>(`/api/exam/drafts/${encodeURIComponent(currentDraftId)}`, {
+      if (currentExamId) {
+        const r = await apiPut<{ exam: ExamDoc }>(`/api/exams/${encodeURIComponent(currentExamId)}`, {
           ...body,
         });
-        applyDraftDocument(r.draft);
+        applyExamDocument(r.exam);
         setMsg(t("compose:messages.draftUpdated"));
       } else {
-        const r = await apiPost<{ draft: DraftDoc }>("/api/exam/drafts", body);
-        applyDraftDocument(r.draft);
-        setMsg(t("compose:messages.draftSaved"));
+        const r = await apiPost<{ exam: ExamDoc }>("/api/exams", body);
+        applyExamDocument(r.exam);
+        const eid = String(r.exam.exam_id ?? "").trim();
+        setMsg(
+          eid
+            ? t("compose:messages.draftSavedWithPath", { path: `exams/${eid.replace(/\\/g, "/")}` })
+            : t("compose:messages.draftSaved"),
+        );
       }
-      void refreshDraftsExams();
+      void refreshExamSummaries();
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [
+    applyExamDocument,
+    buildSelectedItemsForApi,
+    currentExamId,
+    draftName,
+    exportLabel,
+    onError,
+    refreshExamSummaries,
+    selectedTpl,
+    subject,
+    t,
+    templatePath,
+    templateRef,
+  ]);
+
+  async function deleteExamById(examId: string, opts?: { exported?: boolean }) {
+    const ok = opts?.exported
+      ? window.confirm(t("compose:messages.confirmDeleteExportedExam"))
+      : window.confirm(t("compose:messages.confirmDeleteDraft"));
+    if (!ok) {
+      return;
+    }
+    onError(null);
+    setBusy(true);
+    try {
+      await apiDelete<{ ok: boolean }>(`/api/exams/${encodeURIComponent(examId)}`);
+      if (currentExamId === examId) {
+        setCurrentExamId(null);
+        setDraftName("");
+        setPdfExamId(null);
+        setPreviewPdfId(null);
+      }
+      setLastExportedExamId((prev) => (prev === examId ? null : prev));
+      setPdfExamId((prev) => (prev === examId ? null : prev));
+      setMsg(opts?.exported ? t("compose:messages.exportedExamDeleted") : t("compose:messages.draftDeleted"));
+      void refreshExamSummaries();
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -696,41 +772,15 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
     }
   }
 
-  async function deleteCurrentDraft() {
-    if (!currentDraftId) {
-      return;
-    }
-    if (!window.confirm(t("compose:messages.confirmDeleteDraft"))) {
-      return;
-    }
+  async function loadExamById(examId: string, pdfForViewer: string | null) {
     onError(null);
     setBusy(true);
     try {
-      const id = currentDraftId;
-      await apiDelete<{ ok: boolean }>(`/api/exam/drafts/${encodeURIComponent(id)}`);
-      setCurrentDraftId(null);
-      setIsWorkspaceExam(false);
-      setDraftName("");
-      setMsg(t("compose:messages.draftDeleted"));
-      void refreshDraftsExams();
-    } catch (e) {
-      onError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function loadDraftById(id: string) {
-    onError(null);
-    setBusy(true);
-    try {
-      const r = await apiGet<{ draft: DraftDoc; workspace?: boolean }>(
-        `/api/exam/drafts/${encodeURIComponent(id)}`,
-      );
-      applyDraftDocument(r.draft);
-      if (r.workspace !== undefined) {
-        setIsWorkspaceExam(r.workspace);
-      }
+      const r = await apiGet<{ exam: ExamDoc }>(`/api/exams/${encodeURIComponent(examId)}`);
+      applyExamDocument(r.exam);
+      setPreviewPdfId(null);
+      setPdfExamId(pdfForViewer);
+      setPdfVariant("student");
       setMsg(t("compose:messages.draftLoaded"));
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
@@ -738,13 +788,6 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
       setBusy(false);
     }
   }
-
-  useEffect(() => {
-    if (lastExportedExamId) {
-      setPdfExamId(lastExportedExamId);
-      setPdfVariant("student");
-    }
-  }, [lastExportedExamId]);
 
   useEffect(() => {
     const left: ReactNode = (
@@ -758,48 +801,20 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
             setDlgSubject(subject.trim());
             setDlgTemplatePath(templatePath || templates[0]?.path || "");
             setDlgMode("scratch");
-            setDlgHistoryExamId(pastExams[0]?.exam_id ?? "");
+            setDlgHistorySourceExamId(exportedExamRows[0]?.exam_id ?? "");
+            setDlgHistoryExportLabel("");
             setNewPaperDialogOpen(true);
-            setComposeSubView("config");
           }}
         >
           {t("compose:newPaper")}
         </button>
         <button
           type="button"
-          className={cn(
-            "rounded-md border px-2.5 py-1 text-xs font-medium",
-            composeSubView === "search"
-              ? "border-slate-900 bg-slate-900 text-white"
-              : "border-slate-300 bg-white text-slate-800 hover:bg-slate-50",
-          )}
-          onClick={() => setComposeSubView("search")}
+          className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+          disabled={busy || !selectedTpl || !templatePath.trim()}
+          onClick={() => void saveDraftToServer()}
         >
-          {t("compose:subViewSearch")}
-        </button>
-        <button
-          type="button"
-          className={cn(
-            "rounded-md border px-2.5 py-1 text-xs font-medium",
-            composeSubView === "config"
-              ? "border-slate-900 bg-slate-900 text-white"
-              : "border-slate-300 bg-white text-slate-800 hover:bg-slate-50",
-          )}
-          onClick={() => setComposeSubView("config")}
-        >
-          {t("compose:subViewConfig")}
-        </button>
-        <button
-          type="button"
-          className={cn(
-            "rounded-md border px-2.5 py-1 text-xs font-medium",
-            composeSubView === "preview"
-              ? "border-slate-900 bg-slate-900 text-white"
-              : "border-slate-300 bg-white text-slate-800 hover:bg-slate-50",
-          )}
-          onClick={() => setComposeSubView("preview")}
-        >
-          {t("compose:subViewExamPreview")}
+          {t("compose:saveChanges")}
         </button>
       </div>
     );
@@ -830,25 +845,28 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
     busy,
     selectedTpl,
     countsOk,
-    composeSubView,
+    templatePath,
+    saveDraftToServer,
     setToolBar,
     clearToolBar,
     exportLabel,
     subject,
-    templatePath,
     templates,
-    pastExams,
+    exportedExamRows,
   ]);
 
   const pdfApiPath =
     pdfExamId != null
-      ? `/api/results/${encodeURIComponent(pdfExamId)}/pdf-file?variant=${pdfVariant}`
+      ? `/api/exams/${encodeURIComponent(pdfExamId)}/pdf-file?variant=${pdfVariant}`
       : null;
 
-  const configPreviewPdfPath =
-    previewPdfId != null && composeSubView === "config"
+  const previewSessionPdfPath =
+    previewPdfId != null
       ? `/api/exam/preview-pdf/${encodeURIComponent(previewPdfId)}/file?variant=${pdfVariant}`
       : null;
+
+  /** 右侧 PDF：优先显示校验预览；否则显示所选历史导出试卷 */
+  const composeRightPdfPath = previewSessionPdfPath ?? pdfApiPath;
 
   return (
     <div className="relative flex h-full min-h-0 flex-col">
@@ -885,22 +903,42 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
               </label>
             </div>
             {dlgMode === "history" ? (
-              <label className="mt-4 block text-xs font-medium text-slate-600">
-                {t("compose:newPaperPickHistory")}
-                <select
-                  className="mt-1 block w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-                  value={dlgHistoryExamId}
-                  onChange={(e) => setDlgHistoryExamId(e.target.value)}
-                >
-                  <option value="">{t("compose:newPaperPickHistoryPlaceholder")}</option>
-                  {pastExams.map((ex) => (
-                    <option key={ex.exam_id} value={ex.exam_id}>
-                      {ex.export_label || ex.exam_title || ex.exam_id}
-                      {ex.subject ? ` · ${ex.subject}` : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <>
+                <label className="mt-4 block text-xs font-medium text-slate-600">
+                  {t("compose:newPaperPickHistory")}
+                  <select
+                    className="mt-1 block w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                    value={dlgHistorySourceExamId}
+                    onChange={(e) => setDlgHistorySourceExamId(e.target.value)}
+                  >
+                    <option value="">{t("compose:newPaperPickHistoryPlaceholder")}</option>
+                    {exportedExamRows.map((ex) => (
+                        <option key={ex.exam_id} value={ex.exam_id}>
+                          {ex.export_label || ex.name || ex.exam_id}
+                          {ex.subject ? ` · ${ex.subject}` : ""}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <label className="mt-4 block text-xs font-medium text-slate-600">
+                  {t("compose:examLabel")}
+                  <input
+                    className="mt-1 block w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                    value={dlgHistoryExportLabel}
+                    onChange={(e) => setDlgHistoryExportLabel(e.target.value)}
+                    placeholder={t("compose:newPaperHistoryExamLabelPlaceholder")}
+                    autoComplete="off"
+                  />
+                </label>
+                <div className="mt-4">
+                  <div className="text-xs font-medium text-slate-600">
+                    {t("compose:subjectFromHistoryReadonly")}
+                  </div>
+                  <div className="mt-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm text-slate-800">
+                    {dlgSelectedPastExam?.subject?.trim() || "—"}
+                  </div>
+                </div>
+              </>
             ) : (
               <>
                 <label className="mt-4 block text-xs font-medium text-slate-600">
@@ -971,7 +1009,7 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
           {msg}
         </div>
       ) : null}
-      {previewWarnings.length > 0 && composeSubView === "config" ? (
+      {previewWarnings.length > 0 ? (
         <div
           className="shrink-0 border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950"
           role="status"
@@ -1002,38 +1040,45 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
               <p className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                 {t("compose:draftsGroup")}
               </p>
-              {draftSummaries.length === 0 ? (
+              {draftExamRows.length === 0 ? (
                 <p className="px-1 text-xs text-slate-500">{t("compose:historyDraftEmpty")}</p>
               ) : (
                 <ul className="space-y-1">
-                  {draftSummaries.map((d) => (
-                    <li key={d.draft_id}>
+                  {draftExamRows.map((d) => (
+                    <li key={d.exam_id} className="flex min-w-0 items-stretch gap-0.5">
                       <button
                         type="button"
                         className={cn(
-                          "w-full rounded-md border px-2 py-1.5 text-left text-xs",
-                          currentDraftId === d.draft_id
+                          "min-w-0 flex-1 rounded-md border px-2 py-1.5 text-left text-xs",
+                          currentExamId === d.exam_id
                             ? "border-slate-900 bg-slate-100"
                             : "border-slate-200 bg-white hover:border-slate-300",
                         )}
                         disabled={busy}
                         onClick={() => {
-                          setPdfExamId(null);
-                          void loadDraftById(d.draft_id);
-                          setComposeSubView("config");
+                          void loadExamById(d.exam_id, null);
                         }}
                       >
-                        <span className="font-medium text-slate-900">{d.name || d.draft_id}</span>
-                        {d.workspace ? (
-                          <span className="mt-0.5 block text-[10px] text-slate-500">
-                            {d.status === "exported"
-                              ? t("compose:examStatusExported")
-                              : t("compose:examStatusEditing")}
-                          </span>
-                        ) : null}
+                        <span className="font-medium text-slate-900">{d.name || d.exam_id}</span>
+                        <span className="mt-0.5 block text-[10px] text-slate-500">
+                          {t("compose:examStatusEditing")}
+                        </span>
                         {d.export_label ? (
                           <span className="mt-0.5 block text-[10px] text-slate-500">{d.export_label}</span>
                         ) : null}
+                      </button>
+                      <button
+                        type="button"
+                        className="flex w-5 shrink-0 items-center justify-center self-stretch rounded text-[14px] leading-none text-slate-400 hover:bg-slate-200 hover:text-slate-700 disabled:opacity-40"
+                        disabled={busy}
+                        title={t("compose:deleteDraft")}
+                        aria-label={t("compose:deleteDraft")}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void deleteExamById(d.exam_id);
+                        }}
+                      >
+                        ×
                       </button>
                     </li>
                   ))}
@@ -1044,33 +1089,44 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
               <p className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                 {t("compose:historyGroup")}
               </p>
-              {pastExams.length === 0 ? (
+              {exportedExamRows.length === 0 ? (
                 <p className="px-1 text-xs text-slate-500">{t("compose:historyExamEmpty")}</p>
               ) : (
                 <ul className="space-y-1">
-                  {pastExams.map((ex) => (
-                    <li key={ex.exam_id}>
+                  {exportedExamRows.map((ex) => (
+                    <li key={ex.exam_id} className="flex min-w-0 items-stretch gap-0.5">
                       <button
                         type="button"
                         className={cn(
-                          "w-full rounded-md border px-2 py-1.5 text-left text-xs",
-                          pdfExamId === ex.exam_id && composeSubView === "preview"
+                          "min-w-0 flex-1 rounded-md border px-2 py-1.5 text-left text-xs",
+                          currentExamId === ex.exam_id
                             ? "border-slate-900 bg-slate-100"
                             : "border-slate-200 bg-white hover:border-slate-300",
                         )}
                         disabled={busy}
-                        onClick={() => {
-                          setPdfExamId(ex.exam_id);
-                          setPdfVariant("student");
-                          setComposeSubView("preview");
-                        }}
+                        onClick={() =>
+                          void loadExamById(ex.exam_id, ex.exam_id)
+                        }
                       >
                         <span className="font-medium text-slate-900">
-                          {ex.export_label || ex.exam_title || ex.exam_id}
+                          {ex.export_label || ex.name || ex.exam_id}
                         </span>
                         {ex.subject ? (
                           <span className="mt-0.5 block text-[10px] text-slate-500">{ex.subject}</span>
                         ) : null}
+                      </button>
+                      <button
+                        type="button"
+                        className="flex w-5 shrink-0 items-center justify-center self-stretch rounded text-[14px] leading-none text-slate-400 hover:bg-slate-200 hover:text-slate-700 disabled:opacity-40"
+                        disabled={busy}
+                        title={t("compose:deleteExportedExam")}
+                        aria-label={t("compose:deleteExportedExam")}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void deleteExamById(ex.exam_id, { exported: true });
+                        }}
+                      >
+                        ×
                       </button>
                     </li>
                   ))}
@@ -1081,151 +1137,7 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
         </aside>
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-0 lg:flex-row">
-          {composeSubView === "search" ? (
-            <section className="min-h-0 min-w-0 flex-1 overflow-auto bg-slate-50 p-4 lg:hidden">
-              <p className="mb-2 text-xs text-slate-500">{t("compose:subViewSearchHint")}</p>
-              <div className="flex min-h-0 flex-col rounded-lg border border-slate-200 bg-white">
-                <div className="border-b border-slate-100 px-3 py-2">
-                  <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("compose:bankSearchTitle")}</h2>
-                  <button
-                    type="button"
-                    className="mt-2 flex w-full items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-left text-xs font-medium text-slate-800 hover:bg-slate-100"
-                    onClick={() => setComposeFilterExpanded((v) => !v)}
-                  >
-                    <span>{t("compose:filter")}</span>
-                    <span className="truncate pl-2 text-[10px] font-normal text-slate-500">
-                      {composeFilterExpanded
-                        ? t("common:collapseHint")
-                        : t("compose:filterSummary", {
-                            subject,
-                            collection: namespaceFilter === "__all__" ? t("compose:allCollections") : namespaceFilter,
-                            type:
-                              typeFilter === "__all__"
-                                ? t("compose:allTypes")
-                                : typeFilter === "group"
-                                  ? t("compose:groupOption")
-                                  : t(`lib:questionTypes.${typeFilter}`, { defaultValue: typeFilter }),
-                            search: search.trim() ? t("common:searchingSuffix") : "",
-                          })}
-                    </span>
-                  </button>
-                  {composeFilterExpanded && (
-                    <div className="mt-2 space-y-2">
-                      <label className="block text-[11px] font-medium text-slate-600">
-                        {t("compose:subjectForExport")}
-                        <select
-                          className="mt-0.5 w-full rounded-md border border-slate-300 bg-slate-50 px-2 py-1.5 text-sm text-slate-900"
-                          value={subject}
-                          onChange={(e) => setSubject(e.target.value)}
-                        >
-                          {(subjectOptions.length ? subjectOptions : [subject]).map((s) => (
-                            <option key={s} value={s}>
-                              {s}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="block text-[11px] font-medium text-slate-600">
-                        {t("compose:collection")}
-                        <select
-                          className="mt-0.5 w-full rounded-md border border-slate-300 bg-slate-50 px-2 py-1.5 text-sm text-slate-900"
-                          value={namespaceFilter}
-                          onChange={(e) => setNamespaceFilter(e.target.value)}
-                        >
-                          <option value="__all__">{t("common:all")}</option>
-                          {namespaces.map((n) => (
-                            <option key={n} value={n}>
-                              {n}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="block text-[11px] font-medium text-slate-600">
-                        {t("compose:questionType")}
-                        <select
-                          className="mt-0.5 w-full rounded-md border border-slate-300 bg-slate-50 px-2 py-1.5 text-sm text-slate-900"
-                          value={typeFilter}
-                          onChange={(e) => setTypeFilter(e.target.value)}
-                        >
-                          <option value="__all__">{t("common:all")}</option>
-                          <option value="group">{t("compose:groupOption")}</option>
-                          {QUESTION_TYPE_OPTIONS.map((o) => (
-                            <option key={o.value} value={o.value}>
-                              {t(`lib:questionTypes.${o.value}`)}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="block text-[11px] font-medium text-slate-600">
-                        {t("compose:search")}
-                        <input
-                          className="mt-0.5 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm placeholder:text-slate-400"
-                          placeholder={t("compose:searchPlaceholder")}
-                          value={search}
-                          onChange={(e) => setSearch(e.target.value)}
-                        />
-                      </label>
-                    </div>
-                  )}
-                </div>
-                <ul className="min-h-0 flex-1 overflow-auto p-2">
-                  {questions.length === 0 ? (
-                    <li className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-6 text-center text-sm text-slate-600">
-                      <p className="font-medium text-slate-800">{t("compose:emptyBank")}</p>
-                      <p className="mt-2 text-xs leading-relaxed text-slate-500">{t("compose:emptyBankHint")}</p>
-                    </li>
-                  ) : filteredQuestions.length === 0 ? (
-                    <li className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-6 text-center text-sm text-slate-600">
-                      <p className="font-medium text-slate-800">{t("compose:emptyFilter")}</p>
-                      <p className="mt-2 text-xs text-slate-500">{t("compose:emptyFilterHint")}</p>
-                    </li>
-                  ) : (
-                    filteredQuestions.map((q) => {
-                      const isBundle = q.type === "group";
-                      return (
-                        <li key={q.qualified_id}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedLeft(q);
-                              setSelectedRight(null);
-                            }}
-                            className={cn(
-                              "mb-1 w-full rounded-lg border px-2 py-2 text-left text-sm transition-colors",
-                              selectedLeft?.qualified_id === q.qualified_id
-                                ? "border-slate-900 bg-slate-100"
-                                : "border-transparent bg-slate-50 hover:border-slate-200 hover:bg-white",
-                            )}
-                          >
-                            <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-700">
-                              {t(`lib:questionTypes.${q.type}`, { defaultValue: q.type })}
-                            </span>
-                            {isBundle ? (
-                              <span className="ml-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-900">
-                                {t("compose:bundleBadge")}
-                              </span>
-                            ) : null}
-                            <span className="ml-1 font-mono text-[11px] text-slate-800">{q.qualified_id}</span>
-                            <KatexPlainPreview
-                              text={q.content_preview}
-                              className="mt-1 line-clamp-3 text-xs leading-snug text-slate-600 [&_.katex]:text-[0.92em]"
-                            />
-                          </button>
-                        </li>
-                      );
-                    })
-                  )}
-                </ul>
-              </div>
-            </section>
-          ) : null}
-
-        <section
-          className={cn(
-            "flex w-full min-w-0 shrink-0 flex-col border-slate-200 bg-white lg:w-[min(100%,187px)] lg:border-r",
-            composeSubView !== "search" && "hidden lg:flex",
-          )}
-        >
+        <section className="hidden w-full min-w-0 shrink-0 flex flex-col border-slate-200 bg-white lg:flex lg:w-[min(100%,187px)] lg:border-r">
           <div className="border-b border-slate-100 px-3 py-2">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("compose:bankSearchTitle")}</h2>
             <button
@@ -1359,12 +1271,7 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
           </ul>
         </section>
 
-        <div
-          className={cn(
-            "flex w-11 shrink-0 flex-col items-center justify-center gap-3 border-y border-slate-200 bg-slate-100/90 py-4 lg:border-x lg:border-y-0",
-            composeSubView !== "config" && "hidden lg:flex",
-          )}
-        >
+        <div className="flex w-11 shrink-0 flex-col items-center justify-center gap-3 border-y border-slate-200 bg-slate-100/90 py-4 lg:border-x lg:border-y-0">
           <button
             type="button"
             title={t("compose:addToSection")}
@@ -1383,9 +1290,7 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
           </button>
         </div>
 
-{composeSubView === "config" ? (
-          <>
-        <section className="min-h-0 min-w-0 flex-1 overflow-auto bg-slate-50 p-4">
+        <section className="min-h-0 min-w-0 flex-1 basis-0 overflow-auto bg-slate-50 p-4 lg:min-w-0">
           {conflictTargetId ? (
             <div
               className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 p-4"
@@ -1455,38 +1360,6 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
                   ))}
                 </ul>
               )}
-            </div>
-            <div className="flex flex-wrap items-end gap-2 border-t border-slate-100 pt-3">
-              <label className="text-xs font-medium text-slate-600">
-                {t("compose:draftName")}
-                <input
-                  className="mt-1 block min-w-[160px] rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-                  value={draftName}
-                  onChange={(e) => setDraftName(e.target.value)}
-                  placeholder={t("compose:draftNamePlaceholder")}
-                />
-              </label>
-              <button
-                type="button"
-                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 disabled:opacity-50"
-                disabled={busy || !selectedTpl}
-                onClick={() => void saveDraftToServer()}
-              >
-                {currentDraftId ? t("compose:updateDraft") : t("compose:saveDraft")}
-              </button>
-              <button
-                type="button"
-                className="rounded-md border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
-                disabled={busy || !currentDraftId}
-                onClick={() => void deleteCurrentDraft()}
-              >
-                {t("compose:deleteDraft")}
-              </button>
-              {currentDraftId ? (
-                <span className="self-center text-[11px] text-slate-500">
-                  {t("compose:currentDraft", { id: currentDraftId })}
-                </span>
-              ) : null}
             </div>
           </div>
 
@@ -1774,13 +1647,7 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
             <p className="mt-2 text-xs text-slate-500">{t("compose:exportWhenReady")}</p>
           )}
         </section>
-        <aside
-          className={cn(
-            "flex min-h-0 w-full flex-col border-slate-200 bg-white shadow-xl lg:relative lg:z-auto lg:w-80 lg:max-w-[20rem] lg:translate-x-0 lg:shadow-none",
-            "lg:static lg:h-auto lg:max-w-none",
-            composeSubView !== "config" && "hidden lg:flex",
-          )}
-        >
+        <aside className="flex min-h-0 w-full flex-col border-slate-200 bg-white shadow-xl lg:relative lg:z-auto lg:translate-x-0 lg:shadow-none lg:static lg:h-auto lg:w-auto lg:min-w-0 lg:flex-1 lg:basis-0">
           <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2">
             <span className="text-xs font-medium text-slate-600">{t("compose:pdfVariantLabel")}</span>
             <select
@@ -1791,46 +1658,25 @@ export function ComposeWorkspace({ onError }: { onError: (s: string | null) => v
               <option value="student">{t("compose:pdfVariantStudent")}</option>
               <option value="teacher">{t("compose:pdfVariantTeacher")}</option>
             </select>
+            {pdfExamId && !previewPdfId ? (
+              <button
+                type="button"
+                className="ml-auto rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-800 disabled:opacity-50"
+                disabled={busy || viewPdfBusy}
+                onClick={() => void openViewPdfExternally()}
+              >
+                {t("compose:openPdfExternal")}
+              </button>
+            ) : null}
           </div>
           <div className="min-h-0 flex-1 overflow-auto p-3">
-            {configPreviewPdfPath ? (
-              <PdfPreview apiPath={configPreviewPdfPath} className="min-h-[min(70vh,560px)]" />
+            {composeRightPdfPath ? (
+              <PdfPreview apiPath={composeRightPdfPath} className="min-h-[min(70vh,560px)]" />
             ) : (
               <p className="text-xs text-slate-500">{t("compose:previewPdfEmptyHint")}</p>
             )}
           </div>
         </aside>
-          </>
-        ) : composeSubView === "preview" ? (
-          <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-100">
-            <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-3 py-2">
-              <span className="text-xs font-medium text-slate-600">{t("compose:pdfVariantLabel")}</span>
-              <select
-                className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs"
-                value={pdfVariant}
-                onChange={(e) => setPdfVariant(e.target.value === "teacher" ? "teacher" : "student")}
-              >
-                <option value="student">{t("compose:pdfVariantStudent")}</option>
-                <option value="teacher">{t("compose:pdfVariantTeacher")}</option>
-              </select>
-              <button
-                type="button"
-                className="ml-auto rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-800 disabled:opacity-50"
-                disabled={busy || !pdfExamId || viewPdfBusy}
-                onClick={() => void openViewPdfExternally()}
-              >
-                {t("compose:openPdfExternal")}
-              </button>
-            </div>
-            <div className="min-h-0 flex-1 overflow-auto p-3">
-              {pdfApiPath ? (
-                <PdfPreview apiPath={pdfApiPath} />
-              ) : (
-                <p className="text-sm text-slate-500">{t("compose:examPreviewEmpty")}</p>
-              )}
-            </div>
-          </section>
-        ) : null}
         </div>
       </div>
     </div>

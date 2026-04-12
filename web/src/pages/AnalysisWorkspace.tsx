@@ -47,7 +47,7 @@ type ExamResult = {
   score_batch_count: number;
   has_score: boolean;
   latest_batch_id: string | null;
-  result_dir: string;
+  exam_dir: string;
   mtime: string;
 };
 
@@ -261,7 +261,7 @@ export function AnalysisWorkspace() {
   const loadExams = useCallback(async () => {
     setLoadingExams(true);
     try {
-      const data = await apiGet<{ exams: ExamResult[] }>("/api/results");
+      const data = await apiGet<{ exams: ExamResult[] }>("/api/exams/analysis-list");
       setExams(data.exams ?? []);
     } catch (e) {
       console.error("loadExams failed", e);
@@ -279,7 +279,7 @@ export function AnalysisWorkspace() {
     setAnalysis(null);
     setSelectedBatchId(null);
     try {
-      const data = await apiGet<ExamSummary>(`/api/results/${encodeURIComponent(examId)}/summary`);
+      const data = await apiGet<ExamSummary>(`/api/exams/${encodeURIComponent(examId)}/summary`);
       setExamSummary(data);
       if (data.latest_batch_id) {
         setSelectedBatchId(data.latest_batch_id);
@@ -295,7 +295,7 @@ export function AnalysisWorkspace() {
     async (examId: string, batchId: string) => {
       try {
         const data = await apiGet<ScoreAnalysis>(
-          `/api/results/${encodeURIComponent(examId)}/scores/${encodeURIComponent(batchId)}`,
+          `/api/exams/${encodeURIComponent(examId)}/scores/${encodeURIComponent(batchId)}`,
         );
         setAnalysis(data);
         setImportWarnings([]);
@@ -317,7 +317,7 @@ export function AnalysisWorkspace() {
   const openExamPdfWithDefaultApp = useCallback(async (examId: string) => {
     setBrowsePdfBusyId(examId);
     try {
-      await apiPost<{ ok?: boolean }>(`/api/results/${encodeURIComponent(examId)}/open-pdf`, {
+      await apiPost<{ ok?: boolean }>(`/api/exams/${encodeURIComponent(examId)}/open-pdf`, {
         variant: "student",
       });
     } catch (e) {
@@ -397,7 +397,7 @@ export function AnalysisWorkspace() {
   const handleDownloadTemplate = useCallback(
     async (examId: string) => {
       try {
-        const resp = await fetch(await resolveApiUrl(`/api/results/${encodeURIComponent(examId)}/score-template`));
+        const resp = await fetch(await resolveApiUrl(`/api/exams/${encodeURIComponent(examId)}/score-template`));
         if (!resp.ok) throw new Error(await resp.text());
         const blob = await resp.blob();
         const cd = resp.headers.get("Content-Disposition") ?? "";
@@ -427,7 +427,7 @@ export function AnalysisWorkspace() {
         const fd = new FormData();
         fd.append("file", file);
         const result = await apiPostFormData<ImportResult>(
-          `/api/results/${encodeURIComponent(examId)}/scores`,
+          `/api/exams/${encodeURIComponent(examId)}/scores`,
           fd,
         );
         if (result.warnings?.length) {
@@ -448,7 +448,7 @@ export function AnalysisWorkspace() {
     if (!selectedExamId || !selectedBatchId) return;
     try {
       const data = await apiPost<ScoreAnalysis>(
-        `/api/results/${encodeURIComponent(selectedExamId)}/scores/${encodeURIComponent(selectedBatchId)}/recompute`,
+        `/api/exams/${encodeURIComponent(selectedExamId)}/scores/${encodeURIComponent(selectedBatchId)}/recompute`,
         {},
       );
       setAnalysis(data);
@@ -463,7 +463,7 @@ export function AnalysisWorkspace() {
     if (!ok) return;
     try {
       await apiDelete<{ ok: boolean }>(
-        `/api/results/${encodeURIComponent(selectedExamId)}/scores/${encodeURIComponent(selectedBatchId)}`,
+        `/api/exams/${encodeURIComponent(selectedExamId)}/scores/${encodeURIComponent(selectedBatchId)}`,
       );
       await loadExamDetail(selectedExamId);
     } catch (e) {
@@ -476,7 +476,7 @@ export function AnalysisWorkspace() {
     const ok = window.confirm(t("confirmDeleteExam"));
     if (!ok) return;
     try {
-      await apiDelete<{ ok: boolean }>(`/api/results/${encodeURIComponent(selectedExamId)}`);
+      await apiDelete<{ ok: boolean }>(`/api/exams/${encodeURIComponent(selectedExamId)}`);
       setSelectedExamId(null);
       setExamSummary(null);
       setSelectedBatchId(null);

@@ -96,3 +96,59 @@
 - `cd web && npm run build && npm test`
 
 **结果要点**：Rust 单测与前端构建、Vitest 均通过。
+
+## [2026-04-12] 组卷 | 从历史复制需填考试标签
+
+**改动摘要**：`ComposeWorkspace` 在「从历史试卷复制」模式下增加考试标签输入、只读展示所选历史试卷的学科；`POST /api/exam/drafts/from-result/{id}` 请求体发送 `{ export_label }`。内嵌帮助 `http-api-overview.md` 中两条 `from-result` 接口说明已同步为必填 `export_label`、学科沿用源导出。
+
+**验证命令**：`cd web && npm run build`。
+
+**结果要点**：`tsc -b` 与 Vite 生产构建通过。
+
+## [2026-04-12] 组卷 | 统一 exams 单目录并移除草稿兼容 API
+
+**改动摘要**：删除 `/api/exam/drafts*` 与 `GET /api/results/{id}/compose`；组卷仅使用 `GET/POST/PUT/DELETE /api/exams*`；`GET /api/exams` 支持 `status=draft|exported|all`；`POST /api/exam/export` 使用 `exam_ids_to_delete_on_success`；导出失败快照写入 `exams/`（`save_exam_workspace_after_export_failure`）；`DELETE /api/exams/{id}` 同时删除关联 `result/`；`ComposeWorkspace` 单一列表按 `status` 分「草稿/历史」；PDF 使用 `last_export_result_id`；内嵌帮助已更新。
+
+**验证命令**：`cd web && npm run build`；`python -m compileall -q src/solaire/web/app.py src/solaire/web/exam_workspace_service.py`。
+
+**结果要点**：前端构建与 Python 语法检查通过。
+
+## [2026-04-12] 组卷 | 侧栏点击历史试卷载入中间栏
+
+**改动摘要**：新增 `GET /api/results/{exam_id}/compose`（基于 `draft_from_result`，`draft_id` 置空、`source_result_id` 标明来源）；侧栏「历史试卷」点击改为请求该接口并 `applyDraftDocument`，中间栏与右侧 PDF 与所选导出一致。根因并非 `config.json` 草稿/完成状态，而是此前仅切换 `pdfExamId` 未加载 `exam.yaml` 到编辑区。
+
+**验证命令**：`cd web && npm run build`；`python -m compileall src/solaire/web/app.py`（或等价语法检查）。
+
+**结果要点**：前端构建通过；后端新增路由可导入。
+
+## [2026-04-12] exams 单目录硬切换（弃用 result/）
+
+**改动摘要**：考试落盘统一为 `exams/<标签段>/<学科段>/`（`exam.yaml`、`config.json`、PDF、`scores/`）；草稿/历史仅靠 `config.json.status`；移除 `/api/results/*`，成绩与 PDF 能力并入 `/api/exams/{exam_path}/...`，新增 `GET /api/exams/analysis-list`、`POST /api/exams/from-exam/{exam_path}`；`POST /api/exam/export` 返回 `exam_dir`；`export_pdfs` 与 `result_service` 全部读写 `exams/`；内嵌帮助 `http-api-overview.md` 已同步。
+
+**验证命令**：`cd web && npm run build`；`python -m compileall src/solaire/web/app.py src/solaire/web/exam_service.py src/solaire/web/result_service.py src/solaire/web/exam_workspace_service.py`；`pytest tests/test_result_service.py tests/integration/test_results_analysis_baseline.py -q`（按需）。
+
+**结果要点**：构建与 compileall 通过；核心 API 与集成测试路径已更新为 `exams` 双段目录。
+
+## [2026-04-12] exams 落盘路径说明与回归测试
+
+**改动摘要**：确认 `POST /api/exams` 与 `save_exam_workspace` 新建工作区为 `exams/<试卷说明>/<学科>/`；移除 `exam_workspace_service` 未使用的 `uuid` 导入；`ExamSaveDraftBody` 对 `subject`、`export_label` 要求非空（与落盘规则一致）；修正 `ExamExportBody` 中关于 `exam_workspace_id` 的过时描述；新增 `tests/test_exams_create_nested_path.py`；修复 `test_edu_analysis_builtins` 仍使用 `result/` 单层 `exam_id` 的问题；`wiki/modules/exams-storage.md` 补充「成绩批次目录 vs 考试目录」说明。
+
+**验证命令**：`pixi run pytest tests/ -q`。
+
+**结果要点**：全量 `pytest` 通过；磁盘上若仅见「像 UUID 的子目录」，多为 `scores/<批次>/` 或 `.solaire/previews/`，而非考试根目录。
+
+## [2026-04-12] 组卷 | 新建试卷成功提示含试卷目录路径
+
+**改动摘要**：`ComposeWorkspace` 在「创建并进入编辑」或首次「保存更改」成功后，提示文案包含 `exams/<标签段>/<学科段>` 形式的试卷目录，便于与 `scores/` 下批次目录区分；空白试卷创建前校验试卷说明与学科非空。
+
+**验证命令**：`cd web && npm run build`。
+
+**结果要点**：前端构建通过。
+
+## [2026-04-12] 开发模式 | start-web 须 --app-dir src，健康检查暴露试卷目录模型
+
+**改动摘要**：根目录 `start-web.ps1`、`start-web.sh` 为 Uvicorn 增加 `--app-dir src`（及 `--reload`），避免从已安装旧包加载后端导致 `exam_id` 仍为 UUID；`GET /api/health` 增加 `exam_workspace_layout: two_level` 供自检；`wiki/modules/dev-environment.md` 补充说明。
+
+**验证命令**：`curl -s http://127.0.0.1:8000/api/health`（需在仓库根用 `pixi run dev-backend` 或更新后的 `start-web` 启动后端）。
+
+**结果要点**：健康检查可区分「本仓库源码后端」与「旧版已安装包」。

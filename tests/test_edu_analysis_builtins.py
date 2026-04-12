@@ -11,8 +11,8 @@ from tests.integration._helpers import write_exam_yaml
 
 def test_builtin_exam_stats_v1(tmp_path: Path) -> None:
     ensure_project_layout(tmp_path)
-    exam_id = "builtin-exam"
-    exam_dir = tmp_path / "result" / exam_id
+    exam_id = "builtin-exam/数学"
+    exam_dir = tmp_path / "exams" / "builtin-exam" / "数学"
     exam_dir.mkdir(parents=True)
     write_exam_yaml(exam_dir, exam_id, [("选择题", 2, 5.0)])
     csv_text = "姓名,学号,1.1,1.2\n甲,001,5,4\n乙,002,3,1\n"

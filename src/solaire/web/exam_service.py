@@ -28,10 +28,31 @@ from solaire.exam_compiler.loaders.questions import LoadedQuestions
 
 from solaire.web.library_discovery import discover_question_library_refs
 from solaire.web.project_layout import ensure_project_layout
-from solaire.web.security import assert_within_project, safe_filename_component, unique_child_dir
+from solaire.web.security import assert_within_project, safe_filename_component
 
-# Re-use result iteration for export conflict detection
-from solaire.web.result_service import _iter_result_dirs, _load_exam_config
+
+def _load_exam_config(exam_yaml_path: Path) -> ExamConfig:
+    with exam_yaml_path.open(encoding="utf-8") as f:
+        raw = yaml.safe_load(f)
+    return ExamConfig.model_validate(raw)
+
+
+def _iter_exam_workspace_dirs(project_root: Path):
+    """Yield (exam_id, dir_path, exam_yaml_path) for ``exams/<标签>/<学科>/`` that contain exam.yaml."""
+    exams_root = (project_root / "exams").resolve()
+    if not exams_root.is_dir():
+        return
+    assert_within_project(project_root, exams_root)
+    for label_dir in sorted(exams_root.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+        if not label_dir.is_dir():
+            continue
+        for subj_dir in label_dir.iterdir():
+            if not subj_dir.is_dir():
+                continue
+            ey = subj_dir / "exam.yaml"
+            if ey.is_file():
+                eid = f"{label_dir.name}/{subj_dir.name}"
+                yield eid, subj_dir, ey
 
 
 LIST_PROBE_NAME = "list.yaml"
@@ -224,10 +245,10 @@ def write_preview_exam_yaml(
 
 
 def find_export_conflict(project_root: Path, export_label: str, subject: str) -> dict[str, Any]:
-    """If any result exam matches export_label + subject metadata, return its folder id (newest first)."""
+    """若 ``exams/`` 下已有相同试卷说明+学科的导出，返回其 exam_id（``标签段/学科段``）。"""
     label = export_label.strip()
     subj = subject.strip()
-    for exam_id, _dir_path, exam_yaml_path in _iter_result_dirs(project_root):
+    for exam_id, _dir_path, exam_yaml_path in _iter_exam_workspace_dirs(project_root):
         try:
             exam = _load_exam_config(exam_yaml_path)
             meta = exam.metadata or {}
@@ -303,31 +324,29 @@ def export_pdfs(
     export_label: str,
     subject: str,
     template: ExamTemplate | None = None,
-    overwrite_result_dir: Path | None = None,
+    dest_dir: Path,
 ) -> tuple[Path, str, str]:
     """
-    Build PDFs into a unique result subdir, then rename to localized filenames.
+    在 ``exams/<标签>/<学科>/`` 目录下生成 PDF，并写入带题分的 ``exam.yaml``。
 
-    When ``overwrite_result_dir`` is set, that directory (under project ``result/``)
-    is cleared and reused instead of allocating a new slug.
+    保留同目录下的 ``scores/``，仅替换本次导出的 PDF 与 ``exam.yaml``。
 
-    Returns (result_dir, student_pdf_name, teacher_pdf_name).
+    Returns (exam_dir, student_pdf_name, teacher_pdf_name).
     """
     assert_within_project(project_root, exam_yaml)
-    result_root = project_root / "result"
-    result_root.mkdir(parents=True, exist_ok=True)
-    slug_base = safe_filename_component(export_label)
-    if overwrite_result_dir is not None:
-        dest = overwrite_result_dir.resolve()
-        assert_within_project(project_root, dest)
-        if result_root.resolve() not in dest.parents and dest.resolve() != result_root.resolve():
-            raise ValueError("overwrite_result_dir must be under result/")
-        if dest.exists():
-            shutil.rmtree(dest)
-        dest.mkdir(parents=True, exist_ok=True)
-    else:
-        dest = unique_child_dir(result_root, slug_base)
-        dest.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir.resolve()
+    assert_within_project(project_root, dest)
+    exams_root = (project_root / "exams").resolve()
+    try:
+        dest.relative_to(exams_root)
+    except ValueError as e:
+        raise ValueError("导出目录必须位于 exams/ 下") from e
+    dest.mkdir(parents=True, exist_ok=True)
+    for p in dest.glob("*.pdf"):
+        try:
+            p.unlink()
+        except OSError:
+            pass
 
     try:
         student_pdf, teacher_pdf, _preview_warn = build_exam_pdfs(exam_yaml, out_dir=dest)
@@ -342,7 +361,7 @@ def export_pdfs(
     shutil.move(str(student_pdf), s_new)
     shutil.move(str(teacher_pdf), t_new)
 
-    # 保存 exam.yaml 副本到 result/，注入 score_per_item 供成绩分析使用
+    # 保存 exam.yaml 副本，注入 score_per_item 供成绩分析使用
     if exam_yaml.is_file():
         with exam_yaml.open(encoding="utf-8") as f:
             raw = yaml.safe_load(f)
@@ -367,7 +386,7 @@ def export_preview_pdfs(
 ) -> tuple[str, str, list[str]]:
     """
     Build relaxed preview PDFs in the same folder as exam_yaml (typically .solaire/previews/<id>/).
-    Does not write under result/. Returns localized PDF filenames and warning lines.
+    Does not write under exams/. Returns localized PDF filenames and warning lines.
     """
     assert_within_project(project_root, exam_yaml)
     dest = exam_yaml.parent.resolve()

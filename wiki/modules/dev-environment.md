@@ -21,6 +21,12 @@ pixi run bootstrap
 
 **注意**：已运行 `pixi run dev` 时不要重复占用 8000/5173；单独调试后端或前端时使用后两行之一即可。
 
+### 仅用 `start-web.ps1` / `start-web.sh` 时
+
+脚本必须为 Uvicorn 传入 **`--app-dir <仓库>/src`**（与 `pixi run dev-backend`、`scripts/dev-desktop.ps1` 一致）。若省略，Python 可能从 **site-packages** 加载旧版 `solaire`，表现为草稿目录仍为 **UUID**、接口行为与仓库源码不一致。
+
+自检：浏览器或 `curl` 访问 `http://127.0.0.1:8000/api/health`，JSON 中应有 **`exam_workspace_layout":"two_level"`**。若无该字段，说明当前监听的后端不是本仓库当前实现。
+
 ## 构建与清理
 
 | 命令 | 说明 |

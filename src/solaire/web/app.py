@@ -36,7 +36,6 @@ from solaire.web.agent_api import router as agent_router
 from solaire.web.bank_exchange import export_bank_exchange_zip, import_bank_exchange_zip
 from solaire.web.result_service import (
     compute_statistics,
-    delete_exam_result,
     delete_score_batch,
     find_exported_pdf_path,
     generate_score_template,
@@ -103,21 +102,16 @@ from solaire.web.graph_service import (
     update_concept_node,
 )
 from solaire.web.library_discovery import discover_question_library_refs
-from solaire.web.draft_service import (
-    delete_draft,
-    list_drafts,
-    load_draft,
-    save_draft,
-    save_draft_after_export_failure,
-)
 from solaire.web.exam_workspace_service import (
-    create_workspace_from_result,
+    create_workspace_from_exam,
     delete_exam_workspace,
+    exam_id_from_labels,
     exam_yaml_path,
     list_exam_workspaces,
     load_exam_workspace,
     mark_exported,
     save_exam_workspace,
+    save_exam_workspace_after_export_failure,
 )
 from solaire.web.exam_service import (
     VALIDATE_EXAM_NAME,
@@ -219,12 +213,12 @@ class ExamExportBody(ExamDraftBody):
     export_label: str = Field(..., min_length=1)
     subject: str = Field(..., min_length=1)
     metadata_title: str | None = None
-    """When set, must match a result subdirectory name and its stored 试卷说明/科目."""
+    """When set, must match an existing ``exams/<标签>/<学科>/`` 目录标识及其试卷说明/学科。"""
     overwrite_existing: str | None = None
-    draft_ids_to_delete_on_success: list[str] | None = None
-    """草稿 id 列表；导出成功后删除（如当前草稿或导出失败时自动保存的草稿）。"""
+    exam_ids_to_delete_on_success: list[str] | None = None
+    """导出成功后删除的其它 ``exams/<标签段>/<学科段>/``（例如旧副本）。"""
     exam_workspace_id: str | None = None
-    """当前考试工作区 id（位于 exams/<id>/）；导出成功后更新状态，不删除该目录。"""
+    """当前考试目录标识（``标签段/学科段``）；导出成功后更新状态，不删除该目录。"""
 
 
 class ExamExportConflictBody(BaseModel):
@@ -233,19 +227,18 @@ class ExamExportConflictBody(BaseModel):
 
 
 class ExamSaveDraftBody(BaseModel):
-    draft_id: str | None = None
     name: str | None = None
-    subject: str = ""
-    export_label: str = ""
+    subject: str = Field(..., min_length=1)
+    export_label: str = Field(..., min_length=1)
     template_ref: str = ""
     template_path: str = Field(..., min_length=1, description="Relative to project root")
     selected_items: list[SelectedSectionIn] = Field(default_factory=list)
 
 
-class DraftFromResultBody(BaseModel):
-    """载入历史试卷时是否写入 .solaire/drafts/；默认否。"""
+class CopyFromExamBody(BaseModel):
+    """从历史试卷复制为新草稿时必填：新试卷说明；学科沿用源考试。"""
 
-    persist: bool = False
+    export_label: str = Field(..., min_length=1)
 
 
 class OpenResultPdfBody(BaseModel):
@@ -332,7 +325,15 @@ class TemplateRawFileBody(BaseModel):
 
 @app.get("/api/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "product": "sol_edu"}
+    """
+    健康检查。字段 ``exam_workspace_layout`` 为 ``two_level`` 时表示后端从本仓库加载，
+    考试目录为 ``exams/<试卷说明>/<学科>/``；若缺失或为其它值，多为未加 ``--app-dir src`` 而加载了旧版已安装包。
+    """
+    return {
+        "status": "ok",
+        "product": "sol_edu",
+        "exam_workspace_layout": "two_level",
+    }
 
 
 @app.get("/api/system/tex-status")
@@ -1126,10 +1127,10 @@ def _draft_to_sections(body: ExamDraftBody) -> list[SelectedSection]:
 
 
 def _assert_overwrite_target(
-    root: Path, result_exam_id: str, export_label: str, subject: str
+    root: Path, exam_id: str, export_label: str, subject: str
 ) -> Path:
-    """Return resolved result directory; raises HTTPException if invalid or metadata mismatch."""
-    dest = (root / "result" / result_exam_id).resolve()
+    """Return resolved ``exams/<标签>/<学科>/`` directory; raises HTTPException if invalid or metadata mismatch."""
+    dest = exam_yaml_path(root, exam_id).parent.resolve()
     assert_within_project(root, dest)
     exam_yaml = dest / "exam.yaml"
     if not exam_yaml.is_file():
@@ -1171,12 +1172,12 @@ def exam_validate(body: ExamDraftBody) -> dict[str, Any]:
 
 
 def _exam_export_failure_detail(root: Path, body: ExamExportBody, exc: BaseException) -> dict[str, Any]:
-    """Structured HTTP detail: message + optional draft_saved after restore."""
+    """Structured HTTP detail: message + optional exam_saved after restore."""
     log = logging.getLogger(__name__)
     doc: dict[str, Any] | None = None
     try:
         items = [s.model_dump(mode="json", exclude_none=True) for s in body.selected_items]
-        doc = save_draft_after_export_failure(
+        doc = save_exam_workspace_after_export_failure(
             root,
             template_ref=body.template_ref,
             template_path=body.template_path,
@@ -1185,14 +1186,14 @@ def _exam_export_failure_detail(root: Path, body: ExamExportBody, exc: BaseExcep
             selected_items=items,
         )
     except Exception:
-        log.exception("failed to save draft after export failure")
+        log.exception("failed to save exam workspace after export failure")
 
     msg = exam_export_error_detail_short(exc) if isinstance(exc, Exception) else str(exc).strip()
     if not msg:
         msg = "导出失败，请查看运行日志。"
     detail: dict[str, Any] = {"message": msg}
     if doc:
-        detail["draft_saved"] = {"draft_id": doc["draft_id"], "name": str(doc.get("name") or "")}
+        detail["exam_saved"] = {"exam_id": str(doc.get("exam_id") or ""), "name": str(doc.get("name") or "")}
     return detail
 
 
@@ -1225,18 +1226,29 @@ def exam_export(body: ExamExportBody) -> dict[str, Any]:
         )
         run_validate(root, exam_yaml)
         template = load_template(tpl)
-        overwrite_dest: Path | None = None
+        dest_dir: Path
         if body.overwrite_existing:
-            overwrite_dest = _assert_overwrite_target(
+            dest_dir = _assert_overwrite_target(
                 root, body.overwrite_existing, body.export_label, body.subject
             )
+        else:
+            wid = str(body.exam_workspace_id or "").strip()
+            if wid:
+                dest_dir = exam_yaml_path(root, wid).parent.resolve()
+            else:
+                try:
+                    dest_dir = exam_yaml_path(
+                        root, exam_id_from_labels(body.export_label, body.subject)
+                    ).parent.resolve()
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e)) from e
         result_dir, s_name, t_name = export_pdfs(
             root,
             exam_yaml=exam_yaml,
             export_label=body.export_label,
             subject=body.subject,
             template=template,
-            overwrite_result_dir=overwrite_dest,
+            dest_dir=dest_dir,
         )
     except ValueError as e:
         restore_build_yaml_from_backup(root, backup)
@@ -1258,28 +1270,34 @@ def exam_export(body: ExamExportBody) -> dict[str, Any]:
         discard_build_yaml_backup(backup)
 
     rel = result_dir.relative_to(root)
-    result_folder_id = result_dir.name
     wid = str(body.exam_workspace_id or "").strip()
-    if wid:
+    mark_id = wid
+    if not mark_id:
         try:
-            mark_exported(root, wid, result_folder_id=result_folder_id)
+            mark_id = exam_id_from_labels(body.export_label, body.subject)
+        except ValueError:
+            mark_id = ""
+    if mark_id:
+        try:
+            mark_exported(root, mark_id)
         except Exception:
-            log.warning("mark exam workspace exported failed: %s", wid, exc_info=True)
+            log.warning("mark exam workspace exported failed: %s", mark_id, exc_info=True)
 
-    skip_delete = {Path(wid).name} if wid else set()
-    to_delete = body.draft_ids_to_delete_on_success or []
+    skip_delete = {wid} if wid else set()
+    to_delete = body.exam_ids_to_delete_on_success or []
     for raw_id in to_delete:
         did = str(raw_id).strip()
-        if not did or Path(did).name in skip_delete:
+        if not did or did in skip_delete:
             continue
         try:
-            delete_draft(root, did)
+            if exam_yaml_path(root, did).is_file():
+                delete_exam_workspace(root, did)
         except Exception:
-            log.warning("delete draft after export success failed: %s", did)
+            log.warning("delete exam workspace after export success failed: %s", did)
 
     return {
         "ok": True,
-        "result_dir": rel.as_posix(),
+        "exam_dir": rel.as_posix(),
         "student_pdf": s_name,
         "teacher_pdf": t_name,
     }
@@ -1419,70 +1437,18 @@ def exam_preview_pdf_file(
     )
 
 
-def _merge_compose_summaries(root: Path) -> list[dict[str, Any]]:
-    """考试工作区 + 旧版 ``.solaire/drafts``，按更新时间合并。"""
-    rows: list[tuple[float, dict[str, Any]]] = []
-    for e in list_exam_workspaces(root):
-        eid = str(e.get("exam_id") or "")
-        yp = exam_yaml_path(root, eid)
-        mtime = yp.stat().st_mtime if yp.is_file() else 0.0
-        rows.append(
-            (
-                mtime,
-                {
-                    "draft_id": eid,
-                    "exam_id": eid,
-                    "name": e.get("name"),
-                    "subject": e.get("subject"),
-                    "export_label": e.get("export_label"),
-                    "template_ref": e.get("template_ref"),
-                    "template_path": e.get("template_path"),
-                    "updated_at": e.get("updated_at"),
-                    "status": e.get("status"),
-                    "last_export_result_id": e.get("last_export_result_id"),
-                    "workspace": True,
-                },
-            )
-        )
-    drafts_root = root / ".solaire" / "drafts"
-    for d in list_drafts(root):
-        did = str(d.get("draft_id") or "")
-        p = drafts_root / f"{Path(did).name}.yaml"
-        mtime = p.stat().st_mtime if p.is_file() else 0.0
-        rows.append(
-            (
-                mtime,
-                {
-                    **d,
-                    "exam_id": did,
-                    "status": "draft",
-                    "last_export_result_id": None,
-                    "workspace": False,
-                },
-            )
-        )
-    rows.sort(key=lambda x: x[0], reverse=True)
-    return [r[1] for r in rows]
-
-
-def _load_compose_document(root: Path, doc_id: str) -> tuple[dict[str, Any], bool]:
-    try:
-        return load_exam_workspace(root, doc_id), True
-    except FileNotFoundError:
-        return load_draft(root, doc_id), False
-
-
-def _delete_compose_document(root: Path, doc_id: str) -> None:
-    safe = Path(doc_id).name
-    if exam_yaml_path(root, safe).is_file():
-        delete_exam_workspace(root, safe)
-    else:
-        delete_draft(root, doc_id)
-
-
 @app.get("/api/exams")
-def exams_list() -> dict[str, Any]:
-    return {"exams": list_exam_workspaces(_require_root())}
+def exams_list(
+    status: str | None = Query(None, description="draft | exported | all（默认 all）"),
+) -> dict[str, Any]:
+    root = _require_root()
+    rows = list_exam_workspaces(root)
+    if status and status.strip().lower() != "all":
+        s = status.strip().lower()
+        if s not in ("draft", "exported"):
+            raise HTTPException(status_code=400, detail="status 须为 draft、exported 或 all")
+        rows = [r for r in rows if str(r.get("status") or "draft") == s]
+    return {"exams": rows}
 
 
 @app.post("/api/exams")
@@ -1505,24 +1471,166 @@ def exams_create(body: ExamSaveDraftBody) -> dict[str, Any]:
     return {"ok": True, "exam": doc}
 
 
-@app.get("/api/exams/{exam_id}")
-def exams_get(exam_id: str) -> dict[str, Any]:
+@app.get("/api/exams/analysis-list")
+def exams_analysis_list() -> dict[str, Any]:
+    """成绩分析用：列出含 ``exam.yaml`` 的考试目录（新接口，替代原 ``/api/results`` 列表）。"""
+    root = _require_root()
+    return {"exams": list_exam_results(root)}
+
+
+@app.post("/api/exams/from-exam/{exam_path:path}")
+def exams_from_exam(exam_path: str, body: CopyFromExamBody) -> dict[str, Any]:
     root = _require_root()
     try:
-        doc = load_exam_workspace(root, exam_id)
+        doc = create_workspace_from_exam(root, exam_path, export_label=body.export_label)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "exam": doc}
+
+
+@app.get("/api/exams/{exam_path:path}/pdf-file")
+def exams_pdf_file(
+    exam_path: str,
+    variant: str = Query("student", description="student 或 teacher"),
+) -> FileResponse:
+    """内联预览已导出 PDF。"""
+    root = _require_root()
+    v = variant.strip().lower()
+    if v not in ("student", "teacher"):
+        raise HTTPException(status_code=400, detail="variant 须为 student 或 teacher")
+    try:
+        path = find_exported_pdf_path(root, exam_path, variant=v)  # type: ignore[arg-type]
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return FileResponse(
+        path,
+        media_type="application/pdf",
+        filename=path.name,
+        content_disposition_type="inline",
+    )
+
+
+@app.post("/api/exams/{exam_path:path}/open-pdf")
+def exams_open_pdf(
+    exam_path: str,
+    body: OpenResultPdfBody | None = Body(default=None),
+) -> dict[str, Any]:
+    """使用系统默认应用打开 PDF（仅本地后端）。"""
+    root = _require_root()
+    raw = (body.variant if body else "student").strip().lower()
+    if raw not in ("student", "teacher"):
+        raise HTTPException(status_code=400, detail="variant 须为 student 或 teacher")
+    try:
+        path = find_exported_pdf_path(root, exam_path, variant=raw)  # type: ignore[arg-type]
+        open_pdf_with_default_app(path)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"无法通过系统打开文件: {e}") from e
+    return {"ok": True}
+
+
+@app.get("/api/exams/{exam_path:path}/summary")
+def exams_summary(exam_path: str) -> dict[str, Any]:
+    root = _require_root()
+    try:
+        return get_exam_summary(root, exam_path)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@app.get("/api/exams/{exam_path:path}/score-template")
+def exams_score_template(exam_path: str) -> Response:
+    root = _require_root()
+    try:
+        csv_content, filename = generate_score_template(root, exam_path)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return Response(
+        content=csv_content.encode("utf-8-sig"),
+        media_type="text/csv",
+        headers={"Content-Disposition": content_disposition_attachment(filename)},
+    )
+
+
+@app.post("/api/exams/{exam_path:path}/scores")
+async def exams_scores_import(exam_path: str, file: UploadFile = File(...)) -> dict[str, Any]:
+    root = _require_root()
+    try:
+        content = await file.read()
+        result = import_scores(root, exam_path, content, file.filename or "scores.csv")
+        return result
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.get("/api/exams/{exam_path:path}/scores")
+def exams_scores_list(exam_path: str) -> dict[str, Any]:
+    root = _require_root()
+    try:
+        summary = get_exam_summary(root, exam_path)
+        return {"batches": summary.get("score_batches", [])}
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@app.get("/api/exams/{exam_path:path}/scores/{batch_id}")
+def exams_score_analysis(exam_path: str, batch_id: str) -> dict[str, Any]:
+    root = _require_root()
+    try:
+        return get_score_analysis(root, exam_path, batch_id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.post("/api/exams/{exam_path:path}/scores/{batch_id}/recompute")
+def exams_score_recompute(exam_path: str, batch_id: str) -> dict[str, Any]:
+    root = _require_root()
+    try:
+        return compute_statistics(root, exam_path, batch_id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.delete("/api/exams/{exam_path:path}/scores/{batch_id}")
+def exams_score_batch_delete(exam_path: str, batch_id: str) -> dict[str, Any]:
+    root = _require_root()
+    try:
+        return delete_score_batch(root, exam_path, batch_id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@app.get("/api/exams/{exam_path:path}")
+def exams_get(exam_path: str) -> dict[str, Any]:
+    root = _require_root()
+    try:
+        doc = load_exam_workspace(root, exam_path)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="考试工作区不存在") from None
     return {"exam": doc}
 
 
-@app.put("/api/exams/{exam_id}")
-def exams_put(exam_id: str, body: ExamSaveDraftBody) -> dict[str, Any]:
+@app.put("/api/exams/{exam_path:path}")
+def exams_put(exam_path: str, body: ExamSaveDraftBody) -> dict[str, Any]:
     root = _require_root()
     items = [s.model_dump(mode="json", exclude_none=True) for s in body.selected_items]
     try:
         doc = save_exam_workspace(
             root,
-            exam_id=exam_id,
+            exam_id=exam_path,
             name=body.name,
             subject=body.subject,
             export_label=body.export_label,
@@ -1537,109 +1645,13 @@ def exams_put(exam_id: str, body: ExamSaveDraftBody) -> dict[str, Any]:
     return {"ok": True, "exam": doc}
 
 
-@app.delete("/api/exams/{exam_id}")
-def exams_delete(exam_id: str) -> dict[str, Any]:
+@app.delete("/api/exams/{exam_path:path}")
+def exams_delete(exam_path: str) -> dict[str, Any]:
     root = _require_root()
-    if not exam_yaml_path(root, exam_id).is_file():
+    if not exam_yaml_path(root, exam_path).is_file():
         raise HTTPException(status_code=404, detail="考试工作区不存在")
-    delete_exam_workspace(root, exam_id)
+    delete_exam_workspace(root, exam_path)
     return {"ok": True}
-
-
-@app.post("/api/exams/from-result/{result_exam_id}")
-def exams_from_result(result_exam_id: str) -> dict[str, Any]:
-    root = _require_root()
-    try:
-        doc = create_workspace_from_result(root, result_exam_id)
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    return {"ok": True, "exam": doc}
-
-
-@app.get("/api/exam/drafts")
-def exam_drafts_list() -> dict[str, Any]:
-    return {"drafts": _merge_compose_summaries(_require_root())}
-
-
-@app.post("/api/exam/drafts")
-def exam_drafts_create(body: ExamSaveDraftBody) -> dict[str, Any]:
-    root = _require_root()
-    items = [s.model_dump(mode="json", exclude_none=True) for s in body.selected_items]
-    try:
-        doc = save_exam_workspace(
-            root,
-            exam_id=None,
-            name=body.name,
-            subject=body.subject,
-            export_label=body.export_label,
-            template_ref=body.template_ref,
-            template_path=body.template_path,
-            selected_items=items,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    return {"ok": True, "draft": doc}
-
-
-@app.get("/api/exam/drafts/{draft_id}")
-def exam_drafts_get(draft_id: str) -> dict[str, Any]:
-    root = _require_root()
-    try:
-        doc, workspace = _load_compose_document(root, draft_id)
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail="草稿不存在") from e
-    return {"draft": doc, "workspace": workspace}
-
-
-@app.put("/api/exam/drafts/{draft_id}")
-def exam_drafts_put(draft_id: str, body: ExamSaveDraftBody) -> dict[str, Any]:
-    root = _require_root()
-    items = [s.model_dump(mode="json", exclude_none=True) for s in body.selected_items]
-    safe = Path(draft_id).name
-    try:
-        if exam_yaml_path(root, safe).is_file():
-            doc = save_exam_workspace(
-                root,
-                exam_id=draft_id,
-                name=body.name,
-                subject=body.subject,
-                export_label=body.export_label,
-                template_ref=body.template_ref,
-                template_path=body.template_path,
-                selected_items=items,
-            )
-        else:
-            doc = save_draft(
-                root,
-                draft_id=draft_id,
-                name=body.name,
-                subject=body.subject,
-                export_label=body.export_label,
-                template_ref=body.template_ref,
-                template_path=body.template_path,
-                selected_items=items,
-            )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    return {"ok": True, "draft": doc}
-
-
-@app.delete("/api/exam/drafts/{draft_id}")
-def exam_drafts_delete(draft_id: str) -> dict[str, Any]:
-    root = _require_root()
-    _delete_compose_document(root, draft_id)
-    return {"ok": True}
-
-
-@app.post("/api/exam/drafts/from-result/{exam_id}")
-def exam_drafts_from_result(exam_id: str, body: DraftFromResultBody | None = None) -> dict[str, Any]:
-    """从历史试卷复制为新考试工作区（写入 ``exams/<id>/``）。``persist`` 已废弃，保留字段以兼容旧客户端。"""
-    root = _require_root()
-    try:
-        doc = create_workspace_from_result(root, exam_id)
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    return {"ok": True, "draft": doc, "persisted": True}
 
 
 def _preview_text(s: str | None, n: int = 240) -> str:
@@ -1960,109 +1972,6 @@ def _resolve_under_analysis(root: Path, rel: str) -> Path:
     return target
 
 
-@app.get("/api/results")
-def results_list() -> dict[str, Any]:
-    """List all past exams from result/ directory (newest first)."""
-    root = _require_root()
-    return {"exams": list_exam_results(root)}
-
-
-@app.get("/api/results/{exam_id}/pdf-file")
-def results_pdf_file(
-    exam_id: str,
-    variant: str = Query("student", description="student 或 teacher"),
-) -> FileResponse:
-    """Serve exported PDF for in-browser viewing (inline disposition)."""
-    root = _require_root()
-    v = variant.strip().lower()
-    if v not in ("student", "teacher"):
-        raise HTTPException(status_code=400, detail="variant 须为 student 或 teacher")
-    try:
-        path = find_exported_pdf_path(root, exam_id, variant=v)  # type: ignore[arg-type]
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    return FileResponse(
-        path,
-        media_type="application/pdf",
-        filename=path.name,
-        content_disposition_type="inline",
-    )
-
-
-@app.post("/api/results/{exam_id}/open-pdf")
-def results_open_pdf(
-    exam_id: str,
-    body: OpenResultPdfBody | None = Body(default=None),
-) -> dict[str, Any]:
-    """Open result PDF with the OS default application (local backend)."""
-    root = _require_root()
-    raw = (body.variant if body else "student").strip().lower()
-    if raw not in ("student", "teacher"):
-        raise HTTPException(status_code=400, detail="variant 须为 student 或 teacher")
-    try:
-        path = find_exported_pdf_path(root, exam_id, variant=raw)  # type: ignore[arg-type]
-        open_pdf_with_default_app(path)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except OSError as e:
-        raise HTTPException(status_code=500, detail=f"无法通过系统打开文件: {e}") from e
-    return {"ok": True}
-
-
-@app.get("/api/results/{exam_id}/summary")
-def results_summary(exam_id: str) -> dict[str, Any]:
-    """Get exam detail: metadata, question list, existing score batches."""
-    root = _require_root()
-    try:
-        return get_exam_summary(root, exam_id)
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-
-
-@app.get("/api/results/{exam_id}/score-template")
-def results_score_template(exam_id: str) -> Response:
-    """Download CSV score template for the given exam."""
-    root = _require_root()
-    try:
-        csv_content, filename = generate_score_template(root, exam_id)
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    return Response(
-        content=csv_content.encode("utf-8-sig"),
-        media_type="text/csv",
-        headers={"Content-Disposition": content_disposition_attachment(filename)},
-    )
-
-
-@app.post("/api/results/{exam_id}/scores")
-async def results_scores_import(exam_id: str, file: UploadFile = File(...)) -> dict[str, Any]:
-    """Import CSV/Excel score file. Returns batch summary + warnings."""
-    root = _require_root()
-    try:
-        content = await file.read()
-        result = import_scores(root, exam_id, content, file.filename or "scores.csv")
-        return result
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-
-
-@app.get("/api/results/{exam_id}/scores")
-def results_scores_list(exam_id: str) -> dict[str, Any]:
-    """List all imported score batches for an exam."""
-    root = _require_root()
-    try:
-        summary = get_exam_summary(root, exam_id)
-        return {"batches": summary.get("score_batches", [])}
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-
-
 @app.get("/api/analysis/diagnosis/knowledge")
 def analysis_diagnosis_knowledge(
     exam_id: str = Query(..., min_length=1),
@@ -2118,50 +2027,6 @@ def analysis_diagnosis_suggestions(
         raise HTTPException(status_code=404, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-
-
-@app.get("/api/results/{exam_id}/scores/{batch_id}")
-def results_score_analysis(exam_id: str, batch_id: str) -> dict[str, Any]:
-    """Get computed analysis for a score batch (per-question, per-node, per-student stats)."""
-    root = _require_root()
-    try:
-        return get_score_analysis(root, exam_id, batch_id)
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-
-
-@app.post("/api/results/{exam_id}/scores/{batch_id}/recompute")
-def results_score_recompute(exam_id: str, batch_id: str) -> dict[str, Any]:
-    """Force recompute statistics for a batch."""
-    root = _require_root()
-    try:
-        return compute_statistics(root, exam_id, batch_id)
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-
-
-@app.delete("/api/results/{exam_id}")
-def results_exam_delete(exam_id: str) -> dict[str, Any]:
-    """Delete one exam result and all its score batches."""
-    root = _require_root()
-    try:
-        return delete_exam_result(root, exam_id)
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-
-
-@app.delete("/api/results/{exam_id}/scores/{batch_id}")
-def results_score_batch_delete(exam_id: str, batch_id: str) -> dict[str, Any]:
-    """Delete one score batch under an exam."""
-    root = _require_root()
-    try:
-        return delete_score_batch(root, exam_id, batch_id)
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
 
 
 @app.get("/api/analysis/tools")

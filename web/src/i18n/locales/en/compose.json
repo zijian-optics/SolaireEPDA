@@ -17,7 +17,9 @@
     "selectPaperItemFirst": "Click a question in the paper to remove first.",
     "selectTemplateForDraft": "Choose a template before saving a draft.",
     "exportWithDraftSaved": "{{detail}} (saved as draft \"{{name}}\")",
-    "pickHistoryExam": "Choose a past paper first."
+    "pickHistoryExam": "Choose a past paper first.",
+    "historyExamLabelRequired": "Enter the exam label first.",
+    "examLabelAndSubjectRequired": "Enter the paper description and choose a subject."
   },
   "messages": {
     "validateOk": "Validation passed",
@@ -29,8 +31,11 @@
     "draftSaved": "Draft saved",
     "draftDeleted": "Draft deleted",
     "draftLoaded": "Draft loaded",
+    "draftLoadedWithPath": "Draft loaded (paper folder {{path}})",
     "importedFromHistory": "Loaded from history into the editor (not saved as a draft; use Save draft if needed).",
-    "confirmDeleteDraft": "Delete this draft? This cannot be undone."
+    "confirmDeleteDraft": "Delete this draft? This cannot be undone.",
+    "confirmDeleteExportedExam": "Delete this exported paper and its folder? This cannot be undone.",
+    "exportedExamDeleted": "Exported paper removed"
   },
   "openPropsPanel": "Open properties and preview",
   "closeSidebar": "Close side panel",
@@ -66,6 +71,8 @@
   "updateDraft": "Update draft",
   "saveDraft": "Save draft",
   "deleteDraft": "Delete draft",
+  "deleteExportedExam": "Delete exported paper",
+  "saveChanges": "Save changes",
   "newPaper": "New paper",
   "newPaperDialogTitle": "New paper",
   "newPaperDialogHint": "Set paper note, subject, and layout template, or copy from a past paper as a new draft.",
@@ -73,6 +80,8 @@
   "newPaperModeHistory": "Copy from past paper",
   "newPaperPickHistory": "Past paper",
   "newPaperPickHistoryPlaceholder": "Choose…",
+  "newPaperHistoryExamLabelPlaceholder": "e.g. 2027 midterm",
+  "subjectFromHistoryReadonly": "Subject (same as source paper)",
   "newPaperDialogConfirm": "Create and edit",
   "validatePreview": "Preview",
   "previewDefaultLabel": "Preview",
