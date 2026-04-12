@@ -11,23 +11,61 @@ from solaire.knowledge_forge import (
     bind_questions_batch,
     count_nodes_by_kind,
     create_concept_node,
+    create_graph,
     create_node_relation,
     delete_concept_node,
+    delete_graph,
     delete_node_relation,
     generate_unique_node_id,
     get_concept_node,
     list_concept_nodes,
+    list_graphs,
     list_node_relations,
     update_concept_node,
+    update_node_relation,
 )
+
+
+def _get_graph(args: dict[str, Any]) -> str | None:
+    g = args.get("graph")
+    return str(g).strip() or None if g else None
+
+
+def tool_list_graphs(ctx: InvocationContext, _args: dict[str, Any]) -> ToolResult:
+    """列出所有科目图谱。"""
+    graphs = list_graphs(ctx.project_root)
+    return ToolResult(status="succeeded", data={"graphs": graphs})
+
+
+def tool_create_graph(ctx: InvocationContext, args: dict[str, Any]) -> ToolResult:
+    """创建新科目图谱。"""
+    display_name = str(args.get("display_name") or "").strip()
+    if not display_name:
+        return ToolResult(status="failed", error_code="invalid_arguments", error_message="display_name 必填")
+    slug_hint = str(args.get("slug") or "").strip() or None
+    try:
+        slug = create_graph(ctx.project_root, display_name, slug_hint)
+        return ToolResult(status="succeeded", data={"ok": True, "slug": slug})
+    except ValueError as e:
+        return ToolResult(status="failed", error_code="conflict", error_message=str(e))
+
+
+def tool_delete_graph(ctx: InvocationContext, args: dict[str, Any]) -> ToolResult:
+    """删除科目图谱（不可逆）。"""
+    slug = str(args.get("slug") or "").strip()
+    if not slug:
+        return ToolResult(status="failed", error_code="invalid_arguments", error_message="slug 必填")
+    delete_graph(ctx.project_root, slug)
+    return ToolResult(status="succeeded", data={"ok": True})
 
 
 def tool_list_nodes(ctx: InvocationContext, args: dict[str, Any]) -> ToolResult:
     nk = args.get("node_kind")
     nk_s = str(nk).strip() if nk else None
+    graph = _get_graph(args)
     try:
-        nodes = list_concept_nodes(ctx.project_root, node_kind=nk_s or None)
-        counts = count_nodes_by_kind(ctx.project_root)
+        nodes = list_concept_nodes(ctx.project_root, node_kind=nk_s or None, graph=graph)
+        counts = count_nodes_by_kind(ctx.project_root, graph=graph)
     except ValueError as e:
         return ToolResult(status="failed", error_code="invalid_arguments", error_message=str(e))
     return ToolResult(status="succeeded", data={"nodes": nodes, "kind_counts": counts})
@@ -47,6 +85,7 @@ def _node_payload_from_args(args: dict[str, Any]) -> dict[str, Any]:
         "source",
         "layout_x",
         "layout_y",
+        "primary_parent_id",
     )
     out: dict[str, Any] = {}
     for k in keys:
@@ -57,6 +96,7 @@ def _node_payload_from_args(args: dict[str, Any]) -> dict[str, Any]:
 
 def tool_create_node(ctx: InvocationContext, args: dict[str, Any]) -> ToolResult:
     root = ctx.project_root
+    graph = _get_graph(args)
     body = _node_payload_from_args(args)
     canonical_name = str(body.get("canonical_name") or "").strip()
     if not canonical_name:
@@ -74,18 +114,32 @@ def tool_create_node(ctx: InvocationContext, args: dict[str, Any]) -> ToolResult
                 )
             nid = generate_unique_node_id(root, parent, canonical_name)
             payload["id"] = nid
-            create_concept_node(root, payload)
+            # Set primary_parent_id if not explicitly given
+            if "primary_parent_id" not in payload:
+                payload["primary_parent_id"] = parent
+            create_concept_node(root, payload, graph=graph)
             create_node_relation(
                 root,
                 {"from_node_id": nid, "to_node_id": parent, "relation_type": "part_of"},
+                graph=graph,
             )
             return ToolResult(status="succeeded", data={"ok": True, "node_id": nid})
         payload["id"] = node_id
-        create_concept_node(root, payload)
+        create_concept_node(root, payload, graph=graph)
         if parent:
+            if "primary_parent_id" not in payload:
+                payload["primary_parent_id"] = parent
+                # update the node with primary_parent_id
+                try:
+                    existing = get_concept_node(root, node_id, graph=graph)
+                    merged = {**existing, "primary_parent_id": parent}
+                    update_concept_node(root, node_id, merged, graph=graph)
+                except Exception:
+                    pass
             create_node_relation(
                 root,
                 {"from_node_id": node_id, "to_node_id": parent, "relation_type": "part_of"},
+                graph=graph,
             )
         return ToolResult(status="succeeded", data={"ok": True, "node_id": node_id})
     except ValueError as e:
@@ -94,47 +148,69 @@ def tool_create_node(ctx: InvocationContext, args: dict[str, Any]) -> ToolResult
 
 def tool_update_node(ctx: InvocationContext, args: dict[str, Any]) -> ToolResult:
     root = ctx.project_root
+    graph = _get_graph(args)
     node_id = str(args.get("node_id") or "").strip()
     if not node_id:
         return ToolResult(status="failed", error_code="invalid_arguments", error_message="node_id 必填")
     try:
-        existing = get_concept_node(root, node_id)
+        existing = get_concept_node(root, node_id, graph=graph)
     except FileNotFoundError:
         return ToolResult(status="failed", error_code="not_found", error_message="节点不存在")
     incoming = _node_payload_from_args(args)
     merged = {**existing, **incoming, "id": node_id}
     try:
-        update_concept_node(root, node_id, merged)
+        update_concept_node(root, node_id, merged, graph=graph)
     except (FileNotFoundError, ValueError) as e:
         return ToolResult(status="failed", error_code="runtime_error", error_message=str(e))
     return ToolResult(status="succeeded", data={"ok": True})
 
 
 def tool_delete_node(ctx: InvocationContext, args: dict[str, Any]) -> ToolResult:
+    graph = _get_graph(args)
     node_id = str(args.get("node_id") or "").strip()
     if not node_id:
         return ToolResult(status="failed", error_code="invalid_arguments", error_message="node_id 必填")
-    delete_concept_node(ctx.project_root, node_id)
+    delete_concept_node(ctx.project_root, node_id, graph=graph)
     return ToolResult(status="succeeded", data={"ok": True})
 
 
 def tool_create_relation(ctx: InvocationContext, args: dict[str, Any]) -> ToolResult:
+    graph = _get_graph(args)
     try:
-        rel_id = create_node_relation(ctx.project_root, args)
+        rel_id = create_node_relation(ctx.project_root, args, graph=graph)
     except ValueError as e:
         return ToolResult(status="failed", error_code="invalid_arguments", error_message=str(e))
     return ToolResult(status="succeeded", data={"ok": True, "relation_id": rel_id})
 
 
 def tool_delete_relation(ctx: InvocationContext, args: dict[str, Any]) -> ToolResult:
+    graph = _get_graph(args)
     rid = str(args.get("relation_id") or "").strip()
     if not rid:
         return ToolResult(status="failed", error_code="invalid_arguments", error_message="relation_id 必填")
-    delete_node_relation(ctx.project_root, rid)
+    delete_node_relation(ctx.project_root, rid, graph=graph)
+    return ToolResult(status="succeeded", data={"ok": True})
+
+
+def tool_update_relation(ctx: InvocationContext, args: dict[str, Any]) -> ToolResult:
+    """更新关系类型或颠倒方向。"""
+    graph = _get_graph(args)
+    rid = str(args.get("relation_id") or "").strip()
+    if not rid:
+        return ToolResult(status="failed", error_code="invalid_arguments", error_message="relation_id 必填")
+    relation_type = str(args.get("relation_type") or "").strip() or None
+    reverse = bool(args.get("reverse", False))
+    try:
+        update_node_relation(ctx.project_root, rid, relation_type=relation_type, reverse=reverse, graph=graph)
+    except FileNotFoundError:
+        return ToolResult(status="failed", error_code="not_found", error_message="关系不存在")
+    except ValueError as e:
+        return ToolResult(status="failed", error_code="invalid_arguments", error_message=str(e))
     return ToolResult(status="succeeded", data={"ok": True})
 
 
 def tool_bind_question(ctx: InvocationContext, args: dict[str, Any]) -> ToolResult:
+    graph = _get_graph(args)
     try:
         bind_question_to_node(
             ctx.project_root,
@@ -142,6 +218,7 @@ def tool_bind_question(ctx: InvocationContext, args: dict[str, Any]) -> ToolResu
                 "question_qualified_id": str(args.get("question_qualified_id") or ""),
                 "node_id": str(args.get("node_id") or ""),
             },
+            graph=graph,
         )
     except ValueError as e:
         return ToolResult(status="failed", error_code="invalid_arguments", error_message=str(e))
@@ -149,19 +226,21 @@ def tool_bind_question(ctx: InvocationContext, args: dict[str, Any]) -> ToolResu
 
 
 def tool_attach_resource(ctx: InvocationContext, args: dict[str, Any]) -> ToolResult:
+    graph = _get_graph(args)
     node_id = str(args.get("node_id") or "").strip()
     rel_path = str(args.get("relative_path") or "").strip()
     if not node_id or not rel_path:
         return ToolResult(status="failed", error_code="invalid_arguments", error_message="node_id 与 relative_path 必填")
     try:
-        link_id = attach_file_to_node(ctx.project_root, node_id, rel_path)
+        link_id = attach_file_to_node(ctx.project_root, node_id, rel_path, graph=graph)
     except ValueError as e:
         return ToolResult(status="failed", error_code="invalid_arguments", error_message=str(e))
     return ToolResult(status="succeeded", data={"ok": True, "link_id": link_id})
 
 
-def tool_list_relations(ctx: InvocationContext, _args: dict[str, Any]) -> ToolResult:
-    rels = list_node_relations(ctx.project_root)
+def tool_list_relations(ctx: InvocationContext, args: dict[str, Any]) -> ToolResult:
+    graph = _get_graph(args)
+    rels = list_node_relations(ctx.project_root, graph=graph)
     return ToolResult(status="succeeded", data={"relations": rels})
 
 
@@ -182,6 +261,7 @@ def tool_search_nodes(ctx: InvocationContext, args: dict[str, Any]) -> ToolResul
         return ToolResult(status="failed", error_code="invalid_arguments", error_message="query 必填")
     nk = args.get("node_kind")
     nk_s = str(nk).strip() if nk else None
+    graph = _get_graph(args)
     max_hits = args.get("max_hits")
     try:
         mh = int(max_hits) if max_hits is not None else 30
@@ -189,7 +269,7 @@ def tool_search_nodes(ctx: InvocationContext, args: dict[str, Any]) -> ToolResul
         mh = 30
     mh = max(1, min(mh, 200))
     try:
-        nodes = list_concept_nodes(ctx.project_root, node_kind=nk_s or None)
+        nodes = list_concept_nodes(ctx.project_root, node_kind=nk_s or None, graph=graph)
     except ValueError as e:
         return ToolResult(status="failed", error_code="invalid_arguments", error_message=str(e))
     q = q_raw.lower()
@@ -212,6 +292,7 @@ def tool_batch_create_nodes(ctx: InvocationContext, args: dict[str, Any]) -> Too
     if not isinstance(raw, list) or not raw:
         return ToolResult(status="failed", error_code="invalid_arguments", error_message="nodes 须为非空数组")
     root = ctx.project_root
+    graph = _get_graph(args)
     created: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     for i, item in enumerate(raw):
@@ -225,6 +306,7 @@ def tool_batch_create_nodes(ctx: InvocationContext, args: dict[str, Any]) -> Too
             continue
         node_id = str(item.get("id") or "").strip() or None
         parent = str(item.get("parent_node_id") or "").strip() or None
+        g = str(item.get("graph") or "").strip() or graph
         payload = {k: v for k, v in body.items() if k != "id"}
         try:
             if not node_id:
@@ -233,19 +315,25 @@ def tool_batch_create_nodes(ctx: InvocationContext, args: dict[str, Any]) -> Too
                     continue
                 nid = generate_unique_node_id(root, parent, canonical_name)
                 payload["id"] = nid
-                create_concept_node(root, payload)
+                if "primary_parent_id" not in payload:
+                    payload["primary_parent_id"] = parent
+                create_concept_node(root, payload, graph=g)
                 create_node_relation(
                     root,
                     {"from_node_id": nid, "to_node_id": parent, "relation_type": "part_of"},
+                    graph=g,
                 )
                 created.append({"index": i, "node_id": nid})
             else:
                 payload["id"] = node_id
-                create_concept_node(root, payload)
+                create_concept_node(root, payload, graph=g)
                 if parent:
+                    if "primary_parent_id" not in payload:
+                        payload["primary_parent_id"] = parent
                     create_node_relation(
                         root,
                         {"from_node_id": node_id, "to_node_id": parent, "relation_type": "part_of"},
+                        graph=g,
                     )
                 created.append({"index": i, "node_id": node_id})
         except ValueError as e:
@@ -273,6 +361,7 @@ def tool_batch_bind_questions(ctx: InvocationContext, args: dict[str, Any]) -> T
     if not isinstance(raw, list) or not raw:
         return ToolResult(status="failed", error_code="invalid_arguments", error_message="bindings 须为非空数组")
     root = ctx.project_root
+    graph = _get_graph(args)
     by_node: dict[str, list[str]] = {}
     errors: list[dict[str, Any]] = []
     for i, item in enumerate(raw):
@@ -288,7 +377,7 @@ def tool_batch_bind_questions(ctx: InvocationContext, args: dict[str, Any]) -> T
     batches: list[dict[str, Any]] = []
     for node_id, qids in by_node.items():
         try:
-            stats = bind_questions_batch(root, node_id=node_id, qualified_ids=qids)
+            stats = bind_questions_batch(root, node_id=node_id, qualified_ids=qids, graph=graph)
             batches.append({"node_id": node_id, **stats})
         except ValueError as e:
             batches.append({"node_id": node_id, "error": str(e)})
@@ -324,12 +413,14 @@ def tool_batch_create_relations(ctx: InvocationContext, args: dict[str, Any]) ->
     if not isinstance(raw, list) or not raw:
         return ToolResult(status="failed", error_code="invalid_arguments", error_message="relations 须为非空数组")
     root = ctx.project_root
+    graph = _get_graph(args)
     created: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     for i, item in enumerate(raw):
         if not isinstance(item, dict):
             errors.append({"index": i, "error": "条目须为对象"})
             continue
+        g = str(item.get("graph") or "").strip() or graph
         try:
             rel_id = create_node_relation(
                 root,
@@ -338,6 +429,7 @@ def tool_batch_create_relations(ctx: InvocationContext, args: dict[str, Any]) ->
                     "to_node_id": str(item.get("to_node_id") or ""),
                     "relation_type": str(item.get("relation_type") or ""),
                 },
+                graph=g,
             )
             created.append({"index": i, "relation_id": rel_id})
         except ValueError as e:

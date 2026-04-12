@@ -84,8 +84,10 @@ from solaire.web.graph_service import (
     bind_questions_batch,
     count_nodes_by_kind,
     create_concept_node,
+    create_graph,
     create_node_relation,
     delete_concept_node,
+    delete_graph,
     delete_node_relation,
     detach_file_link,
     generate_unique_node_id,
@@ -93,15 +95,18 @@ from solaire.web.graph_service import (
     get_taxonomy,
     list_concept_nodes,
     list_file_links_for_node,
+    list_graphs,
     list_node_relations,
     list_nodes_for_question,
     list_questions_for_node,
     list_resource_files,
     load_graph,
+    rename_graph,
     set_taxonomy,
     unbind_question_from_node,
     unbind_questions_batch,
     update_concept_node,
+    update_node_relation,
 )
 from solaire.web.library_discovery import discover_question_library_refs
 from solaire.web.exam_workspace_service import (
@@ -285,6 +290,15 @@ class BankRawFileBody(BaseModel):
     yaml: str = Field(..., description="Full file contents")
 
 
+class GraphCreateBody(BaseModel):
+    display_name: str = Field(..., min_length=1, description="图谱名称（对应科目名）")
+    slug: str | None = Field(default=None, description="内部标识；留空则自动生成")
+
+
+class GraphRenameBody(BaseModel):
+    display_name: str = Field(..., min_length=1, description="新名称")
+
+
 class GraphNodeCreateBody(BaseModel):
     id: str | None = Field(default=None, description="知识点标识；留空则根据父级与名称自动生成")
     parent_node_id: str | None = Field(default=None, description="父级知识点标识；留空时需手动填写 id")
@@ -301,12 +315,18 @@ class GraphNodeCreateBody(BaseModel):
     source: str | None = Field(default=None, description="Original source")
     layout_x: float | None = Field(default=None, description="画布坐标 X")
     layout_y: float | None = Field(default=None, description="画布坐标 Y")
+    primary_parent_id: str | None = Field(default=None, description="思维导图主父节点 ID")
 
 
 class GraphRelationCreateBody(BaseModel):
     from_node_id: str = Field(..., min_length=1)
     to_node_id: str = Field(..., min_length=1)
     relation_type: str = Field(..., min_length=1)
+
+
+class GraphRelationUpdateBody(BaseModel):
+    relation_type: str | None = Field(default=None, description="新关系类型")
+    reverse: bool = Field(default=False, description="是否颠倒方向")
 
 
 class GraphBindingCreateBody(BaseModel):
@@ -1797,16 +1817,56 @@ def _preview_text(s: str | None, n: int = 240) -> str:
     return t if len(t) <= n else t[: n - 3] + "..."
 
 
+@app.get("/api/graph/graphs")
+def graph_list_all() -> dict[str, Any]:
+    """列出所有科目图谱。"""
+    root = _require_root()
+    return {"graphs": list_graphs(root)}
+
+
+@app.post("/api/graph/graphs")
+def graph_create(body: GraphCreateBody) -> dict[str, Any]:
+    """创建新科目图谱。"""
+    root = _require_root()
+    try:
+        slug = create_graph(root, body.display_name, body.slug)
+        return {"ok": True, "slug": slug}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.put("/api/graph/graphs/{slug}")
+def graph_rename(slug: str, body: GraphRenameBody) -> dict[str, Any]:
+    """修改科目图谱名称。"""
+    root = _require_root()
+    try:
+        rename_graph(root, slug, body.display_name)
+        return {"ok": True}
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.delete("/api/graph/graphs/{slug}")
+def graph_delete(slug: str) -> dict[str, Any]:
+    """删除科目图谱（不可恢复）。"""
+    root = _require_root()
+    delete_graph(root, slug)
+    return {"ok": True}
+
+
 @app.get("/api/graph/nodes")
 def graph_nodes_list(
     node_kind: str | None = Query(None, description="按节点类型筛选：concept / skill / causal"),
+    graph: str | None = Query(None, description="科目图谱 slug；留空则返回所有科目"),
 ) -> dict[str, Any]:
     root = _require_root()
     try:
-        nodes = list_concept_nodes(root, node_kind=node_kind)
+        nodes = list_concept_nodes(root, node_kind=node_kind, graph=graph)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    return {"nodes": nodes, "kind_counts": count_nodes_by_kind(root)}
+    return {"nodes": nodes, "kind_counts": count_nodes_by_kind(root, graph=graph)}
 
 
 def _graph_node_payload(body: GraphNodeCreateBody) -> dict[str, Any]:
@@ -1816,7 +1876,10 @@ def _graph_node_payload(body: GraphNodeCreateBody) -> dict[str, Any]:
 
 
 @app.post("/api/graph/nodes")
-def graph_nodes_create(body: GraphNodeCreateBody) -> dict[str, Any]:
+def graph_nodes_create(
+    body: GraphNodeCreateBody,
+    graph: str | None = Query(None, description="科目图谱 slug"),
+) -> dict[str, Any]:
     root = _require_root()
     try:
         node_id = (body.id or "").strip() or None
@@ -1830,18 +1893,20 @@ def graph_nodes_create(body: GraphNodeCreateBody) -> dict[str, Any]:
                 )
             nid = generate_unique_node_id(root, parent, body.canonical_name)
             payload["id"] = nid
-            create_concept_node(root, payload)
+            create_concept_node(root, payload, graph=graph)
             create_node_relation(
                 root,
                 {"from_node_id": nid, "to_node_id": parent, "relation_type": "part_of"},
+                graph=graph,
             )
             return {"ok": True, "node_id": nid}
         payload["id"] = node_id
-        create_concept_node(root, payload)
+        create_concept_node(root, payload, graph=graph)
         if parent:
             create_node_relation(
                 root,
                 {"from_node_id": node_id, "to_node_id": parent, "relation_type": "part_of"},
+                graph=graph,
             )
         return {"ok": True, "node_id": node_id}
     except ValueError as e:
@@ -1849,22 +1914,26 @@ def graph_nodes_create(body: GraphNodeCreateBody) -> dict[str, Any]:
 
 
 @app.get("/api/graph/nodes/{node_id}")
-def graph_nodes_get(node_id: str) -> dict[str, Any]:
+def graph_nodes_get(node_id: str, graph: str | None = Query(None)) -> dict[str, Any]:
     root = _require_root()
     try:
-        return {"node": get_concept_node(root, node_id)}
+        return {"node": get_concept_node(root, node_id, graph=graph)}
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
 @app.put("/api/graph/nodes/{node_id:path}")
-def graph_nodes_update(node_id: str, body: GraphNodeCreateBody) -> dict[str, Any]:
+def graph_nodes_update(
+    node_id: str,
+    body: GraphNodeCreateBody,
+    graph: str | None = Query(None),
+) -> dict[str, Any]:
     root = _require_root()
     try:
-        existing = get_concept_node(root, node_id)
+        existing = get_concept_node(root, node_id, graph=graph)
         incoming = _graph_node_payload(body)
         merged = {**existing, **incoming, "id": node_id}
-        update_concept_node(root, node_id, merged)
+        update_concept_node(root, node_id, merged, graph=graph)
         return {"ok": True}
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -1873,62 +1942,105 @@ def graph_nodes_update(node_id: str, body: GraphNodeCreateBody) -> dict[str, Any
 
 
 @app.post("/api/graph/relations")
-def graph_relations_create(body: GraphRelationCreateBody) -> dict[str, Any]:
+def graph_relations_create(
+    body: GraphRelationCreateBody,
+    graph: str | None = Query(None),
+) -> dict[str, Any]:
     root = _require_root()
     try:
-        rel_id = create_node_relation(root, body.model_dump())
+        rel_id = create_node_relation(root, body.model_dump(), graph=graph)
         return {"ok": True, "relation_id": rel_id}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @app.get("/api/graph/relations")
-def graph_relations_list() -> dict[str, Any]:
+def graph_relations_list(graph: str | None = Query(None)) -> dict[str, Any]:
     root = _require_root()
-    return {"relations": list_node_relations(root)}
+    return {"relations": list_node_relations(root, graph=graph)}
 
 
 @app.delete("/api/graph/relations/{relation_id}")
-def graph_relations_delete(relation_id: str) -> dict[str, Any]:
+def graph_relations_delete(
+    relation_id: str,
+    graph: str | None = Query(None),
+) -> dict[str, Any]:
     root = _require_root()
-    delete_node_relation(root, relation_id)
+    delete_node_relation(root, relation_id, graph=graph)
     return {"ok": True}
 
 
-@app.post("/api/graph/bindings")
-def graph_bindings_create(body: GraphBindingCreateBody) -> dict[str, Any]:
+@app.put("/api/graph/relations/{relation_id}")
+def graph_relations_update(
+    relation_id: str,
+    body: GraphRelationUpdateBody,
+    graph: str | None = Query(None),
+) -> dict[str, Any]:
+    """更新关系类型或颠倒方向。"""
     root = _require_root()
     try:
-        bind_question_to_node(root, body.model_dump())
+        update_node_relation(
+            root,
+            relation_id,
+            relation_type=body.relation_type,
+            reverse=body.reverse,
+            graph=graph,
+        )
+        return {"ok": True}
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.post("/api/graph/bindings")
+def graph_bindings_create(
+    body: GraphBindingCreateBody,
+    graph: str | None = Query(None),
+) -> dict[str, Any]:
+    root = _require_root()
+    try:
+        bind_question_to_node(root, body.model_dump(), graph=graph)
         return {"ok": True}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @app.post("/api/graph/bindings/unbind")
-def graph_bindings_unbind(body: GraphBindingCreateBody) -> dict[str, Any]:
+def graph_bindings_unbind(
+    body: GraphBindingCreateBody,
+    graph: str | None = Query(None),
+) -> dict[str, Any]:
     root = _require_root()
     try:
-        unbind_question_from_node(root, body.model_dump())
+        unbind_question_from_node(root, body.model_dump(), graph=graph)
         return {"ok": True}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @app.post("/api/graph/nodes/{node_id:path}/bind-batch")
-def graph_nodes_bind_batch(node_id: str, body: GraphBindingBatchBody) -> dict[str, Any]:
+def graph_nodes_bind_batch(
+    node_id: str,
+    body: GraphBindingBatchBody,
+    graph: str | None = Query(None),
+) -> dict[str, Any]:
     root = _require_root()
     try:
-        return bind_questions_batch(root, node_id=node_id, qualified_ids=body.qualified_ids)
+        return bind_questions_batch(root, node_id=node_id, qualified_ids=body.qualified_ids, graph=graph)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @app.delete("/api/graph/nodes/{node_id:path}/unbind-batch")
-def graph_nodes_unbind_batch(node_id: str, body: GraphBindingBatchBody = Body(...)) -> dict[str, Any]:
+def graph_nodes_unbind_batch(
+    node_id: str,
+    body: GraphBindingBatchBody = Body(...),
+    graph: str | None = Query(None),
+) -> dict[str, Any]:
     root = _require_root()
     try:
-        return unbind_questions_batch(root, node_id=node_id, qualified_ids=body.qualified_ids)
+        return unbind_questions_batch(root, node_id=node_id, qualified_ids=body.qualified_ids, graph=graph)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -1951,19 +2063,30 @@ def graph_question_nodes(qualified_id: str = Query(..., min_length=1)) -> dict[s
 
 
 @app.get("/api/graph/question-bindings-index")
-def graph_question_bindings_index() -> dict[str, Any]:
+def graph_question_bindings_index(graph: str | None = Query(None)) -> dict[str, Any]:
     """单次返回「题目全限定 id → 已关联知识点节点」摘要，供题库列表展示标签。"""
     root = _require_root()
-    state = load_graph(root)
-    node_by_id = {n.id: n for n in state.nodes}
+    from solaire.knowledge_forge.service import _load_meta, _load_subject_state  # noqa: PLC0415
+
+    _ensure_root_graph_loaded = lambda: None  # noqa: E731
     acc: dict[str, list[dict[str, Any]]] = {}
-    for b in state.bindings:
-        n = node_by_id.get(b.node_id)
-        if n is None:
-            continue
-        acc.setdefault(b.question_qualified_id, []).append(
-            {"id": n.id, "canonical_name": n.canonical_name, "node_kind": n.node_kind}
-        )
+
+    from solaire.knowledge_forge import ensure_graph_layout  # noqa: PLC0415
+    ensure_graph_layout(root)
+
+    from solaire.knowledge_forge.service import _load_meta as lm, _load_subject_state as lss  # noqa: PLC0415
+    meta = lm(root)
+    slugs = [graph] if graph else [sm.slug for sm in meta.subjects]
+    for slug in slugs:
+        state = lss(root, slug)
+        node_by_id = {n.id: n for n in state.nodes}
+        for b in state.bindings:
+            n = node_by_id.get(b.node_id)
+            if n is None:
+                continue
+            acc.setdefault(b.question_qualified_id, []).append(
+                {"id": n.id, "canonical_name": n.canonical_name, "node_kind": n.node_kind}
+            )
     for qid in list(acc.keys()):
         seen: set[str] = set()
         uniq: list[dict[str, Any]] = []
@@ -1978,9 +2101,9 @@ def graph_question_bindings_index() -> dict[str, Any]:
 
 
 @app.get("/api/graph/nodes/{node_id:path}/questions")
-def graph_nodes_questions(node_id: str) -> dict[str, Any]:
+def graph_nodes_questions(node_id: str, graph: str | None = Query(None)) -> dict[str, Any]:
     root = _require_root()
-    qids = list_questions_for_node(root, node_id)
+    qids = list_questions_for_node(root, node_id, graph=graph)
     questions: list[dict[str, Any]] = []
     for qid in qids:
         try:
@@ -2026,32 +2149,35 @@ def graph_resource_files_list(q: str = "", limit: int = Query(800, ge=1, le=5000
 
 
 @app.get("/api/graph/nodes/{node_id:path}/files")
-def graph_node_files_list(node_id: str) -> dict[str, Any]:
+def graph_node_files_list(node_id: str, graph: str | None = Query(None)) -> dict[str, Any]:
     root = _require_root()
-    return {"links": list_file_links_for_node(root, node_id)}
+    return {"links": list_file_links_for_node(root, node_id, graph=graph)}
 
 
 @app.delete("/api/graph/nodes/{node_id:path}")
-def graph_nodes_delete(node_id: str) -> dict[str, Any]:
+def graph_nodes_delete(node_id: str, graph: str | None = Query(None)) -> dict[str, Any]:
     root = _require_root()
-    delete_concept_node(root, node_id)
+    delete_concept_node(root, node_id, graph=graph)
     return {"ok": True}
 
 
 @app.post("/api/graph/file-links")
-def graph_file_links_create(body: GraphFileLinkBody) -> dict[str, Any]:
+def graph_file_links_create(
+    body: GraphFileLinkBody,
+    graph: str | None = Query(None),
+) -> dict[str, Any]:
     root = _require_root()
     try:
-        link_id = attach_file_to_node(root, body.node_id, body.relative_path)
+        link_id = attach_file_to_node(root, body.node_id, body.relative_path, graph=graph)
         return {"ok": True, "link_id": link_id}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @app.delete("/api/graph/file-links/{link_id}")
-def graph_file_links_delete(link_id: str) -> dict[str, Any]:
+def graph_file_links_delete(link_id: str, graph: str | None = Query(None)) -> dict[str, Any]:
     root = _require_root()
-    detach_file_link(root, link_id)
+    detach_file_link(root, link_id, graph=graph)
     return {"ok": True}
 
 

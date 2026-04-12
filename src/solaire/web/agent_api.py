@@ -25,7 +25,7 @@ from solaire.agent_layer.cancel_signal import clear_cancel, request_cancel
 from solaire.agent_layer.orchestrator import iter_agent_turn_sse
 from solaire.agent_layer.skills import list_skills_public
 from solaire.agent_layer.session import create_session, delete_session, list_sessions, load_session
-from solaire.knowledge_forge import load_graph
+from solaire.knowledge_forge import list_graphs
 from solaire.web import state
 from solaire.web.result_service import list_exam_results
 
@@ -50,15 +50,18 @@ def _project_ctx(root: Path) -> dict[str, Any]:
     if td.is_dir():
         template_count = len(list(td.rglob("*.yaml")))
     try:
-        g = load_graph(root)
-        node_count = len(g.nodes)
+        graphs = list_graphs(root)
+        total_node_count = sum(g.get("node_count", 0) for g in graphs)
+        graph_subjects = [{"slug": g["slug"], "name": g["display_name"], "nodes": g["node_count"]} for g in graphs]
     except Exception:
-        node_count = 0
+        total_node_count = 0
+        graph_subjects = []
     return {
         "project_label": root.name,
         "exam_summary": exam_summary,
         "template_count": template_count,
-        "graph_node_count": node_count,
+        "graph_node_count": total_node_count,
+        "graph_subjects": graph_subjects,
     }
 
 
