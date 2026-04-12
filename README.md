@@ -20,6 +20,11 @@
 ```
 
 内置的 AI 智能助手贯穿各业务环节，将教师从重复事务中解放出来，回归教学设计与课堂互动。
+<img width="1916" height="1188" alt="image" src="https://github.com/user-attachments/assets/0b36f553-5948-432a-8042-ca76280ce6e3" />
+<img width="2559" height="1367" alt="image" src="https://github.com/user-attachments/assets/9f230013-6efd-4ce4-a530-d139f7ede158" />
+<img width="2559" height="1369" alt="image" src="https://github.com/user-attachments/assets/0d9629d5-0706-46ad-998d-e21d7fded856" />
+<img width="2559" height="1358" alt="image" src="https://github.com/user-attachments/assets/06e2ef28-a6a5-422e-98cc-c94ba2e50b04" />
+<img width="2559" height="1363" alt="image" src="https://github.com/user-attachments/assets/b2173185-61a7-4cdc-89f3-ca469a018113" />
 
 ## 功能概览
 
@@ -72,6 +77,16 @@
 
 
 > 其他平台支持正在规划中。
+
+## 未来计划
+
+- **扩展绘图**：三维图形、物理绘图、化学晶格、地理等高线等（社区版规划）
+- **证明验证器**：形式化验证基础数学推理 （社区版规划）
+- **教案与课件**：从教学目标自动生成教案与课堂素材（社区版规划）
+- **仿真画布**：简单物理场可视化仿真引擎 （商业版规划）
+- **教师智能总览与学生中心**：统一呈现教学进度、薄弱点与改进成效，学生档案、个性化学习路径（商业版规划）
+- **SaaS 部署**：多用户鉴权与云端服务（商业版规划）
+
 
 ## 本地编译
 
@@ -133,15 +148,6 @@ pixi run build-desktop
 ```
 
 产物位于 `src-tauri\target\release\bundle\msi\`。详细说明与常见问题见 [docs/desktop-build.md](docs/desktop-build.md)。
-
-## 未来计划
-
-- **扩展绘图**：三维图形、物理绘图、化学晶格、地理等高线等（社区版规划）
-- **证明验证器**：形式化验证基础数学推理 （社区版规划）
-- **教案与课件**：从教学目标自动生成教案与课堂素材（社区版规划）
-- **仿真画布**：简单物理场可视化仿真引擎 （商业版规划）
-- **教师智能总览与学生中心**：统一呈现教学进度、薄弱点与改进成效，学生档案、个性化学习路径（商业版规划）
-- **SaaS 部署**：多用户鉴权与云端服务（商业版规划）
 
 ## 贡献
 
