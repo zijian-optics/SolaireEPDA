@@ -374,39 +374,114 @@ export function encodeGraphNodePathSegment(nodeId: string): string {
   return nodeId.split("/").map(encodeURIComponent).join("/");
 }
 
+function graphQs(graph?: string | null): string {
+  return graph ? `?graph=${encodeURIComponent(graph)}` : "";
+}
+
+// --- Graph management (multi-graph) ---
+
+export type GraphInfo = {
+  slug: string;
+  display_name: string;
+  node_count: number;
+};
+
+export async function apiGraphListGraphs(): Promise<{ graphs: GraphInfo[] }> {
+  return apiGet<{ graphs: GraphInfo[] }>("/api/graph/graphs");
+}
+
+export async function apiGraphCreateGraph(body: {
+  display_name: string;
+  slug?: string | null;
+}): Promise<{ ok: boolean; slug: string }> {
+  return apiPost<{ ok: boolean; slug: string }>("/api/graph/graphs", body);
+}
+
+export async function apiGraphRenameGraph(
+  slug: string,
+  displayName: string,
+): Promise<{ ok: boolean }> {
+  return apiPut<{ ok: boolean }>(`/api/graph/graphs/${encodeURIComponent(slug)}`, {
+    display_name: displayName,
+  });
+}
+
+export async function apiGraphDeleteGraph(slug: string): Promise<{ ok: boolean }> {
+  return apiDelete<{ ok: boolean }>(`/api/graph/graphs/${encodeURIComponent(slug)}`);
+}
+
+// --- Nodes ---
+
 export async function apiGraphListNodes(
   nodeKind?: string,
+  graph?: string | null,
 ): Promise<{ nodes: any[]; kind_counts?: Record<string, number> }> {
-  const qs = nodeKind ? `?node_kind=${encodeURIComponent(nodeKind)}` : "";
-  return apiGet<{ nodes: any[]; kind_counts?: Record<string, number> }>(`/api/graph/nodes${qs}`);
+  const p = new URLSearchParams();
+  if (nodeKind) p.set("node_kind", nodeKind);
+  if (graph) p.set("graph", graph);
+  const qs = p.toString();
+  return apiGet<{ nodes: any[]; kind_counts?: Record<string, number> }>(`/api/graph/nodes${qs ? `?${qs}` : ""}`);
 }
 
-export async function apiGraphCreateNode(body: unknown): Promise<{ ok: boolean; node_id: string }> {
-  return apiPost<{ ok: boolean; node_id: string }>("/api/graph/nodes", body);
+export async function apiGraphCreateNode(
+  body: unknown,
+  graph?: string | null,
+): Promise<{ ok: boolean; node_id: string }> {
+  return apiPost<{ ok: boolean; node_id: string }>(`/api/graph/nodes${graphQs(graph)}`, body);
 }
 
-export async function apiGraphUpdateNode(nodeId: string, body: unknown): Promise<{ ok: boolean }> {
-  return apiPut<{ ok: boolean }>(`/api/graph/nodes/${encodeGraphNodePathSegment(nodeId)}`, body);
+export async function apiGraphUpdateNode(
+  nodeId: string,
+  body: unknown,
+  graph?: string | null,
+): Promise<{ ok: boolean }> {
+  return apiPut<{ ok: boolean }>(
+    `/api/graph/nodes/${encodeGraphNodePathSegment(nodeId)}${graphQs(graph)}`,
+    body,
+  );
 }
 
-export async function apiGraphDeleteNode(nodeId: string): Promise<{ ok: boolean }> {
-  return apiDelete<{ ok: boolean }>(`/api/graph/nodes/${encodeGraphNodePathSegment(nodeId)}`);
+export async function apiGraphDeleteNode(nodeId: string, graph?: string | null): Promise<{ ok: boolean }> {
+  return apiDelete<{ ok: boolean }>(
+    `/api/graph/nodes/${encodeGraphNodePathSegment(nodeId)}${graphQs(graph)}`,
+  );
 }
 
-export async function apiGraphCreateRelation(body: unknown): Promise<{ ok: boolean; relation_id: string }> {
-  return apiPost<{ ok: boolean; relation_id: string }>("/api/graph/relations", body);
+// --- Relations ---
+
+export async function apiGraphCreateRelation(
+  body: unknown,
+  graph?: string | null,
+): Promise<{ ok: boolean; relation_id: string }> {
+  return apiPost<{ ok: boolean; relation_id: string }>(`/api/graph/relations${graphQs(graph)}`, body);
 }
 
-export async function apiGraphCreateBinding(body: unknown): Promise<{ ok: boolean }> {
-  return apiPost<{ ok: boolean }>("/api/graph/bindings", body);
+export async function apiGraphUpdateRelation(
+  relationId: string,
+  body: { relation_type?: string; reverse?: boolean },
+  graph?: string | null,
+): Promise<{ ok: boolean }> {
+  return apiPut<{ ok: boolean }>(
+    `/api/graph/relations/${encodeURIComponent(relationId)}${graphQs(graph)}`,
+    body,
+  );
 }
 
-export async function apiGraphUnbindBinding(body: unknown): Promise<{ ok: boolean }> {
-  return apiPost<{ ok: boolean }>("/api/graph/bindings/unbind", body);
+export async function apiGraphCreateBinding(body: unknown, graph?: string | null): Promise<{ ok: boolean }> {
+  return apiPost<{ ok: boolean }>(`/api/graph/bindings${graphQs(graph)}`, body);
 }
 
-export async function apiGraphListQuestionsForNode(nodeId: string): Promise<{ questions: any[] }> {
-  return apiGet<{ questions: any[] }>(`/api/graph/nodes/${encodeGraphNodePathSegment(nodeId)}/questions`);
+export async function apiGraphUnbindBinding(body: unknown, graph?: string | null): Promise<{ ok: boolean }> {
+  return apiPost<{ ok: boolean }>(`/api/graph/bindings/unbind${graphQs(graph)}`, body);
+}
+
+export async function apiGraphListQuestionsForNode(
+  nodeId: string,
+  graph?: string | null,
+): Promise<{ questions: any[] }> {
+  return apiGet<{ questions: any[] }>(
+    `/api/graph/nodes/${encodeGraphNodePathSegment(nodeId)}/questions${graphQs(graph)}`,
+  );
 }
 
 export async function apiGraphQuestionNodes(
@@ -415,26 +490,29 @@ export async function apiGraphQuestionNodes(
   return apiGet(`/api/graph/question-nodes?qualified_id=${encodeURIComponent(qualifiedId)}`);
 }
 
-export async function apiGraphQuestionBindingsIndex(): Promise<{
+export async function apiGraphQuestionBindingsIndex(graph?: string | null): Promise<{
   index: Record<string, { id: string; canonical_name: string; node_kind: string }[]>;
 }> {
-  return apiGet("/api/graph/question-bindings-index");
+  return apiGet(`/api/graph/question-bindings-index${graphQs(graph)}`);
 }
 
 export async function apiGraphBindBatch(
   nodeId: string,
   qualifiedIds: string[],
+  graph?: string | null,
 ): Promise<{ added: number; skipped: number }> {
-  return apiPost(`/api/graph/nodes/${encodeGraphNodePathSegment(nodeId)}/bind-batch`, {
-    qualified_ids: qualifiedIds,
-  });
+  return apiPost(
+    `/api/graph/nodes/${encodeGraphNodePathSegment(nodeId)}/bind-batch${graphQs(graph)}`,
+    { qualified_ids: qualifiedIds },
+  );
 }
 
 export async function apiGraphUnbindBatch(
   nodeId: string,
   qualifiedIds: string[],
+  graph?: string | null,
 ): Promise<{ removed: number }> {
-  const path = `/api/graph/nodes/${encodeGraphNodePathSegment(nodeId)}/unbind-batch`;
+  const path = `/api/graph/nodes/${encodeGraphNodePathSegment(nodeId)}/unbind-batch${graphQs(graph)}`;
   const r = await fetchWithLog(path, {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
@@ -443,12 +521,17 @@ export async function apiGraphUnbindBatch(
   return r.json() as Promise<{ removed: number }>;
 }
 
-export async function apiGraphListRelations(): Promise<{ relations: any[] }> {
-  return apiGet<{ relations: any[] }>("/api/graph/relations");
+export async function apiGraphListRelations(graph?: string | null): Promise<{ relations: any[] }> {
+  return apiGet<{ relations: any[] }>(`/api/graph/relations${graphQs(graph)}`);
 }
 
-export async function apiGraphDeleteRelation(relationId: string): Promise<{ ok: boolean }> {
-  return apiDelete<{ ok: boolean }>(`/api/graph/relations/${encodeURIComponent(relationId)}`);
+export async function apiGraphDeleteRelation(
+  relationId: string,
+  graph?: string | null,
+): Promise<{ ok: boolean }> {
+  return apiDelete<{ ok: boolean }>(
+    `/api/graph/relations/${encodeURIComponent(relationId)}${graphQs(graph)}`,
+  );
 }
 
 export async function apiGraphGetTaxonomy(): Promise<{ subjects: string[]; levels: string[] }> {
@@ -467,16 +550,24 @@ export async function apiGraphListResourceFiles(q: string, limit?: number): Prom
   return apiGet<{ files: { path: string; size: number }[] }>(`/api/graph/resource-files${qs ? `?${qs}` : ""}`);
 }
 
-export async function apiGraphListNodeFiles(nodeId: string): Promise<{ links: { id: string; node_id: string; relative_path: string }[] }> {
-  return apiGet(`/api/graph/nodes/${encodeGraphNodePathSegment(nodeId)}/files`);
+export async function apiGraphListNodeFiles(
+  nodeId: string,
+  graph?: string | null,
+): Promise<{ links: { id: string; node_id: string; relative_path: string }[] }> {
+  return apiGet(`/api/graph/nodes/${encodeGraphNodePathSegment(nodeId)}/files${graphQs(graph)}`);
 }
 
-export async function apiGraphAttachFile(body: { node_id: string; relative_path: string }): Promise<{ ok: boolean; link_id: string }> {
-  return apiPost<{ ok: boolean; link_id: string }>("/api/graph/file-links", body);
+export async function apiGraphAttachFile(
+  body: { node_id: string; relative_path: string },
+  graph?: string | null,
+): Promise<{ ok: boolean; link_id: string }> {
+  return apiPost<{ ok: boolean; link_id: string }>(`/api/graph/file-links${graphQs(graph)}`, body);
 }
 
-export async function apiGraphDetachFile(linkId: string): Promise<{ ok: boolean }> {
-  return apiDelete<{ ok: boolean }>(`/api/graph/file-links/${encodeURIComponent(linkId)}`);
+export async function apiGraphDetachFile(linkId: string, graph?: string | null): Promise<{ ok: boolean }> {
+  return apiDelete<{ ok: boolean }>(
+    `/api/graph/file-links/${encodeURIComponent(linkId)}${graphQs(graph)}`,
+  );
 }
 
 export async function apiGraphUploadMaterial(file: File): Promise<{ ok: boolean; relative_path: string }> {
