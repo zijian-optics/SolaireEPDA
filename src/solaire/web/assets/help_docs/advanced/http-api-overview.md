@@ -22,6 +22,8 @@
 | 方法 | 路径 | 作用 |
 |------|------|------|
 | GET | `/api/bank/subjects`、`/api/bank/collections` | 科目、题集列表 |
+| POST | `/api/bank/rename-collection` | 题集目录重命名/移动（JSON：`namespace`、`new_subject`、`new_collection`） |
+| POST | `/api/bank/delete-collection` | 删除整个题集目录（JSON：`namespace`） |
 | GET | `/api/bank/items` | 题目列表 |
 | GET | `/api/bank/items/{qualified_id}` | 单题详情（路径需编码） |
 | PUT/DELETE | `/api/bank/items/{qualified_id}` | 更新/删除 |

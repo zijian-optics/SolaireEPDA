@@ -233,6 +233,22 @@
 
 **结果要点**：TypeScript 通过。
 
+## [2026-04-12] 题库 | 题集改名/删除接口路径与错误码
+
+**改动摘要**：`POST /api/bank/collections/rename|delete` 改为 `POST /api/bank/rename-collection`、`POST /api/bank/delete-collection`（与 `export-bundle` 同级，避免与 `GET …/collections` 组合时被误判）；题集目录不存在时由 **404 改为 400** 及明确 `detail`，与「路由未注册」区分。
+
+**验证命令**：`pixi run pytest tests/test_bank_collection_rename_delete.py -q`；`cd web && npx tsc --noEmit`。
+
+**结果要点**：4 passed；TypeScript 通过。
+
+## [2026-04-12] 题库 | 题集改名/删除 API 与顶栏题集管理窗
+
+**改动摘要**：`bank_service` 增加 `rename_question_collection`、`delete_question_collection`；`POST /api/bank/collections/rename|delete`；`BankWorkspace` 顶栏「题库管理」打开弹窗列表题集，支持改名与删除（排除 `main`）；重命名后同步筛选与已选题号。开发者文档 `http-api-overview.md` 补充路由。新增 `tests/test_bank_collection_rename_delete.py`。
+
+**验证命令**：`pixi run pytest tests/test_bank_collection_rename_delete.py tests/test_bank_service_groups.py -q`；`cd web && npx tsc --noEmit`。
+
+**结果要点**：8 passed；TypeScript 通过。
+
 ## [2026-04-12] 前端 | 顶栏工具栏切换页刷新与占位高度
 
 **改动摘要**：根因：组卷 `ComposeRoute` 在非组卷页仍挂载，`ComposeWorkspace` 继续 `setToolBar` 会覆盖当前页工具栏。修复：`ComposeRoute`/`ComposeWorkspace` 增加 `toolBarActive={page === "compose"}`，非激活时不再注册工具栏并在 `toolBarActive` 为 false 时 `clearToolBar`；`ToolBar` 在 `left`/`right` 均为空时仍渲染 `min-h-[2.5rem]` 占位条，避免高度跳动。
@@ -288,3 +304,27 @@
 **验证命令**：`cd web; npx tsc --noEmit`。
 
 **结果要点**：TypeScript 通过。
+
+## [2026-04-12] 调试 | 题集改名 404 与 dev-desktop 后端拉起方式
+
+**改动摘要**：`debug-4b9610.log` 仅有 H1（路由已注册 `POST /api/bank/rename-collection`），无 H5/H6，说明失败请求未进入当前仓库 Uvicorn 实例或改名请求未打到该进程。将 `scripts/dev-desktop.ps1` 中 `Start-Process python -m uvicorn ...` 改为 **`pixi run dev-backend`**（工作目录为仓库根），并在启动 Vite 前轮询 `/api/health`（`exam_workspace_layout=two_level`）最多约 45s。`wiki/modules/dev-environment.md` 补充说明。
+
+**验证命令**：待用户 `pixi run dev` 复现后查看 `debug-4b9610.log` 是否出现 H6/H5 及改名是否仍 404。
+
+**结果要点**：根因假说为 Tauri `beforeDevCommand` 子进程误用非 Pixi 的 `python`；修复对齐 `pixi.toml` 的 dev-backend 命令行与环境。
+
+## [2026-04-12] 调试 | NDJSON 镜像与 H12 范围
+
+**改动摘要**：用户反馈 `pixi run dev` 下改名后仓库根 `debug-4b9610.log` 仍无任何行（HF 依赖 7531 ingest 未启动时本就不会出现）。`_agent_debug` 改为同时追加 **`%TEMP%/solaire-debug-4b9610.log`**；H1 增加 `debug_log_repo` / `debug_log_mirror`；题库中间件改为注册在 CORS 之前，且 H12 覆盖「`POST`+`/api/bank` 前缀」或路径含 `rename-collection`/`delete-collection`（含 OPTIONS）。
+
+**验证命令**：`pixi run dev` 后查看两处日志文件是否出现 H1/H12。
+
+**结果要点**：区分「日志路径不可见」与「请求未进本进程」；HF 不作为唯一证据。
+
+## [2026-04-12] 调试收尾 | 移除题集改名排查埋点
+
+**改动摘要**：题集改名问题已确认修复；删除 `app.py` 中 `_agent_debug`、启动路由 dump、题库 HTTP 中间件、`bank_collection_rename` 入口日志及 `Request` 导入；删除 `BankWorkspace.tsx` 中发往 7531 ingest 的 fetch；`wiki/modules/dev-environment.md` 去掉临时 NDJSON 说明；删除仓库根 `debug-4b9610.log`。保留此前对 `scripts/dev-desktop.ps1`（`pixi run dev-backend` + health 等待）的修复。
+
+**验证命令**：`cd web; npx tsc --noEmit`（可选）。
+
+**结果要点**：代码恢复为无调试会话硬编码；运行时证据改由常规日志与健康检查承担。

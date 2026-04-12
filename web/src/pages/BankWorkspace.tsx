@@ -75,6 +75,13 @@ type BankListItem = {
   group_material?: string | null;
 };
 
+type BankCollectionRow = {
+  id: string;
+  label: string;
+  subject: string;
+  collection: string;
+};
+
 export function BankWorkspace({
   onError,
   onOpenGraphNode,
@@ -84,7 +91,7 @@ export function BankWorkspace({
 }) {
   const { t } = useTranslation(["bank", "lib", "common"]);
   const [items, setItems] = useState<BankListItem[]>([]);
-  const [collections, setCollections] = useState<{ id: string; label: string }[]>([]);
+  const [collections, setCollections] = useState<BankCollectionRow[]>([]);
   const [subjects, setSubjects] = useState<string[]>([]);
   const [filterSubject, setFilterSubject] = useState<string>("__all__");
   const [filterCollection, setFilterCollection] = useState<string>("__all__");
@@ -109,6 +116,10 @@ export function BankWorkspace({
   const bankNewQuestionRef = useRef<HTMLDivElement | null>(null);
   const [bankImportOpen, setBankImportOpen] = useState(false);
   const bankImportRef = useRef<HTMLDivElement | null>(null);
+  const [bankManageOpen, setBankManageOpen] = useState(false);
+  const [manageEditId, setManageEditId] = useState<string | null>(null);
+  const [manageDraftSubject, setManageDraftSubject] = useState("");
+  const [manageDraftCollection, setManageDraftCollection] = useState("");
   const [newSubject, setNewSubject] = useState(() => i18n.t("bank:defaultSubject"));
   const [newCollection, setNewCollection] = useState("main");
   const [newId, setNewId] = useState("new_question_001");
@@ -346,11 +357,21 @@ export function BankWorkspace({
   const loadList = useCallback(async () => {
     onError(null);
     const [c, it, sub] = await Promise.all([
-      apiGet<{ collections: { id: string; label: string }[] }>("/api/bank/collections"),
+      apiGet<{
+        collections: { id: string; label: string; subject?: string; collection?: string }[];
+      }>("/api/bank/collections"),
       apiGet<{ items: BankListItem[] }>("/api/bank/items"),
       apiGet<{ subjects: string[] }>("/api/bank/subjects"),
     ]);
-    setCollections(c.collections.map((x) => ({ id: x.id, label: x.label })));
+    setCollections(
+      c.collections.map((x) => {
+        const parts = x.id.split("/");
+        const subj = x.subject ?? parts[0] ?? "";
+        const coll =
+          x.collection ?? (parts.length > 1 ? parts.slice(1).join("/") : parts[0] ?? "");
+        return { id: x.id, label: x.label, subject: subj, collection: coll };
+      }),
+    );
     setItems(it.items);
     setSubjects(sub.subjects);
     try {
@@ -364,6 +385,18 @@ export function BankWorkspace({
   useEffect(() => {
     void loadList().catch((e: Error) => onError(e.message));
   }, [loadList, onError]);
+
+  useEffect(() => {
+    if (!bankManageOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setBankManageOpen(false);
+        setManageEditId(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [bankManageOpen]);
 
   const collectionOptions = useMemo(() => {
     if (filterSubject === "__all__") {
@@ -820,6 +853,64 @@ export function BankWorkspace({
     }
   }
 
+  async function applyManageRename() {
+    if (!manageEditId) {
+      return;
+    }
+    const oldNs = manageEditId;
+    const newSub = manageDraftSubject.trim();
+    const newColl = manageDraftCollection.trim();
+    if (!newSub || !newColl) {
+      onError(t("manageNameEmpty"));
+      return;
+    }
+    setBusy(true);
+    onError(null);
+    try {
+      const r = await apiPost<{ ok: boolean; namespace: string }>("/api/bank/rename-collection", {
+        namespace: oldNs,
+        new_subject: newSub,
+        new_collection: newColl,
+      });
+      const newNs = r.namespace;
+      const prefix = `${oldNs}/`;
+      const mapQid = (qid: string) => (qid.startsWith(prefix) ? `${newNs}/${qid.slice(prefix.length)}` : qid);
+      setSelectedId((cur) => (cur ? mapQid(cur) : null));
+      setOpenTabs((tabs) => tabs.map(mapQid));
+      if (filterCollection === oldNs) {
+        setFilterCollection(newNs);
+      }
+      setManageEditId(null);
+      await loadList();
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeCollectionRow(namespace: string, label: string) {
+    if (!window.confirm(t("manageDeleteConfirm", { name: label }))) {
+      return;
+    }
+    setBusy(true);
+    onError(null);
+    try {
+      await apiPost("/api/bank/delete-collection", { namespace });
+      const prefix = `${namespace}/`;
+      setSelectedId((cur) => (cur && (cur.startsWith(prefix) || cur === namespace) ? null : cur));
+      setOpenTabs((tabs) => tabs.filter((id) => id !== namespace && !id.startsWith(prefix)));
+      if (filterCollection === namespace) {
+        setFilterCollection("__all__");
+      }
+      await loadList();
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function removeQuestion() {
     if (!detail || !selectedId) {
       return;
@@ -1265,6 +1356,19 @@ export function BankWorkspace({
         >
           {t("exportBundle")}
         </button>
+        <button
+          type="button"
+          className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+          disabled={busy}
+          onClick={() => {
+            setBankFilterMenuOpen(false);
+            setBankNewQuestionOpen(false);
+            setBankImportOpen(false);
+            setBankManageOpen(true);
+          }}
+        >
+          {t("title")}
+        </button>
       </div>
     );
     const right: ReactNode =
@@ -1681,6 +1785,122 @@ export function BankWorkspace({
         </div>
       </div>
     )}
+    {bankManageOpen ? (
+      <div
+        className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/40 p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="bank-manage-title"
+        onMouseDown={(e) => {
+          if (e.target === e.currentTarget) {
+            setBankManageOpen(false);
+            setManageEditId(null);
+          }
+        }}
+      >
+        <div
+          className="flex max-h-[min(90vh,40rem)] w-full max-w-lg flex-col rounded-lg border border-slate-200 bg-white shadow-xl"
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-4 py-2.5">
+            <h2 id="bank-manage-title" className="text-sm font-semibold text-slate-900">
+              {t("manageModalTitle")}
+            </h2>
+            <button
+              type="button"
+              className="rounded px-2 py-1 text-xs text-slate-600 hover:bg-slate-100"
+              onClick={() => {
+                setBankManageOpen(false);
+                setManageEditId(null);
+              }}
+            >
+              {t("common:close")}
+            </button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto p-3">
+            <p className="text-xs leading-relaxed text-slate-500">{t("manageModalHint")}</p>
+            {collections.filter((c) => c.id !== "main").length === 0 ? (
+              <p className="mt-4 text-center text-sm text-slate-500">{t("manageEmpty")}</p>
+            ) : null}
+            <ul className="mt-3 space-y-2">
+              {collections
+                .filter((c) => c.id !== "main")
+                .map((c) => (
+                  <li key={c.id} className="rounded-lg border border-slate-200 bg-slate-50/80 p-2.5">
+                    {manageEditId === c.id ? (
+                      <div className="space-y-2">
+                        <label className="block text-[11px] font-medium text-slate-600">
+                          {t("manageSubjectField")}
+                          <input
+                            className="mt-0.5 w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm"
+                            value={manageDraftSubject}
+                            onChange={(e) => setManageDraftSubject(e.target.value)}
+                          />
+                        </label>
+                        <label className="block text-[11px] font-medium text-slate-600">
+                          {t("manageCollectionField")}
+                          <input
+                            className="mt-0.5 w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm"
+                            value={manageDraftCollection}
+                            onChange={(e) => setManageDraftCollection(e.target.value)}
+                          />
+                        </label>
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          <button
+                            type="button"
+                            className="rounded-md bg-slate-900 px-2.5 py-1 text-xs font-medium text-white disabled:opacity-50"
+                            disabled={busy}
+                            onClick={() => void applyManageRename()}
+                          >
+                            {t("manageSave")}
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50"
+                            disabled={busy}
+                            onClick={() => setManageEditId(null)}
+                          >
+                            {t("manageCancel")}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-medium text-slate-800">{c.label}</p>
+                          <p className="mt-0.5 break-all font-mono text-[10px] text-slate-500">{c.id}</p>
+                        </div>
+                        <div className="flex shrink-0 flex-wrap gap-1.5">
+                          <button
+                            type="button"
+                            className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-800 hover:bg-slate-100 disabled:opacity-50"
+                            disabled={busy}
+                            onClick={() => {
+                              setManageEditId(c.id);
+                              setManageDraftSubject(c.subject);
+                              setManageDraftCollection(c.collection);
+                            }}
+                          >
+                            {t("manageEdit")}
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-md border border-red-200 bg-white px-2 py-1 text-[11px] font-medium text-red-800 hover:bg-red-50 disabled:opacity-50"
+                            disabled={busy}
+                            onClick={() => void removeCollectionRow(c.id, c.label)}
+                          >
+                            {t("manageDelete")}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </li>
+                ))}
+            </ul>
+          </div>
+        </div>
+      </div>
+    ) : null}
     <MathInsertOverlay
       open={mathOpen}
       onClose={() => {

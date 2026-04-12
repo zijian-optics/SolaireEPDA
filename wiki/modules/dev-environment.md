@@ -15,7 +15,7 @@ pixi run bootstrap
 
 | 命令 | 说明 |
 |------|------|
-| `pixi run dev` | 一键启动：后端（默认 `127.0.0.1:8000`）+ 前端 Vite（`localhost:5173`）+ `tauri dev`。串联由 Tauri 的 `beforeDevCommand`（如 `scripts/dev-desktop.ps1`）完成。 |
+| `pixi run dev` | 一键启动：后端（默认 `127.0.0.1:8000`）+ 前端 Vite（`localhost:5173`）+ `tauri dev`。串联由 Tauri 的 `beforeDevCommand`（`scripts/dev-desktop.ps1`）完成；脚本内通过 **`pixi run dev-backend`** 拉起 Uvicorn，与单独开终端跑后端一致，避免子进程误用系统 Python 导致路由/行为与仓库不一致。 |
 | `pixi run dev-backend` | 仅后端：`uvicorn solaire.web.app:app --app-dir src --reload`。 |
 | `pixi run dev-frontend` | 仅前端开发服务器。 |
 

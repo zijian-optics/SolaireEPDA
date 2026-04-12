@@ -66,12 +66,14 @@ from solaire.edu_analysis.diagnosis import (
 from solaire.web.bank_service import (
     collections_list,
     delete_question,
+    delete_question_collection,
     expand_question_for_web,
     get_question_detail,
     import_merged_yaml,
     list_bank_entries,
     list_subjects,
     question_exists,
+    rename_question_collection,
     save_bank_record,
     save_question,
     upload_bank_image,
@@ -264,6 +266,16 @@ class BankCreateBody(BaseModel):
     subject: str = Field(..., min_length=1)
     collection: str = Field(..., min_length=1)
     question: BankRecordBody
+
+
+class BankCollectionRenameBody(BaseModel):
+    namespace: str = Field(..., min_length=1, description="当前题集标识，形如 科目/题集")
+    new_subject: str = Field(..., min_length=1, description="新科目目录名")
+    new_collection: str = Field(..., min_length=1, description="新题集目录名")
+
+
+class BankCollectionDeleteBody(BaseModel):
+    namespace: str = Field(..., min_length=1, description="要删除的题集标识")
 
 
 class BankRawFileBody(BaseModel):
@@ -1039,6 +1051,35 @@ def bank_collections() -> dict[str, Any]:
     root = _require_root()
     ensure_probe_list_yaml(root)
     return {"collections": collections_list(root)}
+
+
+@app.post("/api/bank/rename-collection")
+def bank_collection_rename(body: BankCollectionRenameBody) -> dict[str, Any]:
+    root = _require_root()
+    try:
+        r = rename_question_collection(
+            root,
+            namespace=body.namespace.strip(),
+            new_subject=body.new_subject,
+            new_collection=body.new_collection,
+        )
+        return {"ok": True, **r}
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.post("/api/bank/delete-collection")
+def bank_collection_delete(body: BankCollectionDeleteBody) -> dict[str, Any]:
+    root = _require_root()
+    try:
+        delete_question_collection(root, body.namespace.strip())
+        return {"ok": True}
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @app.get("/api/bank/items")

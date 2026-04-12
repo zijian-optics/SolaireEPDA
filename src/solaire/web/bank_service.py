@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -23,8 +24,9 @@ from solaire.exam_compiler.facade import (
     strip_primebrush_fences_for_preview,
 )
 
+from solaire.web.exam_service import ensure_probe_list_yaml
 from solaire.web.library_discovery import discover_question_library_refs, library_root_for_namespace, split_qualified_id
-from solaire.web.security import assert_within_project
+from solaire.web.security import assert_within_project, safe_filename_component
 
 
 def _rel_to_resource(project_root: Path, path: Path) -> str:
@@ -449,6 +451,52 @@ def collections_list(project_root: Path) -> list[dict[str, str]]:
             }
         )
     return out
+
+
+def rename_question_collection(
+    project_root: Path,
+    *,
+    namespace: str,
+    new_subject: str,
+    new_collection: str,
+) -> dict[str, str]:
+    """将 ``resource/<科目>/<题集>/`` 目录重命名或移动到新科目+题集目录名（磁盘目录名）。"""
+    ns = namespace.strip()
+    if ns == "main":
+        raise ValueError("不能重命名默认题库根目录")
+    old_root = library_root_for_namespace(project_root, ns)
+    assert_within_project(project_root, old_root)
+    if not old_root.is_dir():
+        raise FileNotFoundError(f"题集不存在: {ns}")
+    subj = safe_filename_component(new_subject)
+    coll = safe_filename_component(new_collection)
+    if not subj.strip() or not coll.strip():
+        raise ValueError("科目与题集名称不能为空")
+    resource = (project_root / "resource").resolve()
+    new_root = (resource / subj / coll).resolve()
+    assert_within_project(project_root, new_root)
+    if new_root == old_root:
+        return {"namespace": ns, "changed": False}
+    if new_root.exists():
+        raise ValueError("目标位置已存在同名题集")
+    new_root.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(old_root), str(new_root))
+    ensure_probe_list_yaml(project_root)
+    new_ns = f"{subj}/{coll}"
+    return {"namespace": new_ns, "changed": True}
+
+
+def delete_question_collection(project_root: Path, namespace: str) -> None:
+    """删除整个题集目录（``resource/<科目>/<题集>/``）。"""
+    ns = namespace.strip()
+    if ns == "main":
+        raise ValueError("不能删除默认题库根目录")
+    root = library_root_for_namespace(project_root, ns)
+    assert_within_project(project_root, root)
+    if not root.is_dir():
+        raise FileNotFoundError(f"题集不存在: {ns}")
+    shutil.rmtree(root)
+    ensure_probe_list_yaml(project_root)
 
 
 def list_subjects(project_root: Path) -> list[str]:
