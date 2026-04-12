@@ -1,0 +1,126 @@
+name: Build & Upload MSI
+
+on:
+  release:
+    types: [published]
+
+  # 允许手动触发（调试用）
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Git tag to build (e.g. v0.2.0)"
+        required: false
+
+permissions:
+  contents: write          # 上传 release assets 需要写权限
+
+env:
+  PYTHON_EMBED_VERSION: "3.12.7"
+
+jobs:
+  build-msi:
+    runs-on: windows-latest
+
+    steps:
+      # ── 拉取代码 ──────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── Rust 工具链 ───────────────────────────────────────
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock', 'src-tauri/Cargo.toml') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      # ── Node.js ───────────────────────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+
+      # ── Python（用于嵌入式运行时构建阶段的 pip install）──
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # ── 安装 maturin（编译 PyO3 Rust 扩展）───────────────
+      - name: Install maturin
+        run: pip install maturin
+
+      # ── 安装根级 npm 依赖（tauri-cli）────────────────────
+      - name: Install root npm deps
+        run: npm ci
+
+      # ── 安装前端依赖并构建 ────────────────────────────────
+      - name: Install & build frontend
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      # ── 编译 Rust 扩展（primebrush-pyo3）─────────────────
+      - name: Build primebrush-pyo3 (maturin)
+        working-directory: primebrush-rs
+        run: maturin build -m crates/primebrush-pyo3/Cargo.toml --release
+        continue-on-error: true
+
+      # ── 构建嵌入式 Python 运行时 ──────────────────────────
+      - name: Stage embedded Python runtime
+        shell: pwsh
+        run: |
+          .\scripts\stage-python-runtime.ps1 -Force
+
+      # ── 预下载 WiX 工具 ──────────────────────────────────
+      - name: Prepare WiX tools
+        shell: pwsh
+        run: |
+          .\scripts\prepare-wix-tools.ps1
+
+      # ── Tauri 打包生成 MSI ────────────────────────────────
+      - name: Build Tauri MSI
+        run: npm run tauri:build
+
+      # ── 定位产物 ──────────────────────────────────────────
+      - name: Locate MSI artifact
+        id: find_msi
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem -Path src-tauri/target/release/bundle/msi -Filter "*.msi" -Recurse | Select-Object -First 1
+          if (-not $msi) {
+            Write-Error "No MSI found under src-tauri/target/release/bundle/msi"
+            exit 1
+          }
+          Write-Host "Found MSI: $($msi.FullName)"
+          "msi_path=$($msi.FullName)" >> $env:GITHUB_OUTPUT
+          "msi_name=$($msi.Name)" >> $env:GITHUB_OUTPUT
+
+      # ── 上传为 workflow artifact（即使非 release 也可下载）
+      - name: Upload MSI as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SolEdu-MSI
+          path: ${{ steps.find_msi.outputs.msi_path }}
+          retention-days: 30
+
+      # ── 附加到 GitHub Release ─────────────────────────────
+      - name: Attach MSI to GitHub Release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >
+          gh release upload "${{ github.event.release.tag_name }}"
+          "${{ steps.find_msi.outputs.msi_path }}"
+          --clobber

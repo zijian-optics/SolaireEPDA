@@ -472,3 +472,11 @@
 **验证命令**：`cd web; npx tsc --noEmit`（通过）。
 
 **结果要点**：反复点「新对话」不会在历史列表中增加空会话。
+
+## [2026-04-13] CI | GitHub Actions 发布时自动构建 MSI
+
+**改动摘要**：新增 `.github/workflows/release-msi.yml`；触发条件为 `release.published` 与手动 `workflow_dispatch`；在 `windows-latest` runner 上安装 Rust / Node 20 / Python 3.12 / maturin，执行前端构建、嵌入式 Python 运行时打包、WiX 预下载、`npm run tauri:build` 生成 MSI，并通过 `gh release upload` 附加到对应 Release。
+
+**验证命令**：文件结构审查。
+
+**结果要点**：发布 GitHub Release 后自动编译并上传 MSI 安装包。
