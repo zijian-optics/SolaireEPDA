@@ -233,6 +233,22 @@
 
 **结果要点**：TypeScript 通过。
 
+## [2026-04-12] 题库 | 列表项题号换行与排版
+
+**改动摘要**：`BankWorkspace` 左侧题目列表：题型/题组标签与全限定题号同一行 `flex` 排列，题号 `min-w-0 flex-1 break-all` 可换行；`KatexPlainPreview` 置于下一行独立块；按钮增加 `min-w-0` 以利窄栏收缩。
+
+**验证命令**：`cd web; npx tsc --noEmit`。
+
+**结果要点**：TypeScript 通过。
+
+## [2026-04-12] 题库 | 导入并入顶栏「导入题库」
+
+**改动摘要**：`BankWorkspace` 侧栏「导入题目」`details` 移除；顶栏原「选择文件并导入」改为「导入题库」下拉（展示 `importSummaryHint`、格式说明、导入到科目/题集、选择文件、粘贴导入）；与筛选/新建互斥；文件或粘贴导入成功后收起；`pickAndImport` 键删除，新增 `importToolbar`、`importChooseFile`；空列表提示改为指向顶栏。
+
+**验证命令**：`cd web; npx tsc --noEmit`。
+
+**结果要点**：TypeScript 通过。
+
 ## [2026-04-12] 题库 | 新建题目并入顶栏下拉
 
 **改动摘要**：`BankWorkspace` 删除侧栏 `details#bank-new-question`；顶栏「新建题目」改为与筛选类似的浮层（科目/题集/题号/题型、题组附加项、创建按钮），与「筛选条件」互斥展开；`pointerdown` 外部关闭与 Escape；创建成功后自动收起。

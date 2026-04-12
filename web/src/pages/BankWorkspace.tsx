@@ -107,6 +107,8 @@ export function BankWorkspace({
   const bankFilterDropdownRef = useRef<HTMLDivElement | null>(null);
   const [bankNewQuestionOpen, setBankNewQuestionOpen] = useState(false);
   const bankNewQuestionRef = useRef<HTMLDivElement | null>(null);
+  const [bankImportOpen, setBankImportOpen] = useState(false);
+  const bankImportRef = useRef<HTMLDivElement | null>(null);
   const [newSubject, setNewSubject] = useState(() => i18n.t("bank:defaultSubject"));
   const [newCollection, setNewCollection] = useState("main");
   const [newId, setNewId] = useState("new_question_001");
@@ -458,6 +460,25 @@ export function BankWorkspace({
     };
   }, [bankNewQuestionOpen]);
 
+  useEffect(() => {
+    if (!bankImportOpen) return;
+    const root = bankImportRef.current;
+    if (!root) return;
+    const onPointerDownCapture = (e: PointerEvent) => {
+      if (e.composedPath().includes(root)) return;
+      setBankImportOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDownCapture, true);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setBankImportOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDownCapture, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [bankImportOpen]);
+
   /** 导入目标科目：接口科目 + 列表中已出现的科目 */
   const importSubjectList = useMemo(() => {
     const fromItems = [...new Set(items.map((i) => i.subject).filter(Boolean) as string[])];
@@ -733,6 +754,7 @@ export function BankWorkspace({
       });
       setImportYaml("");
       await loadList();
+      setBankImportOpen(false);
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -762,6 +784,7 @@ export function BankWorkspace({
           );
         }
         await loadList();
+        setBankImportOpen(false);
       } else if (name.endsWith(".yaml") || name.endsWith(".yml")) {
         const text = await f.text();
         await apiPost("/api/bank/import", {
@@ -770,6 +793,7 @@ export function BankWorkspace({
           target_collection: importTarget.trim() || "imported",
         });
         await loadList();
+        setBankImportOpen(false);
       } else {
         onError(t("errors.pickYamlZip"));
       }
@@ -909,6 +933,7 @@ export function BankWorkspace({
             aria-haspopup="dialog"
             onClick={() => {
               setBankNewQuestionOpen(false);
+              setBankImportOpen(false);
               setBankFilterMenuOpen((v) => !v);
             }}
           >
@@ -1007,6 +1032,7 @@ export function BankWorkspace({
             aria-haspopup="dialog"
             onClick={() => {
               setBankFilterMenuOpen(false);
+              setBankImportOpen(false);
               setBankNewQuestionOpen((v) => !v);
             }}
           >
@@ -1107,14 +1133,129 @@ export function BankWorkspace({
             </div>
           ) : null}
         </div>
-        <button
-          type="button"
-          className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-          disabled={busy}
-          onClick={() => importFileRef.current?.click()}
-        >
-          {t("pickAndImport")}
-        </button>
+        <div className="relative shrink-0" ref={bankImportRef}>
+          <button
+            type="button"
+            className={cn(
+              "flex max-w-[min(100vw-8rem,22rem)] items-center gap-2 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-left text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50",
+              bankImportOpen && "border-slate-400 bg-slate-100",
+            )}
+            disabled={busy}
+            aria-expanded={bankImportOpen}
+            aria-haspopup="dialog"
+            onClick={() => {
+              setBankFilterMenuOpen(false);
+              setBankNewQuestionOpen(false);
+              setBankImportOpen((v) => !v);
+            }}
+          >
+            <span className="shrink-0">{t("importToolbar")}</span>
+            <span className="flex min-w-0 flex-1 items-center justify-end gap-1">
+              <span className="truncate text-[10px] font-normal text-slate-500">{importSummaryHint}</span>
+              <ChevronDown
+                className={cn(
+                  "h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-200",
+                  bankImportOpen && "rotate-180",
+                )}
+                aria-hidden
+              />
+            </span>
+          </button>
+          {bankImportOpen ? (
+            <div
+              className="absolute left-0 top-full z-[100] mt-1 w-80 max-h-[min(85vh,32rem)] overflow-y-auto rounded-md border border-slate-200 bg-white p-2 shadow-lg"
+              role="dialog"
+              aria-label={t("importToolbar")}
+            >
+              <p className="text-[10px] leading-snug text-slate-500">{t("importFormats")}</p>
+              <label className="mt-2 block text-[11px] font-medium text-slate-600">
+                {t("targetSubject")}
+                {importSubjectList.length > 0 ? (
+                  <div className="mt-0.5 space-y-1">
+                    <select
+                      className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm"
+                      value={importSubjectSelectValue}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (v === "__custom__") {
+                          setImportSubject("");
+                        } else {
+                          setImportSubject(v);
+                        }
+                      }}
+                    >
+                      {importSubjectList.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                      <option value="__custom__">{t("otherSubject")}</option>
+                    </select>
+                    {importSubjectSelectValue === "__custom__" && (
+                      <input
+                        className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                        value={importSubject}
+                        onChange={(e) => setImportSubject(e.target.value)}
+                        placeholder={t("folderNamePh")}
+                      />
+                    )}
+                  </div>
+                ) : (
+                  <input
+                    className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                    value={importSubject}
+                    onChange={(e) => setImportSubject(e.target.value)}
+                    placeholder={t("folderNamePh")}
+                  />
+                )}
+              </label>
+              <label className="mt-2 block text-[11px] font-medium text-slate-600">
+                {t("targetCollection")}
+                <input
+                  className="mt-0.5 w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm"
+                  value={importTarget}
+                  onChange={(e) => setImportTarget(e.target.value)}
+                  placeholder={t("targetCollectionPh")}
+                />
+              </label>
+              <input
+                ref={importFileRef}
+                type="file"
+                accept=".yaml,.yml,.zip,application/zip,application/x-yaml,text/yaml"
+                className="hidden"
+                aria-hidden
+                onChange={(e) => void doImportFromFile(e)}
+              />
+              <button
+                type="button"
+                className="mt-2 w-full rounded-md bg-slate-900 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                disabled={busy}
+                onClick={() => importFileRef.current?.click()}
+              >
+                {t("importChooseFile")}
+              </button>
+              <details className="mt-2 rounded border border-slate-200 bg-slate-50 p-2">
+                <summary className="cursor-pointer text-[11px] font-medium text-slate-700">{t("pasteYaml")}</summary>
+                <p className="mt-1 text-[10px] text-slate-500">{t("pasteYamlHint")}</p>
+                <textarea
+                  className="mt-2 w-full rounded border border-slate-300 bg-white font-mono text-xs"
+                  rows={5}
+                  placeholder={t("pasteYamlTextareaPh")}
+                  value={importYaml}
+                  onChange={(e) => setImportYaml(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="mt-2 w-full rounded-md border border-slate-800 bg-slate-50 py-1.5 text-xs font-medium text-slate-800 disabled:opacity-50"
+                  disabled={busy || !importYaml.trim()}
+                  onClick={() => void doImport()}
+                >
+                  {t("importToCollection")}
+                </button>
+              </details>
+            </div>
+          ) : null}
+        </div>
         <button
           type="button"
           className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
@@ -1174,6 +1315,13 @@ export function BankWorkspace({
     newType,
     newGroupUnified,
     newGroupMaterial,
+    bankImportOpen,
+    importYaml,
+    importSubject,
+    importTarget,
+    importSubjectList,
+    importSubjectSelectValue,
+    importSummaryHint,
     setToolBar,
     clearToolBar,
   ]);
@@ -1297,112 +1445,6 @@ export function BankWorkspace({
       <section className="flex w-full shrink-0 flex-col border-slate-200 bg-white lg:w-[min(100%,300px)] lg:border-r">
         <div className="border-b border-slate-100 p-3">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("title")}</h2>
-          <details className="group mt-3 rounded-md border border-slate-200 bg-slate-50 p-2">
-            <summary className="cursor-pointer list-none marker:hidden [&::-webkit-details-marker]:hidden">
-              <span className="flex w-full items-start gap-2 text-left">
-                <span
-                  className="mt-0.5 inline-block shrink-0 text-[10px] text-slate-400 transition-transform duration-200 group-open:rotate-90"
-                  aria-hidden
-                >
-                  ▸
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
-                    <span className="text-xs font-medium text-slate-800">{t("importTitle")}</span>
-                    <span className="max-w-[min(100%,11rem)] truncate text-[10px] font-normal text-slate-500">
-                      {importSummaryHint}
-                    </span>
-                  </span>
-                </span>
-              </span>
-            </summary>
-            <p className="mt-2 text-[10px] leading-snug text-slate-500">{t("importFormats")}</p>
-            <label className="mt-2 block text-[11px] font-medium text-slate-600">
-              {t("targetSubject")}
-              {importSubjectList.length > 0 ? (
-                <div className="mt-0.5 space-y-1">
-                  <select
-                    className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm"
-                    value={importSubjectSelectValue}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (v === "__custom__") {
-                        setImportSubject("");
-                      } else {
-                        setImportSubject(v);
-                      }
-                    }}
-                  >
-                    {importSubjectList.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                    <option value="__custom__">{t("otherSubject")}</option>
-                  </select>
-                  {importSubjectSelectValue === "__custom__" && (
-                    <input
-                      className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
-                      value={importSubject}
-                      onChange={(e) => setImportSubject(e.target.value)}
-                      placeholder={t("folderNamePh")}
-                    />
-                  )}
-                </div>
-              ) : (
-                <input
-                  className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1 text-sm"
-                  value={importSubject}
-                  onChange={(e) => setImportSubject(e.target.value)}
-                  placeholder={t("folderNamePh")}
-                />
-              )}
-            </label>
-            <label className="mt-2 block text-[11px] font-medium text-slate-600">
-              {t("targetCollection")}
-              <input
-                className="mt-0.5 w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm"
-                value={importTarget}
-                onChange={(e) => setImportTarget(e.target.value)}
-                placeholder={t("targetCollectionPh")}
-              />
-            </label>
-            <input
-              ref={importFileRef}
-              type="file"
-              accept=".yaml,.yml,.zip,application/zip,application/x-yaml,text/yaml"
-              className="hidden"
-              aria-hidden
-              onChange={(e) => void doImportFromFile(e)}
-            />
-            <button
-              type="button"
-              className="mt-2 w-full rounded-md bg-slate-900 py-1.5 text-xs font-medium text-white disabled:opacity-50"
-              disabled={busy}
-              onClick={() => importFileRef.current?.click()}
-            >
-              {t("pickAndImport")}
-            </button>
-            <details className="mt-2 rounded border border-slate-200 bg-white p-2">
-              <summary className="cursor-pointer text-[11px] font-medium text-slate-700">{t("pasteYaml")}</summary>
-              <p className="mt-1 text-[10px] text-slate-500">{t("pasteYamlHint")}</p>
-              <textarea
-                className="mt-2 w-full rounded border border-slate-300 font-mono text-xs"
-                rows={5}
-                placeholder={t("pasteYamlTextareaPh")}
-                value={importYaml}
-                onChange={(e) => setImportYaml(e.target.value)}
-              />
-              <button
-                type="button"
-                className="mt-2 w-full rounded-md border border-slate-800 bg-slate-50 py-1.5 text-xs font-medium text-slate-800 disabled:opacity-50"
-                disabled={busy || !importYaml.trim()}
-                onClick={() => void doImport()}
-              >
-                {t("importToCollection")}
-              </button>
-            </details>
-          </details>
         </div>
         <ul className="min-h-0 flex-1 overflow-auto p-2">
           {items.length === 0 ? (
@@ -1431,24 +1473,28 @@ export function BankWorkspace({
                 >
                   <button
                     type="button"
-                    className="w-full text-left text-sm"
+                    className="w-full min-w-0 text-left text-sm"
                     onClick={() => openOrFocusTab(it.qualified_id)}
                   >
-                    <span className="rounded bg-slate-200 px-1 py-0.5 text-[10px] font-medium text-slate-700">
-                      {t(`lib:questionTypes.${it.type}`, { defaultValue: it.type })}
-                    </span>
-                    {isBundle ? (
-                      <span className="ml-1 rounded bg-emerald-100 px-1 py-0.5 text-[10px] font-medium text-emerald-900">
-                        {t("groupNItems", { n: it.group_member_qualified_ids!.length })}
+                    <div className="flex w-full min-w-0 flex-wrap items-baseline gap-x-1 gap-y-0.5">
+                      <span className="shrink-0 rounded bg-slate-200 px-1 py-0.5 text-[10px] font-medium text-slate-700">
+                        {t(`lib:questionTypes.${it.type}`, { defaultValue: it.type })}
                       </span>
-                    ) : null}
-                    <span className="ml-1 font-mono text-[11px] text-slate-800">
-                      {isBundle && it.group_id ? `${it.collection} / ${it.group_id}` : it.qualified_id}
-                    </span>
-                    <KatexPlainPreview
-                      text={it.content_preview}
-                      className="line-clamp-3 text-xs leading-snug text-slate-600 [&_.katex]:text-[0.92em]"
-                    />
+                      {isBundle ? (
+                        <span className="shrink-0 rounded bg-emerald-100 px-1 py-0.5 text-[10px] font-medium text-emerald-900">
+                          {t("groupNItems", { n: it.group_member_qualified_ids!.length })}
+                        </span>
+                      ) : null}
+                      <span className="min-w-0 flex-1 break-all font-mono text-[11px] leading-snug text-slate-800">
+                        {isBundle && it.group_id ? `${it.collection} / ${it.group_id}` : it.qualified_id}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 block w-full min-w-0">
+                      <KatexPlainPreview
+                        text={it.content_preview}
+                        className="line-clamp-3 text-xs leading-snug text-slate-600 [&_.katex]:text-[0.92em]"
+                      />
+                    </div>
                     {Object.keys(it.metadata ?? {}).length > 0 && (
                       <div className="mt-1 flex flex-wrap gap-1">
                         {Object.entries(it.metadata).map(([k, v]) => (
