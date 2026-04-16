@@ -492,6 +492,17 @@ fn start_embedded_backend(py: &Path, lang: &str) -> Result<(u16, Option<Child>),
     Ok((port, Some(child)))
 }
 
+#[tauri::command]
+fn save_bytes_to_file(path: String, bytes: Vec<u8>) -> Result<(), String> {
+    let target = PathBuf::from(&path);
+    if let Some(parent) = target.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+    }
+    fs::write(&target, &bytes).map_err(|e| e.to_string())
+}
+
 fn close_splash(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("splash") {
         let _ = w.close();
@@ -518,7 +529,7 @@ fn main() {
     builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![get_backend_port, get_app_locale, set_app_locale])
+        .invoke_handler(tauri::generate_handler![get_backend_port, get_app_locale, set_app_locale, save_bytes_to_file])
         .setup(|app| {
                         let handle = app.handle().clone();
             let lang = read_locale_file(&handle);

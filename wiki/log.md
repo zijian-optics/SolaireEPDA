@@ -480,3 +480,13 @@
 **验证命令**：文件结构审查。
 
 **结果要点**：发布 GitHub Release 后自动编译并上传 MSI 安装包。
+
+## [2026-04-16] Bug 修复 | 桌面端「下载成绩表模板」改走原生另存为
+
+**改动摘要**：桌面壳里 `<a download>.click()` 无法触发 webview 下载，导致 `AnalysisWorkspace.handleDownloadTemplate` 在 Tauri 下静默失效（web 端则悄悄落到浏览器下载目录）。新增 Rust 命令 `save_bytes_to_file(path, bytes)` 并注册进 `invoke_handler`；新增前端工具 `web/src/lib/saveBlobToDisk.ts`：Tauri 壳内使用 `@tauri-apps/plugin-dialog` 的 `save` 弹出系统另存为，再经上述命令写盘；浏览器模式保留原有 `<a download>` 行为。`handleDownloadTemplate` 改用该工具，并把失败信息写入已有的 `importError` 提示条，避免再次「静默无提示」。
+
+**验证命令**：`cd web; npx tsc --noEmit`（待执行）；Rust 侧仅新增标准 `fs::write` 命令，依赖 `tauri-plugin-dialog` 已有权限 `dialog:default`。
+
+**结果要点**：桌面端点击按钮会弹出系统「另存为」并把文件写到用户指定路径；取消对话框不报错；浏览器模式行为不变。
+
+顺带覆盖同类问题：`AnalysisWorkspace` 的「下载元数据（analysis-metadata.json）」「下载图表（analysis-chart.svg）」，以及 `api/client.ts` 的题库导出 `downloadBankExportBundle`（`bank-export.bank.zip`）均改走 `saveBlobToDisk`。

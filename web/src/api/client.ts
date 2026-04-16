@@ -361,12 +361,11 @@ export async function downloadBankExportBundle(namespace: string): Promise<void>
   const cd = r.headers.get("Content-Disposition");
   const filename = filenameFromContentDisposition(cd) ?? "bank-export.bank.zip";
   const blob = await r.blob();
-  const objectUrl = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = objectUrl;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(objectUrl);
+  const { saveBlobToDisk } = await import("../lib/saveBlobToDisk");
+  await saveBlobToDisk(blob, {
+    defaultFileName: filename,
+    filters: [{ name: "ZIP", extensions: ["zip"] }],
+  });
 }
 
 /** 知识点 id 中可含 `/`，需按段编码后再拼到路径。 */

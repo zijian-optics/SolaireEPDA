@@ -20,6 +20,7 @@ import {
 } from "../api/client";
 import { useAgentContext } from "../contexts/AgentContext";
 import { dispatchExamsChanged } from "../lib/examEvents";
+import { saveBlobToDisk } from "../lib/saveBlobToDisk";
 import { formatLocaleDate } from "../lib/locale";
 import { cn } from "../lib/utils";
 import {
@@ -406,17 +407,16 @@ export function AnalysisWorkspace() {
           /filename\*=UTF-8''([^;]+)/i.exec(cd) ??
           /filename="([^"]+)"/.exec(cd);
         const filename = decodeURIComponent(match?.[1] ?? "scores.csv");
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = filename;
-        a.click();
-        URL.revokeObjectURL(url);
+        await saveBlobToDisk(blob, {
+          defaultFileName: filename,
+          title: t("downloadTemplate"),
+          filters: [{ name: "CSV", extensions: ["csv"] }],
+        });
       } catch (e) {
-        console.error("download template failed", e);
+        setImportError(e instanceof Error ? e.message : String(e));
       }
     },
-    [],
+    [t],
   );
 
   const handleImport = useCallback(
@@ -543,29 +543,34 @@ export function AnalysisWorkspace() {
   const firstBarSpec = outputChartSpecs.find((s) => s.type === "bar" && s.series_id);
   const firstBarSeries = firstBarSpec ? outputSeries.find((s) => s.id === firstBarSpec.series_id) : null;
   const firstBarPoints = firstBarSeries?.points ?? [];
-  const handleDownloadMetadata = useCallback(() => {
+  const handleDownloadMetadata = useCallback(async () => {
     if (!jobOutput) return;
     const blob = new Blob([JSON.stringify(jobOutput, null, 2)], { type: "application/json;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "analysis-metadata.json";
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [jobOutput]);
+    try {
+      await saveBlobToDisk(blob, {
+        defaultFileName: "analysis-metadata.json",
+        title: t("downloadMeta"),
+        filters: [{ name: "JSON", extensions: ["json"] }],
+      });
+    } catch (e) {
+      setImportError(e instanceof Error ? e.message : String(e));
+    }
+  }, [jobOutput, t]);
 
-  const handleDownloadChartImage = useCallback(() => {
+  const handleDownloadChartImage = useCallback(async () => {
     const svg = rightChartRef.current?.querySelector("svg");
     if (!svg) return;
     const serializer = new XMLSerializer();
     const source = serializer.serializeToString(svg);
     const blob = new Blob([source], { type: "image/svg+xml;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "analysis-chart.svg";
-    a.click();
-    URL.revokeObjectURL(url);
+    try {
+      await saveBlobToDisk(blob, {
+        defaultFileName: "analysis-chart.svg",
+        filters: [{ name: "SVG", extensions: ["svg"] }],
+      });
+    } catch (e) {
+      setImportError(e instanceof Error ? e.message : String(e));
+    }
   }, []);
 
   return (
@@ -1281,10 +1286,10 @@ export function AnalysisWorkspace() {
                 )}
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <button onClick={handleDownloadMetadata} disabled={!jobOutput} className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                <button onClick={() => void handleDownloadMetadata()} disabled={!jobOutput} className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50">
                   {t("downloadMeta")}
                 </button>
-                <button onClick={handleDownloadChartImage} disabled={!firstBarSpec || firstBarPoints.length === 0} className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                <button onClick={() => void handleDownloadChartImage()} disabled={!firstBarSpec || firstBarPoints.length === 0} className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50">
                   {t("downloadImage")}
                 </button>
               </div>
