@@ -6,6 +6,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from solaire.web.extension_registry import resolve_exe
+
 
 class LatexmkError(RuntimeError):
     pass
@@ -67,8 +69,13 @@ def run_latexmk(workdir: Path, tex_file: Path, *, timeout: float = 300.0) -> Non
     if tex_file.parent != workdir:
         raise ValueError("tex_file must be directly under workdir")
     name = tex_file.name
+    latexmk_path = resolve_exe("latex", "latexmk")
+    if not latexmk_path:
+        raise LatexmkError(
+            "未找到排版组件 latexmk。请在「设置 → 扩展组件」中安装 PDF 排版引擎，或指定安装目录。"
+        )
     cmd = [
-        "latexmk",
+        latexmk_path,
         "-xelatex",
         "-interaction=nonstopmode",
         "-halt-on-error",
@@ -87,7 +94,7 @@ def run_latexmk(workdir: Path, tex_file: Path, *, timeout: float = 300.0) -> Non
         )
     except FileNotFoundError as e:
         raise LatexmkError(
-            "latexmk not found. Install TeX Live or MiKTeX and ensure latexmk is on PATH."
+            "未找到排版组件 latexmk。请在「设置 → 扩展组件」中安装 PDF 排版引擎，或指定安装目录。"
         ) from e
     except subprocess.CalledProcessError as e:
         log = (e.stderr or "") + "\n" + (e.stdout or "")
