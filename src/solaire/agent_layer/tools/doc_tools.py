@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
 
 from solaire.agent_layer.models import InvocationContext, ToolResult
 from solaire.common.security import assert_within_project
+from solaire.web.extension_registry import resolve_exe
 
 
 def _resolve(ctx: InvocationContext, rel: str) -> Path:
@@ -18,11 +18,11 @@ def _resolve(ctx: InvocationContext, rel: str) -> Path:
 
 
 def _configured_tesseract_cmd() -> str | None:
-    from solaire.web import extension_preferences
-    from solaire.web.extension_registry import _resolve_manual_exe_path
+    return resolve_exe("tesseract", "tesseract")
 
-    manual = extension_preferences.get_extension_prefs("tesseract")
-    return _resolve_manual_exe_path("tesseract", "tesseract", manual)
+
+def _configured_pandoc_cmd() -> str | None:
+    return resolve_exe("pandoc", "pandoc")
 
 
 def tool_doc_convert_to_markdown(ctx: InvocationContext, args: dict[str, Any]) -> ToolResult:
@@ -35,14 +35,15 @@ def tool_doc_convert_to_markdown(ctx: InvocationContext, args: dict[str, Any]) -
         return ToolResult(status="failed", error_message=str(e))
     if not p.is_file():
         return ToolResult(status="failed", error_message=f"文件不存在: {rel}")
-    if shutil.which("pandoc") is None:
+    pandoc_exe = _configured_pandoc_cmd()
+    if pandoc_exe is None:
         return ToolResult(
             status="failed",
             error_message="本机未安装文档转换组件，无法进行转换。请打开「设置 → 扩展组件」安装「文档转换」后重试。",
         )
     try:
         result = subprocess.run(
-            ["pandoc", str(p), "-t", "markdown", "--wrap=none"],
+            [pandoc_exe, str(p), "-t", "markdown", "--wrap=none"],
             capture_output=True,
             text=True,
             encoding="utf-8",

@@ -490,3 +490,11 @@
 **结果要点**：桌面端点击按钮会弹出系统「另存为」并把文件写到用户指定路径；取消对话框不报错；浏览器模式行为不变。
 
 顺带覆盖同类问题：`AnalysisWorkspace` 的「下载元数据（analysis-metadata.json）」「下载图表（analysis-chart.svg）」，以及 `api/client.ts` 的题库导出 `downloadBankExportBundle`（`bank-export.bank.zip`）均改走 `saveBlobToDisk`。
+
+## [2026-04-16] 扩展组件 | 手动路径传播到管线
+
+**改动摘要**：在 `extension_registry` 新增 `resolve_exe(ext_id, exe_name)`：优先使用本页保存的可执行路径，否则回退 `PATH`。PDF 编译（`compile_tex.run_latexmk`）、Mermaid 渲染（`mermaid_expand.render_mermaid_to_svg_file`）、文档转换（`doc_tools.tool_doc_convert_to_markdown`）改为通过该函数解析，与设置页检测一致；`doc_tools` 中 Tesseract 亦统一经 `resolve_exe`。新增 `tests/test_extension_api.py` 中 `resolve_exe` 三类用例。
+
+**验证命令**：`pixi run pytest tests/test_extension_api.py -q`（10 passed）。
+
+**结果要点**：用户在「设置 → 扩展组件」指定的安装目录/程序文件会在实际导出与工具调用中生效，不再仅依赖系统 PATH。

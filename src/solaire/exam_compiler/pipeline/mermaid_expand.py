@@ -6,10 +6,11 @@ import hashlib
 import json
 import os
 import platform
-import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+
+from solaire.web.extension_registry import resolve_exe
 
 _MMDR_HINT = (
     "Mermaid 插图需要 mmdr（Rust 渲染器，无 Chromium/Node）。"
@@ -66,7 +67,7 @@ def _mmdr_theme_config_dict() -> dict[str, object]:
 
 def render_mermaid_to_svg_file(mermaid_body: str, svg_path: Path) -> None:
     """Run mmdr to produce SVG at svg_path."""
-    mmdr = shutil.which("mmdr")
+    mmdr = resolve_exe("mmdr", "mmdr")
     if mmdr is None:
         raise RuntimeError(_MMDR_HINT + "（未在 PATH 中找到 mmdr）")
 

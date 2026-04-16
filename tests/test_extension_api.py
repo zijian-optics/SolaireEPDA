@@ -8,7 +8,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from solaire.web import extension_preferences
 from solaire.web.app import app
+from solaire.web.extension_registry import resolve_exe
 
 
 @pytest.fixture(autouse=True)
@@ -118,6 +120,27 @@ def test_manual_path_clear_unknown_returns_400() -> None:
     client = TestClient(app)
     r = client.delete("/api/system/extensions/latex/manual-path")
     assert r.status_code == 400
+
+
+def test_resolve_exe_uses_manual_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    exe = tmp_path / "pandoc.exe"
+    exe.write_bytes(b"")
+    extension_preferences.set_extension_prefs("pandoc", {"pandoc": str(exe)})
+    monkeypatch.setattr("solaire.web.extension_registry.shutil.which", lambda _: "/wrong/pandoc")
+    assert resolve_exe("pandoc", "pandoc") == str(exe.resolve())
+
+
+def test_resolve_exe_falls_back_to_which(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "solaire.web.extension_registry.shutil.which",
+        lambda name: "/bin/pandoc" if name == "pandoc" else None,
+    )
+    assert resolve_exe("pandoc", "pandoc") == "/bin/pandoc"
+
+
+def test_resolve_exe_none_when_no_manual_and_no_which(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("solaire.web.extension_registry.shutil.which", lambda _: None)
+    assert resolve_exe("pandoc", "pandoc") is None
 
 
 def test_tex_status_matches_latex_extension() -> None:

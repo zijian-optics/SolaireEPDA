@@ -169,6 +169,15 @@ def _resolve_manual_exe_path(ext_id: str, exe_name: str, manual: dict[str, Any] 
     return None
 
 
+def resolve_exe(ext_id: str, exe_name: str) -> str | None:
+    """Resolve executable path: manual prefs first, then system PATH."""
+    manual = extension_preferences.get_extension_prefs(ext_id)
+    manual_path = _resolve_manual_exe_path(ext_id, exe_name, manual)
+    if manual_path:
+        return manual_path
+    return shutil.which(exe_name)
+
+
 def _manual_paths_for_api(
     ext_id: str,
     manual: dict[str, Any] | None,
