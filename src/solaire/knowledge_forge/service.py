@@ -28,6 +28,24 @@ _META_FILENAME = "_meta.yaml"
 
 _ALLOWED_NODE_KINDS = frozenset({"concept", "skill", "causal"})
 
+# 进程内缓存：按文件 mtime 失效，减少重复 YAML 读盘与解析
+_meta_cache: dict[str, tuple[float, GraphMeta]] = {}
+_state_cache: dict[tuple[str, str], tuple[float, GraphState]] = {}
+
+
+def _graph_root_key(project_root: Path) -> str:
+    return str(project_root.resolve())
+
+
+def _invalidate_graph_cache(project_root: Path) -> None:
+    """迁移或多文件变更后清空该工程下的缓存。"""
+    rk = _graph_root_key(project_root)
+    _meta_cache.pop(rk, None)
+    for k in list(_state_cache.keys()):
+        if k[0] == rk:
+            del _state_cache[k]
+
+
 _ALLOWED_RELATION_TYPES = frozenset(
     {
         # 先修
@@ -229,15 +247,26 @@ def ensure_graph_layout(project_root: Path) -> None:
 def _load_meta(project_root: Path) -> GraphMeta:
     mp = _meta_path(project_root)
     assert_within_project(project_root, mp)
+    rk = _graph_root_key(project_root)
     if not mp.is_file():
-        return GraphMeta()
+        return GraphMeta().model_copy(deep=True)
+    mtime = mp.stat().st_mtime
+    hit = _meta_cache.get(rk)
+    if hit is not None and hit[0] == mtime:
+        return hit[1].model_copy(deep=True)
     raw = mp.read_text(encoding="utf-8")
     if not raw.strip():
-        return GraphMeta()
+        empty = GraphMeta()
+        _meta_cache[rk] = (mtime, empty.model_copy(deep=True))
+        return empty.model_copy(deep=True)
     data = yaml.safe_load(raw)
     if not isinstance(data, dict):
-        return GraphMeta()
-    return GraphMeta.model_validate(data)
+        empty = GraphMeta()
+        _meta_cache[rk] = (mtime, empty.model_copy(deep=True))
+        return empty.model_copy(deep=True)
+    gm = GraphMeta.model_validate(data)
+    _meta_cache[rk] = (mtime, gm.model_copy(deep=True))
+    return gm.model_copy(deep=True)
 
 
 def _save_meta(project_root: Path, meta: GraphMeta) -> None:
@@ -248,6 +277,8 @@ def _save_meta(project_root: Path, meta: GraphMeta) -> None:
         yaml.safe_dump(meta.model_dump(mode="json"), allow_unicode=True, sort_keys=False),
         encoding="utf-8",
     )
+    mtime = mp.stat().st_mtime
+    _meta_cache[_graph_root_key(project_root)] = (mtime, meta.model_copy(deep=True))
 
 
 def _ensure_graph_dir_only(project_root: Path) -> None:
@@ -290,20 +321,32 @@ def _migrate_legacy_graph_state(state: GraphState) -> bool:
 def _load_subject_state(project_root: Path, slug: str) -> GraphState:
     sp = _subject_state_path(project_root, slug)
     assert_within_project(project_root, sp)
+    rk = _graph_root_key(project_root)
+    cache_key = (rk, slug)
     if not sp.is_file():
-        return GraphState()
+        return GraphState().model_copy(deep=True)
+    mtime = sp.stat().st_mtime
+    hit = _state_cache.get(cache_key)
+    if hit is not None and hit[0] == mtime:
+        return hit[1].model_copy(deep=True)
     raw = sp.read_text(encoding="utf-8")
     if not raw.strip():
-        return GraphState()
+        empty = GraphState()
+        _state_cache[cache_key] = (mtime, empty.model_copy(deep=True))
+        return empty.model_copy(deep=True)
     data = yaml.safe_load(raw)
     if data is None:
-        return GraphState()
+        empty = GraphState()
+        _state_cache[cache_key] = (mtime, empty.model_copy(deep=True))
+        return empty.model_copy(deep=True)
     if not isinstance(data, dict):
         raise ValueError(f"Invalid graph state file for subject {slug!r}")
     state = GraphState.model_validate(data)
     if _migrate_legacy_graph_state(state):
         _save_subject_state(project_root, slug, state)
-    return state
+        return _load_subject_state(project_root, slug)
+    _state_cache[cache_key] = (mtime, state.model_copy(deep=True))
+    return state.model_copy(deep=True)
 
 
 def _save_subject_state(project_root: Path, slug: str, state: GraphState) -> None:
@@ -312,6 +355,8 @@ def _save_subject_state(project_root: Path, slug: str, state: GraphState) -> Non
     assert_within_project(project_root, sp)
     payload = state.model_dump(mode="json")
     sp.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    mtime = sp.stat().st_mtime
+    _state_cache[(_graph_root_key(project_root), slug)] = (mtime, state.model_copy(deep=True))
 
 
 # ---------------------------------------------------------------------------
@@ -389,11 +434,7 @@ def _migrate_legacy_to_multi(project_root: Path) -> None:
         meta.subjects.append(SubjectMeta(slug=slug, display_name=display_name, node_count=len(nodes)))
 
     _ensure_graph_dir_only(project_root)
-    mp = _meta_path(project_root)
-    mp.write_text(
-        yaml.safe_dump(meta.model_dump(mode="json"), allow_unicode=True, sort_keys=False),
-        encoding="utf-8",
-    )
+    _save_meta(project_root, meta)
 
     bak = legacy.with_name("state.yaml.bak")
     legacy.rename(bak)
@@ -477,12 +518,7 @@ def create_graph(project_root: Path, display_name: str, slug: str | None = None)
     _save_subject_state(project_root, final_slug, empty)
 
     meta.subjects.append(SubjectMeta(slug=final_slug, display_name=display_name.strip(), node_count=0))
-    mp = _meta_path(project_root)
-    assert_within_project(project_root, mp)
-    mp.write_text(
-        yaml.safe_dump(meta.model_dump(mode="json"), allow_unicode=True, sort_keys=False),
-        encoding="utf-8",
-    )
+    _save_meta(project_root, meta)
     return final_slug
 
 
@@ -493,14 +529,11 @@ def delete_graph(project_root: Path, slug: str) -> None:
     assert_within_project(project_root, sp)
     if sp.is_file():
         sp.unlink()
+    _state_cache.pop((_graph_root_key(project_root), slug), None)
 
     meta = _load_meta(project_root)
     meta.subjects = [sm for sm in meta.subjects if sm.slug != slug]
-    mp = _meta_path(project_root)
-    mp.write_text(
-        yaml.safe_dump(meta.model_dump(mode="json"), allow_unicode=True, sort_keys=False),
-        encoding="utf-8",
-    )
+    _save_meta(project_root, meta)
 
 
 def rename_graph(project_root: Path, slug: str, new_display_name: str) -> None:
@@ -517,11 +550,7 @@ def rename_graph(project_root: Path, slug: str, new_display_name: str) -> None:
             break
     if not found:
         raise FileNotFoundError(f"科目图谱不存在: {slug!r}")
-    mp = _meta_path(project_root)
-    mp.write_text(
-        yaml.safe_dump(meta.model_dump(mode="json"), allow_unicode=True, sort_keys=False),
-        encoding="utf-8",
-    )
+    _save_meta(project_root, meta)
 
 
 def get_taxonomy(project_root: Path) -> dict[str, Any]:
@@ -565,11 +594,7 @@ def set_taxonomy(project_root: Path, *, subjects: list[str] | None, levels: list
                 assert_within_project(project_root, sp)
                 if not sp.is_file():
                     _save_subject_state(project_root, slug, GraphState())
-    mp = _meta_path(project_root)
-    mp.write_text(
-        yaml.safe_dump(meta.model_dump(mode="json"), allow_unicode=True, sort_keys=False),
-        encoding="utf-8",
-    )
+    _save_meta(project_root, meta)
 
 
 # ---------------------------------------------------------------------------
@@ -597,18 +622,26 @@ def _validate_relation_endpoints(state: GraphState, from_node_id: str, to_node_i
 # ---------------------------------------------------------------------------
 
 
+def _collect_node_ids_and_kinds(project_root: Path) -> tuple[set[str], dict[str, str]]:
+    """单次遍历所有科目：全局节点 id 集合 + id -> node_kind（跨科目）。"""
+    ensure_graph_layout(project_root)
+    meta = _load_meta(project_root)
+    all_ids: set[str] = set()
+    kinds: dict[str, str] = {}
+    for sm in meta.subjects:
+        state = _load_subject_state(project_root, sm.slug)
+        for n in state.nodes:
+            all_ids.add(n.id)
+            kinds[n.id] = n.node_kind
+    return all_ids, kinds
+
+
 def generate_unique_node_id(project_root: Path, parent_node_id: str, canonical_name: str) -> str:
     parent = parent_node_id.strip().rstrip("/")
     if not parent:
         raise ValueError("parent_node_id required")
     base = f"{parent}/{_slugify_name(canonical_name)}"
-    # 搜索所有科目的节点 ID
-    all_ids: set[str] = set()
-    meta = _load_meta(project_root)
-    for sm in meta.subjects:
-        state = _load_subject_state(project_root, sm.slug)
-        for n in state.nodes:
-            all_ids.add(n.id)
+    all_ids, _ = _collect_node_ids_and_kinds(project_root)
     if base not in all_ids:
         return base
     for _ in range(24):
@@ -746,12 +779,7 @@ def create_concept_node(
 
     state = _load_subject_state(project_root, target_slug)
     # 全局唯一性检查（节点 id 跨科目唯一）
-    all_ids: set[str] = set()
-    all_meta = _load_meta(project_root)
-    for sm in all_meta.subjects:
-        s = _load_subject_state(project_root, sm.slug)
-        for n in s.nodes:
-            all_ids.add(n.id)
+    all_ids, _ = _collect_node_ids_and_kinds(project_root)
     if node.id in all_ids:
         raise ValueError(f"Node already exists: {node.id}")
 
@@ -795,13 +823,24 @@ def delete_concept_node(
     node_id: str,
     *,
     graph: str | None = None,
-) -> None:
+) -> dict[str, Any]:
+    """删除节点；返回被删节点与涉及的关系（供撤销/前端增量同步）。"""
     ensure_graph_layout(project_root)
     slug = graph or _find_node_slug(project_root, node_id)
     if slug is None:
-        return  # 幂等
+        return {"deleted_node": None, "deleted_relations": []}
 
     state = _load_subject_state(project_root, slug)
+    removed_node: dict[str, Any] | None = None
+    for n in state.nodes:
+        if n.id == node_id:
+            removed_node = n.model_dump(mode="json")
+            break
+    removed_rels = [
+        r.model_dump(mode="json")
+        for r in state.relations
+        if r.from_node_id == node_id or r.to_node_id == node_id
+    ]
     state.nodes = [n for n in state.nodes if n.id != node_id]
     state.relations = [
         r for r in state.relations if r.from_node_id != node_id and r.to_node_id != node_id
@@ -809,6 +848,7 @@ def delete_concept_node(
     state.bindings = [b for b in state.bindings if b.node_id != node_id]
     state.file_links = [l for l in state.file_links if l.node_id != node_id]
     _save_subject_state(project_root, slug, state)
+    return {"deleted_node": removed_node, "deleted_relations": removed_rels}
 
 
 # ---------------------------------------------------------------------------
@@ -866,28 +906,13 @@ def create_node_relation(
         target_slug = slug_from or slug_to  # type: ignore[assignment]
 
     state = _load_subject_state(project_root, target_slug)
-    # 节点可能跨科目；先收集所有节点 ids
-    all_node_ids: set[str] = set()
-    all_meta = _load_meta(project_root)
-    for sm in all_meta.subjects:
-        s = _load_subject_state(project_root, sm.slug)
-        for n in s.nodes:
-            all_node_ids.add(n.id)
+    all_node_ids, kinds = _collect_node_ids_and_kinds(project_root)
 
     if from_node_id not in all_node_ids or to_node_id not in all_node_ids:
         raise ValueError("Both from/to nodes must exist before creating relation")
 
-    # 跨科目取两端节点做校验
-    def _get_kind(nid: str) -> str:
-        for sm in all_meta.subjects:
-            s = _load_subject_state(project_root, sm.slug)
-            for n in s.nodes:
-                if n.id == nid:
-                    return n.node_kind
-        return "concept"
-
-    kf = _get_kind(from_node_id)
-    kt = _get_kind(to_node_id)
+    kf = kinds.get(from_node_id, "concept")
+    kt = kinds.get(to_node_id, "concept")
     if kf != "concept" and kt != "concept":
         raise ValueError("关系仅允许至少一端为知识点节点（技能与因果节点之间不可互连）")
 

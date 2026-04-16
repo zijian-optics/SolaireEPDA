@@ -33,6 +33,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { cn } from "../lib/utils";
 import type { GraphNodeRow, GraphRelationRow } from "./useGraphStore";
+import { useGraphUndoStore } from "./useUndoStack";
 import i18n from "../i18n/i18n";
 
 // Virtual root sentinel
@@ -440,6 +441,24 @@ export function MindMapCanvas({
       if (inlineEditId) return; // editing mode, ignore
       const target = e.target as HTMLElement;
       if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
+
+      if (e.ctrlKey || e.metaKey) {
+        const k = e.key.toLowerCase();
+        if (k === "z") {
+          e.preventDefault();
+          if (e.shiftKey) {
+            void useGraphUndoStore.getState().redo();
+          } else {
+            void useGraphUndoStore.getState().undo();
+          }
+          return;
+        }
+        if (k === "y") {
+          e.preventDefault();
+          void useGraphUndoStore.getState().redo();
+          return;
+        }
+      }
 
       if (!selectedNodeId || selectedNodeId === VIRTUAL_ROOT_ID) return;
 

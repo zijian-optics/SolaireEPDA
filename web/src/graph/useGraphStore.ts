@@ -66,7 +66,19 @@ interface GraphStore {
   subjects: string[];
   levels: string[];
   setGraphNodes: (nodes: GraphNodeRow[]) => void;
+  /** 追加节点（乐观更新） */
+  addGraphNode: (node: GraphNodeRow) => void;
+  /** 移除节点及与其关联的边显示 */
+  removeGraphNode: (id: string) => void;
+  /** 替换节点（如临时 id → 服务端 id） */
+  replaceGraphNode: (oldId: string, node: GraphNodeRow) => void;
+  /** 就地合并字段 */
+  patchGraphNode: (id: string, patch: Partial<GraphNodeRow>) => void;
   setRelations: (relations: GraphRelationRow[]) => void;
+  /** 追加关系（乐观更新） */
+  addGraphRelation: (rel: GraphRelationRow) => void;
+  /** 按 id 移除关系 */
+  removeGraphRelations: (predicate: (r: GraphRelationRow) => boolean) => void;
   setKindCounts: (counts: Record<string, number>) => void;
   setSubjects: (subjects: string[]) => void;
   setLevels: (levels: string[]) => void;
@@ -120,7 +132,45 @@ export const useGraphStore = create<GraphStore>((set) => ({
   subjects: [],
   levels: [],
   setGraphNodes: (nodes) => set({ graphNodes: nodes }),
+  addGraphNode: (node) =>
+    set((s) => {
+      const nk = (node.node_kind ?? "concept") as string;
+      return {
+        graphNodes: [...s.graphNodes, node],
+        kindCounts: {
+          ...s.kindCounts,
+          [nk]: (s.kindCounts[nk] ?? 0) + 1,
+        },
+      };
+    }),
+  removeGraphNode: (id) =>
+    set((s) => {
+      const node = s.graphNodes.find((n) => n.id === id);
+      const nk = (node?.node_kind ?? "concept") as string;
+      return {
+        graphNodes: s.graphNodes.filter((n) => n.id !== id),
+        relations: s.relations.filter((r) => r.from_node_id !== id && r.to_node_id !== id),
+        kindCounts: {
+          ...s.kindCounts,
+          [nk]: Math.max(0, (s.kindCounts[nk] ?? 1) - 1),
+        },
+        selectedNodeId: s.selectedNodeId === id ? null : s.selectedNodeId,
+      };
+    }),
+  replaceGraphNode: (oldId, node) =>
+    set((s) => ({
+      graphNodes: s.graphNodes.map((n) => (n.id === oldId ? node : n)),
+      selectedNodeId: s.selectedNodeId === oldId ? node.id : s.selectedNodeId,
+    })),
+  patchGraphNode: (id, patch) =>
+    set((s) => ({
+      graphNodes: s.graphNodes.map((n) => (n.id === id ? { ...n, ...patch } : n)),
+    })),
   setRelations: (relations) => set({ relations }),
+  addGraphRelation: (rel) =>
+    set((s) => ({ relations: [...s.relations, rel] })),
+  removeGraphRelations: (predicate) =>
+    set((s) => ({ relations: s.relations.filter((r) => !predicate(r)) })),
   setKindCounts: (counts) => set({ kindCounts: counts }),
   setSubjects: (subjects) => set({ subjects }),
   setLevels: (levels) => set({ levels }),

@@ -1908,16 +1908,41 @@ def graph_nodes_create(
                 {"from_node_id": nid, "to_node_id": parent, "relation_type": "part_of"},
                 graph=graph,
             )
-            return {"ok": True, "node_id": nid}
+            node = get_concept_node(root, nid, graph=graph)
+            rels = list_node_relations(root, graph=graph)
+            part_rel = next(
+                (
+                    r
+                    for r in rels
+                    if r.get("from_node_id") == nid
+                    and r.get("to_node_id") == parent
+                    and r.get("relation_type") == "part_of"
+                ),
+                None,
+            )
+            return {"ok": True, "node_id": nid, "node": node, "relation": part_rel}
         payload["id"] = node_id
         create_concept_node(root, payload, graph=graph)
+        part_rel = None
         if parent:
             create_node_relation(
                 root,
                 {"from_node_id": node_id, "to_node_id": parent, "relation_type": "part_of"},
                 graph=graph,
             )
-        return {"ok": True, "node_id": node_id}
+            rels = list_node_relations(root, graph=graph)
+            part_rel = next(
+                (
+                    r
+                    for r in rels
+                    if r.get("from_node_id") == node_id
+                    and r.get("to_node_id") == parent
+                    and r.get("relation_type") == "part_of"
+                ),
+                None,
+            )
+        node = get_concept_node(root, node_id, graph=graph)
+        return {"ok": True, "node_id": node_id, "node": node, "relation": part_rel}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -2166,8 +2191,8 @@ def graph_node_files_list(node_id: str, graph: str | None = Query(None)) -> dict
 @app.delete("/api/graph/nodes/{node_id:path}")
 def graph_nodes_delete(node_id: str, graph: str | None = Query(None)) -> dict[str, Any]:
     root = _require_root()
-    delete_concept_node(root, node_id, graph=graph)
-    return {"ok": True}
+    result = delete_concept_node(root, node_id, graph=graph)
+    return {"ok": True, **result}
 
 
 @app.post("/api/graph/file-links")

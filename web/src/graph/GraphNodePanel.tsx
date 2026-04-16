@@ -46,6 +46,8 @@ interface Props {
   tab: PanelTab;
   onTabChange: (tab: PanelTab) => void;
   onSaved: () => void;
+  /** 侧栏确认删除后调用（工作区负责乐观更新与 API） */
+  onDeleteNode?: () => Promise<void>;
   onDeleted: () => void;
   onError: (e: string | null) => void;
   onClose: () => void;
@@ -61,6 +63,7 @@ export function GraphNodePanel({
   tab,
   onTabChange,
   onSaved,
+  onDeleteNode,
   onDeleted,
   onError,
   onClose,
@@ -262,7 +265,11 @@ export function GraphNodePanel({
     setBusy(true);
     onError(null);
     try {
-      await apiGraphDeleteNode(selectedNode.id, activeSlug);
+      if (onDeleteNode) {
+        await onDeleteNode();
+      } else {
+        await apiGraphDeleteNode(selectedNode.id, activeSlug);
+      }
       onDeleted();
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
