@@ -26,6 +26,8 @@
 | `web/package.json` | 前端依赖与脚本（`dev`、`build`、`test`）。 |
 | `web/index.html` / `web/src/main.tsx` | 前端 HTML 入口与 React 挂载点。 |
 | `src/solaire/web/app.py` | FastAPI 应用：路由注册、中间件、核心业务 API 聚合入口。 |
+| `src/solaire/web/extension_registry.py` | 可选扩展检测与 `resolve_exe`（本页保存路径优先于 PATH）；与编译/文档/Mermaid 管线共用。 |
+| `src/solaire/web/extension_preferences.py` | `host_extension_paths.json` 持久化（应用数据目录）。 |
 | `src/solaire/web/__main__.py` | `python -m solaire.web` / `solaire-web` 命令行入口。 |
 | `src/solaire/desktop_entry.py` | 桌面嵌入式 Python 进程入口（端口握手等）。 |
 | `src-tauri/src/main.rs` | Tauri 后端：子进程、健康检查、`backend-ready` / `backend-failed` 等。 |
