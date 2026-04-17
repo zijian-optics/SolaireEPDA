@@ -498,3 +498,11 @@
 **验证命令**：`pixi run pytest tests/test_extension_api.py -q`（10 passed）。
 
 **结果要点**：用户在「设置 → 扩展组件」指定的安装目录/程序文件会在实际导出与工具调用中生效，不再仅依赖系统 PATH。
+
+## [2026-04-16] 开发环境 | 恢复 dev-backend 的 `--reload-dir src`
+
+**改动摘要**：当前 `pixi.toml` 中 `dev-backend` 曾回退为仅 `--reload`（监视整个仓库根目录），`tauri dev` 时 `src-tauri/target/.../site-packages` 会再次触发 WatchFiles 误重载；已重新加上 `--reload-dir src`。
+
+**验证**：检视 `pixi.toml` 的 `dev-backend` 行。
+
+**结果要点**：热重载仅盯 `src/`，与 `start-web.ps1` / `start-web.sh` 一致；合并分支时注意勿覆盖此行。

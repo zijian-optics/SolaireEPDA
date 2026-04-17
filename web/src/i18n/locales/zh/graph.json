@@ -36,7 +36,6 @@
   "reverseRelation": "颠倒方向",
   "newNodeDefaultName": "新知识点",
   "errPickParentName": "请选择父级知识点并填写名称",
-  "confirmDeleteNode": "确定删除该节点？",
   "errPickNodeRel": "请选择当前节点与关系目标",
   "errPickNodeQuestion": "请选择画布节点与题目",
   "errPickQuestionsUnbind": "请勾选要解除关联的题目",

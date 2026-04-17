@@ -422,11 +422,23 @@ export async function apiGraphListNodes(
   return apiGet<{ nodes: any[]; kind_counts?: Record<string, number> }>(`/api/graph/nodes${qs ? `?${qs}` : ""}`);
 }
 
+export type GraphNodeApiPayload = Record<string, unknown>;
+
 export async function apiGraphCreateNode(
   body: unknown,
   graph?: string | null,
-): Promise<{ ok: boolean; node_id: string }> {
-  return apiPost<{ ok: boolean; node_id: string }>(`/api/graph/nodes${graphQs(graph)}`, body);
+): Promise<{
+  ok: boolean;
+  node_id: string;
+  node?: GraphNodeApiPayload;
+  relation?: GraphNodeApiPayload | null;
+}> {
+  return apiPost<{
+    ok: boolean;
+    node_id: string;
+    node?: GraphNodeApiPayload;
+    relation?: GraphNodeApiPayload | null;
+  }>(`/api/graph/nodes${graphQs(graph)}`, body);
 }
 
 export async function apiGraphUpdateNode(
@@ -440,10 +452,16 @@ export async function apiGraphUpdateNode(
   );
 }
 
-export async function apiGraphDeleteNode(nodeId: string, graph?: string | null): Promise<{ ok: boolean }> {
-  return apiDelete<{ ok: boolean }>(
-    `/api/graph/nodes/${encodeGraphNodePathSegment(nodeId)}${graphQs(graph)}`,
-  );
+export async function apiGraphDeleteNode(nodeId: string, graph?: string | null): Promise<{
+  ok: boolean;
+  deleted_node?: GraphNodeApiPayload | null;
+  deleted_relations?: unknown[];
+}> {
+  return apiDelete<{
+    ok: boolean;
+    deleted_node?: GraphNodeApiPayload | null;
+    deleted_relations?: unknown[];
+  }>(`/api/graph/nodes/${encodeGraphNodePathSegment(nodeId)}${graphQs(graph)}`);
 }
 
 // --- Relations ---

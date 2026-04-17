@@ -33,7 +33,7 @@ build = { cmd = "npm run build", cwd = "web" }
 
 # ── 开发（一键启动后端 + 前端 + Tauri）───────────────────
 dev = "npm run tauri:dev"
-dev-backend = "python -m uvicorn solaire.web.app:app --app-dir src --host 127.0.0.1 --port 8000 --reload"
+dev-backend = "python -m uvicorn solaire.web.app:app --app-dir src --host 127.0.0.1 --port 8000 --reload --reload-dir src"
 dev-frontend = { cmd = "npm run dev -- --host localhost --port 5173 --strictPort", cwd = "web" }
 
 # ── 测试 & 类型检查 ──────────────────────────────────────

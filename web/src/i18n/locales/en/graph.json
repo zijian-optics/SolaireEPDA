@@ -36,7 +36,6 @@
   "reverseRelation": "Reverse direction",
   "newNodeDefaultName": "New node",
   "errPickParentName": "Pick a parent node and enter a name",
-  "confirmDeleteNode": "Delete this node?",
   "errPickNodeRel": "Pick the current node and a target",
   "errPickNodeQuestion": "Pick a canvas node and a question",
   "errPickQuestionsUnbind": "Select questions to unlink",

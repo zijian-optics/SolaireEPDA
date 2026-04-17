@@ -33,6 +33,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { cn } from "../lib/utils";
 import type { GraphNodeRow, GraphRelationRow } from "./useGraphStore";
+import { useGraphUndoStore } from "./useUndoStack";
 import i18n from "../i18n/i18n";
 
 // Virtual root sentinel
@@ -252,6 +253,8 @@ interface Props {
   onAddNode: () => void;
   onAddChildNode: (parentId: string) => void;
   onAddSiblingNode: (siblingId: string) => void;
+  /** Delete/Backspace — same behavior as sidebar delete; React Flow built-in delete is disabled */
+  onDeleteSelectedNode?: () => void | Promise<void>;
   onStartConnect: () => void;
   onRelayout: () => void;
   onCancelConnect: () => void;
@@ -273,6 +276,7 @@ export function MindMapCanvas({
   onAddNode,
   onAddChildNode,
   onAddSiblingNode,
+  onDeleteSelectedNode,
   onStartConnect,
   onRelayout,
   onCancelConnect,
@@ -441,6 +445,24 @@ export function MindMapCanvas({
       const target = e.target as HTMLElement;
       if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
 
+      if (e.ctrlKey || e.metaKey) {
+        const k = e.key.toLowerCase();
+        if (k === "z") {
+          e.preventDefault();
+          if (e.shiftKey) {
+            void useGraphUndoStore.getState().redo();
+          } else {
+            void useGraphUndoStore.getState().undo();
+          }
+          return;
+        }
+        if (k === "y") {
+          e.preventDefault();
+          void useGraphUndoStore.getState().redo();
+          return;
+        }
+      }
+
       if (!selectedNodeId || selectedNodeId === VIRTUAL_ROOT_ID) return;
 
       if (e.key === "Tab") {
@@ -451,12 +473,12 @@ export function MindMapCanvas({
         onAddSiblingNode(selectedNodeId);
       } else if (e.key === "Delete" || e.key === "Backspace") {
         e.preventDefault();
-        // handled upstream via onNodeClick + delete
+        void onDeleteSelectedNode?.();
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [selectedNodeId, inlineEditId, onAddChildNode, onAddSiblingNode]);
+  }, [selectedNodeId, inlineEditId, onAddChildNode, onAddSiblingNode, onDeleteSelectedNode]);
 
   const handleNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
     if (node.id === VIRTUAL_ROOT_ID) { onPaneClick(); return; }
@@ -548,6 +570,7 @@ export function MindMapCanvas({
         <ReactFlow
           nodes={nodes}
           edges={edges}
+          deleteKeyCode={null}
           onInit={(inst) => { rfRef.current = inst; }}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}

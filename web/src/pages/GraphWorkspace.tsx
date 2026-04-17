@@ -13,6 +13,8 @@ import {
   apiGraphCreateNode,
   apiGraphCreateRelation,
   apiGraphDeleteGraph,
+  apiGraphDeleteNode,
+  apiGraphDeleteRelation,
   apiGraphGetTaxonomy,
   apiGraphListGraphs,
   apiGraphListNodes,
@@ -25,8 +27,10 @@ import { useToolBar } from "../contexts/ToolBarContext";
 import { GraphSubjectSidebar } from "../graph/GraphSubjectSidebar";
 import { GraphCanvas } from "../graph/GraphCanvas";
 import { MindMapCanvas } from "../graph/MindMapCanvas";
+import { apiNodeToGraphRow, apiRelationToGraphRow, graphNodeRowToCreateBody } from "../graph/graphApiMappers";
 import { GraphNodePanel } from "../graph/GraphNodePanel";
-import { useGraphStore } from "../graph/useGraphStore";
+import { useGraphUndoStore } from "../graph/useUndoStack";
+import { useGraphStore, type GraphNodeRow } from "../graph/useGraphStore";
 import i18n from "../i18n/i18n";
 import { cn } from "../lib/utils";
 import { SOLAIRE_SAVE_EVENT } from "../lib/saveEvents";
@@ -48,6 +52,8 @@ export function GraphWorkspace({
     graphs, activeSlug, setGraphs, setActiveSlug,
     graphNodes, relations,
     setGraphNodes, setRelations, setSubjects, setLevels, setKindCounts,
+    addGraphNode, removeGraphNode, replaceGraphNode, patchGraphNode,
+    addGraphRelation, removeGraphRelations,
     selectedNodeId, selectedEdgeId, setSelectedNodeId, setSelectedEdgeId,
     viewMode, setViewMode,
     panelTab, setPanelTab, panelExpanded, setPanelExpanded,
@@ -171,10 +177,17 @@ export function GraphWorkspace({
     void loadGraphData(activeSlug);
   }, [activeSlug, loadGraphData]);
 
-  // Reload after data changes
-  const refreshAll = useCallback(async () => {
-    await Promise.all([loadGraphList(), loadGraphData(activeSlug)]);
-  }, [loadGraphList, loadGraphData, activeSlug]);
+  const reloadActiveGraphData = useCallback(async () => {
+    await loadGraphData(activeSlug);
+  }, [loadGraphData, activeSlug]);
+
+  const pushUndoFrame = useCallback((f: { undo: () => Promise<void>; redo: () => Promise<void> }) => {
+    useGraphUndoStore.getState().pushFrame(f);
+  }, []);
+
+  useEffect(() => {
+    useGraphUndoStore.getState().clear();
+  }, [activeSlug]);
 
   // Keyboard save shortcut
   useEffect(() => {
@@ -231,30 +244,82 @@ export function GraphWorkspace({
   const handleAddNode = useCallback(async () => {
     if (!activeSlug) return;
     const name = t("newNodeDefaultName");
-    setBusy(true);
+    const nodeId = `${activeSlug}/node-${Date.now()}`;
+    const draft: GraphNodeRow = {
+      id: nodeId,
+      canonical_name: name,
+      node_kind: "concept",
+      subject: null,
+      level: null,
+      primary_parent_id: null,
+    };
+    addGraphNode(draft);
+    setSelectedNodeId(nodeId);
+    setPanelExpanded(true);
+    setPanelTab("edit");
     onError(null);
     try {
-      const r = await apiGraphCreateNode({
-        canonical_name: name,
-        aliases: [],
-        node_kind: "concept",
-        subject: null,
-        level: null,
-        description: null,
-        tags: [],
-        source: null,
-        id: `${activeSlug}/node-${Date.now()}`,
-      }, activeSlug);
-      await refreshAll();
-      setSelectedNodeId(r.node_id);
-      setPanelExpanded(true);
-      setPanelTab("edit");
+      const r = await apiGraphCreateNode(
+        {
+          canonical_name: name,
+          aliases: [],
+          node_kind: "concept",
+          subject: null,
+          level: null,
+          description: null,
+          tags: [],
+          source: null,
+          id: nodeId,
+        },
+        activeSlug,
+      );
+      const row = apiNodeToGraphRow(r.node as Record<string, unknown>, r.node_id);
+      replaceGraphNode(nodeId, row);
+      void loadGraphList();
+      pushUndoFrame({
+        undo: async () => {
+          await apiGraphDeleteNode(row.id, activeSlug);
+          removeGraphNode(row.id);
+          void loadGraphList();
+        },
+        redo: async () => {
+          const r2 = await apiGraphCreateNode(
+            {
+              canonical_name: name,
+              aliases: [],
+              node_kind: "concept",
+              subject: null,
+              level: null,
+              description: null,
+              tags: [],
+              source: null,
+              id: `${activeSlug}/node-${Date.now()}`,
+            },
+            activeSlug,
+          );
+          const row2 = apiNodeToGraphRow(r2.node as Record<string, unknown>, r2.node_id);
+          addGraphNode(row2);
+          setSelectedNodeId(row2.id);
+          void loadGraphList();
+        },
+      });
     } catch (e) {
+      removeGraphNode(nodeId);
       onError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
     }
-  }, [activeSlug, t, setBusy, onError, refreshAll, setSelectedNodeId, setPanelExpanded, setPanelTab]);
+  }, [
+    activeSlug,
+    t,
+    addGraphNode,
+    removeGraphNode,
+    replaceGraphNode,
+    setSelectedNodeId,
+    setPanelExpanded,
+    setPanelTab,
+    onError,
+    loadGraphList,
+    pushUndoFrame,
+  ]);
 
   // Add child node (mindmap Tab shortcut)
   const handleAddChildNode = useCallback(async (parentId: string) => {
@@ -262,31 +327,90 @@ export function GraphWorkspace({
     const parent = graphNodes.find((n) => n.id === parentId);
     if (!parent) return;
     const name = t("newNodeDefaultName");
-    setBusy(true);
+    const tempId = `__optimistic__/c-${Date.now()}`;
+    const draft: GraphNodeRow = {
+      id: tempId,
+      canonical_name: name,
+      node_kind: "concept",
+      subject: parent.subject ?? null,
+      level: parent.level ?? null,
+      primary_parent_id: parentId,
+    };
+    addGraphNode(draft);
+    setSelectedNodeId(tempId);
+    setPanelExpanded(true);
+    setPanelTab("edit");
     onError(null);
     try {
-      const r = await apiGraphCreateNode({
-        canonical_name: name,
-        aliases: [],
-        node_kind: "concept",
-        subject: parent.subject ?? null,
-        level: parent.level ?? null,
-        description: null,
-        tags: [],
-        source: null,
-        parent_node_id: parentId,
-        primary_parent_id: parentId,
-      }, activeSlug);
-      await refreshAll();
-      setSelectedNodeId(r.node_id);
-      setPanelExpanded(true);
-      setPanelTab("edit");
+      const r = await apiGraphCreateNode(
+        {
+          canonical_name: name,
+          aliases: [],
+          node_kind: "concept",
+          subject: parent.subject ?? null,
+          level: parent.level ?? null,
+          description: null,
+          tags: [],
+          source: null,
+          parent_node_id: parentId,
+          primary_parent_id: parentId,
+        },
+        activeSlug,
+      );
+      const row = apiNodeToGraphRow(r.node as Record<string, unknown>, r.node_id);
+      replaceGraphNode(tempId, row);
+      const rel = apiRelationToGraphRow(r.relation as Record<string, unknown> | null | undefined);
+      if (rel) addGraphRelation(rel);
+      void loadGraphList();
+      pushUndoFrame({
+        undo: async () => {
+          await apiGraphDeleteNode(row.id, activeSlug);
+          removeGraphNode(row.id);
+          void loadGraphList();
+        },
+        redo: async () => {
+          const r2 = await apiGraphCreateNode(
+            {
+              canonical_name: name,
+              aliases: [],
+              node_kind: "concept",
+              subject: parent.subject ?? null,
+              level: parent.level ?? null,
+              description: null,
+              tags: [],
+              source: null,
+              parent_node_id: parentId,
+              primary_parent_id: parentId,
+            },
+            activeSlug,
+          );
+          const row2 = apiNodeToGraphRow(r2.node as Record<string, unknown>, r2.node_id);
+          addGraphNode(row2);
+          const rel2 = apiRelationToGraphRow(r2.relation as Record<string, unknown> | null | undefined);
+          if (rel2) addGraphRelation(rel2);
+          setSelectedNodeId(row2.id);
+          void loadGraphList();
+        },
+      });
     } catch (e) {
+      removeGraphNode(tempId);
       onError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
     }
-  }, [activeSlug, graphNodes, t, setBusy, onError, refreshAll, setSelectedNodeId, setPanelExpanded, setPanelTab]);
+  }, [
+    activeSlug,
+    graphNodes,
+    t,
+    addGraphNode,
+    removeGraphNode,
+    replaceGraphNode,
+    addGraphRelation,
+    setSelectedNodeId,
+    setPanelExpanded,
+    setPanelTab,
+    onError,
+    loadGraphList,
+    pushUndoFrame,
+  ]);
 
   // Add sibling node (mindmap Enter shortcut)
   const handleAddSiblingNode = useCallback(async (siblingId: string) => {
@@ -328,17 +452,37 @@ export function GraphWorkspace({
   const handleRenameNode = useCallback(async (nodeId: string, newName: string) => {
     const n = graphNodes.find((g) => g.id === nodeId);
     if (!n) return;
+    const prev = n.canonical_name;
+    patchGraphNode(nodeId, { canonical_name: newName });
     try {
       await apiGraphUpdateNode(nodeId, {
         ...n,
         id: nodeId,
         canonical_name: newName,
       }, activeSlug);
-      await refreshAll();
+      pushUndoFrame({
+        undo: async () => {
+          patchGraphNode(nodeId, { canonical_name: prev });
+          await apiGraphUpdateNode(nodeId, {
+            ...n,
+            id: nodeId,
+            canonical_name: prev,
+          }, activeSlug);
+        },
+        redo: async () => {
+          patchGraphNode(nodeId, { canonical_name: newName });
+          await apiGraphUpdateNode(nodeId, {
+            ...n,
+            id: nodeId,
+            canonical_name: newName,
+          }, activeSlug);
+        },
+      });
     } catch (e) {
+      patchGraphNode(nodeId, { canonical_name: prev });
       onError(e instanceof Error ? e.message : String(e));
     }
-  }, [graphNodes, activeSlug, onError, refreshAll]);
+  }, [graphNodes, activeSlug, onError, patchGraphNode, pushUndoFrame]);
 
   // Connect
   const handleStartConnect = useCallback(() => {
@@ -361,16 +505,43 @@ export function GraphWorkspace({
   }, [setConnectingFromId]);
 
   const commitConnect = useCallback(async () => {
-    if (!pendingConnectSource || !pendingConnectTarget) return;
+    if (!pendingConnectSource || !pendingConnectTarget || !activeSlug) return;
     setBusy(true);
     onError(null);
     try {
-      await apiGraphCreateRelation({
+      const r = await apiGraphCreateRelation({
         from_node_id: pendingConnectSource,
         to_node_id: pendingConnectTarget,
         relation_type: connectRelType,
       }, activeSlug);
-      await refreshAll();
+      addGraphRelation({
+        id: r.relation_id,
+        from_node_id: pendingConnectSource,
+        to_node_id: pendingConnectTarget,
+        relation_type: connectRelType,
+      });
+      const src = pendingConnectSource;
+      const tgt = pendingConnectTarget;
+      const rt = connectRelType;
+      pushUndoFrame({
+        undo: async () => {
+          await apiGraphDeleteRelation(r.relation_id, activeSlug);
+          removeGraphRelations((rel) => rel.id === r.relation_id);
+        },
+        redo: async () => {
+          const r2 = await apiGraphCreateRelation({
+            from_node_id: src,
+            to_node_id: tgt,
+            relation_type: rt,
+          }, activeSlug);
+          addGraphRelation({
+            id: r2.relation_id,
+            from_node_id: src,
+            to_node_id: tgt,
+            relation_type: rt,
+          });
+        },
+      });
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -379,7 +550,84 @@ export function GraphWorkspace({
       setPendingConnectSource(null);
       setPendingConnectTarget(null);
     }
-  }, [pendingConnectSource, pendingConnectTarget, connectRelType, activeSlug, setBusy, onError, refreshAll]);
+  }, [
+    pendingConnectSource,
+    pendingConnectTarget,
+    connectRelType,
+    activeSlug,
+    setBusy,
+    onError,
+    addGraphRelation,
+    removeGraphRelations,
+    pushUndoFrame,
+  ]);
+
+  const handlePanelDeleteNode = useCallback(async () => {
+    if (!activeSlug || !selectedNode) return;
+    const node = selectedNode;
+    const snapRels = relations.filter(
+      (r) => r.from_node_id === node.id || r.to_node_id === node.id,
+    );
+    removeGraphNode(node.id);
+    onError(null);
+    try {
+      const del = await apiGraphDeleteNode(node.id, activeSlug);
+      void loadGraphList();
+      const saved = del.deleted_node
+        ? apiNodeToGraphRow(del.deleted_node as Record<string, unknown>, node.id)
+        : node;
+      const savedRels = (del.deleted_relations ?? [])
+        .map((x) => apiRelationToGraphRow(x as Record<string, unknown>))
+        .filter((x): x is NonNullable<typeof x> => Boolean(x));
+      pushUndoFrame({
+        undo: async () => {
+          await apiGraphCreateNode(graphNodeRowToCreateBody(saved), activeSlug);
+          for (const rel of savedRels) {
+            try {
+              await apiGraphCreateRelation(
+                {
+                  from_node_id: rel.from_node_id,
+                  to_node_id: rel.to_node_id,
+                  relation_type: rel.relation_type,
+                },
+                activeSlug,
+              );
+            } catch {
+              /* 幂等：可能已由创建节点写入 */
+            }
+          }
+          await loadGraphData(activeSlug);
+          void loadGraphList();
+        },
+        redo: async () => {
+          await apiGraphDeleteNode(saved.id, activeSlug);
+          removeGraphNode(saved.id);
+          await loadGraphData(activeSlug);
+          void loadGraphList();
+        },
+      });
+    } catch (e) {
+      addGraphNode(node);
+      for (const r of snapRels) addGraphRelation(r);
+      onError(e instanceof Error ? e.message : String(e));
+    }
+  }, [
+    activeSlug,
+    selectedNode,
+    relations,
+    removeGraphNode,
+    addGraphNode,
+    addGraphRelation,
+    onError,
+    loadGraphList,
+    loadGraphData,
+    pushUndoFrame,
+  ]);
+
+  const handleMindMapDeleteSelectedNode = useCallback(async () => {
+    await handlePanelDeleteNode();
+    setSelectedNodeId(null);
+  }, [handlePanelDeleteNode, setSelectedNodeId]);
 
   const handleNodeClick = useCallback((nodeId: string) => {
     setSelectedNodeId(nodeId);
@@ -455,6 +703,7 @@ export function GraphWorkspace({
               onAddNode={handleAddNode}
               onAddChildNode={handleAddChildNode}
               onAddSiblingNode={handleAddSiblingNode}
+              onDeleteSelectedNode={handleMindMapDeleteSelectedNode}
               onStartConnect={handleStartConnect}
               onRelayout={triggerRelayout}
               onCancelConnect={handleCancelConnect}
@@ -489,8 +738,9 @@ export function GraphWorkspace({
             activeSlug={activeSlug}
             tab={panelTab}
             onTabChange={setPanelTab}
-            onSaved={refreshAll}
-            onDeleted={() => { setSelectedNodeId(null); void refreshAll(); }}
+            onSaved={reloadActiveGraphData}
+            onDeleteNode={handlePanelDeleteNode}
+            onDeleted={() => { setSelectedNodeId(null); }}
             onError={onError}
             onClose={() => setPanelExpanded(false)}
             highlightEdgeId={selectedEdgeId}
