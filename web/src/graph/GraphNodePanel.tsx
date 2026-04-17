@@ -46,7 +46,7 @@ interface Props {
   tab: PanelTab;
   onTabChange: (tab: PanelTab) => void;
   onSaved: () => void;
-  /** 侧栏确认删除后调用（工作区负责乐观更新与 API） */
+  /** 侧栏删除后调用（工作区负责乐观更新与 API） */
   onDeleteNode?: () => Promise<void>;
   onDeleted: () => void;
   onError: (e: string | null) => void;
@@ -261,7 +261,6 @@ export function GraphNodePanel({
 
   const deleteNode = async () => {
     if (!selectedNode) return;
-    if (!window.confirm(t("confirmDeleteNode"))) return;
     setBusy(true);
     onError(null);
     try {
