@@ -253,6 +253,8 @@ interface Props {
   onAddNode: () => void;
   onAddChildNode: (parentId: string) => void;
   onAddSiblingNode: (siblingId: string) => void;
+  /** Delete/Backspace — same behavior as sidebar delete; React Flow built-in delete is disabled */
+  onDeleteSelectedNode?: () => void | Promise<void>;
   onStartConnect: () => void;
   onRelayout: () => void;
   onCancelConnect: () => void;
@@ -274,6 +276,7 @@ export function MindMapCanvas({
   onAddNode,
   onAddChildNode,
   onAddSiblingNode,
+  onDeleteSelectedNode,
   onStartConnect,
   onRelayout,
   onCancelConnect,
@@ -470,12 +473,12 @@ export function MindMapCanvas({
         onAddSiblingNode(selectedNodeId);
       } else if (e.key === "Delete" || e.key === "Backspace") {
         e.preventDefault();
-        // handled upstream via onNodeClick + delete
+        void onDeleteSelectedNode?.();
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [selectedNodeId, inlineEditId, onAddChildNode, onAddSiblingNode]);
+  }, [selectedNodeId, inlineEditId, onAddChildNode, onAddSiblingNode, onDeleteSelectedNode]);
 
   const handleNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
     if (node.id === VIRTUAL_ROOT_ID) { onPaneClick(); return; }
@@ -567,6 +570,7 @@ export function MindMapCanvas({
         <ReactFlow
           nodes={nodes}
           edges={edges}
+          deleteKeyCode={null}
           onInit={(inst) => { rfRef.current = inst; }}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}

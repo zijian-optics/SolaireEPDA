@@ -624,6 +624,11 @@ export function GraphWorkspace({
     pushUndoFrame,
   ]);
 
+  const handleMindMapDeleteSelectedNode = useCallback(async () => {
+    await handlePanelDeleteNode();
+    setSelectedNodeId(null);
+  }, [handlePanelDeleteNode, setSelectedNodeId]);
+
   const handleNodeClick = useCallback((nodeId: string) => {
     setSelectedNodeId(nodeId);
     setPanelExpanded(true);
@@ -698,6 +703,7 @@ export function GraphWorkspace({
               onAddNode={handleAddNode}
               onAddChildNode={handleAddChildNode}
               onAddSiblingNode={handleAddSiblingNode}
+              onDeleteSelectedNode={handleMindMapDeleteSelectedNode}
               onStartConnect={handleStartConnect}
               onRelayout={triggerRelayout}
               onCancelConnect={handleCancelConnect}
