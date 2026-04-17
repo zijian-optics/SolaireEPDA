@@ -1,11 +1,9 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { BookOpen, Boxes, Cpu, Info, LayoutGrid } from "lucide-react";
 import welcomeLogo from "../assets/welcome-logo.png";
-import { AgentSidebar } from "../components/AgentSidebar";
 import { ExtensionsPanel } from "../components/ExtensionsPanel";
 import { ModelConfigPane } from "../components/welcome/ModelConfigPane";
-import { useAgentContext } from "../contexts/AgentContext";
 import { cn } from "../lib/utils";
 import { IntroPane } from "./welcome/IntroPane";
 import { ProjectPane } from "./welcome/ProjectPane";
@@ -26,12 +24,7 @@ type Props = {
 
 export function WelcomePage({ onProjectReady, onError }: Props) {
   const { t } = useTranslation(["welcome", "app"]);
-  const { setSidebarOpen } = useAgentContext();
   const [tab, setTab] = useState<WelcomeTab>("intro");
-
-  useEffect(() => {
-    setSidebarOpen(false);
-  }, [setSidebarOpen]);
 
   return (
     <div className="relative flex h-full min-h-0 min-w-0 w-full flex-1 flex-row bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-slate-100">
@@ -84,7 +77,6 @@ export function WelcomePage({ onProjectReady, onError }: Props) {
           )}
         </div>
       </div>
-      <AgentSidebar projectBound={false} mode="overlay" />
     </div>
   );
 }

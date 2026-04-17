@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   BarChart3,
@@ -50,6 +50,7 @@ function AppShell() {
   const [err, setErr] = useState<string | null>(null);
   const [graphFocusNodeId, setGraphFocusNodeId] = useState<string | null>(null);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
+  const [assistantOverlayHost, setAssistantOverlayHost] = useState<HTMLDivElement | null>(null);
 
   const refreshInfo = useCallback(async () => {
     try {
@@ -65,10 +66,21 @@ function AppShell() {
     void refreshInfo();
   }, [refreshInfo]);
 
-  useEffect(() => {
-    if (!info?.bound) {
+  /**
+   * 侧栏开关生命周期：
+   * - 未绑定项目时强制关闭；
+   * - 从欢迎页进入项目（bound: false → true）时强制关闭，避免沿用旧状态导致误开；
+   * - 首次启动即已绑定项目时不走「从欢迎进入」分支，避免多余一次 setState。
+   */
+  const prevBoundRef = useRef<boolean | undefined>(undefined);
+  useLayoutEffect(() => {
+    const bound = Boolean(info?.bound);
+    if (!bound) {
+      setSidebarOpen(false);
+    } else if (prevBoundRef.current === false) {
       setSidebarOpen(false);
     }
+    prevBoundRef.current = bound;
   }, [info?.bound, setSidebarOpen]);
 
   useEffect(() => {
@@ -272,7 +284,10 @@ function AppShell() {
                 </div>
               )}
 
-              <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+              <div
+                ref={setAssistantOverlayHost}
+                className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden"
+              >
                 <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
                   {info?.bound && (
                     <div
@@ -324,7 +339,7 @@ function AppShell() {
                   {page === "analysis" && <AnalysisWorkspace />}
                   {page === "log" && <LogWorkspace />}
                 </main>
-                <AgentSidebar projectBound mode="overlay" />
+                <AgentSidebar projectBound mode="overlay" overlayHost={assistantOverlayHost} />
               </div>
             </div>
           </>
