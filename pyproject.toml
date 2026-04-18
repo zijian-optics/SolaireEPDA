@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "solaire-education"
-version = "0.2.0_alpha"
+version = "0.2.0"
 description = "Solaire Education — 教育技术仓库（ExamCompiler 等基础设施）"
 readme = "README.md"
 requires-python = ">=3.11"
