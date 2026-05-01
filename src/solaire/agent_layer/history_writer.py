@@ -86,40 +86,10 @@ async def emit_memory_after_assistant_turn(
     emit: EmitFn,
     skip_memory_write: bool = False,
 ) -> None:
-    """Append analysis history / digest when there is both a user line and assistant reply."""
-    if skip_memory_write:
-        return
-    last_user_text = user_message
-    if not (last_user_text and last_user_text.strip()):
-        for m in reversed(session.messages):
-            if m.role == "user" and (m.content or "").strip():
-                last_user_text = m.content.strip()
-                break
-    if not (last_user_text and assistant_text.strip()):
-        return
-    if not _should_auto_remember(last_user_text, assistant_text):
-        return
-    try:
-        snippet = f"用户：{last_user_text[:120]}… / 助手摘要：{assistant_text[:160]}…"
-        append_analysis_history_line(project_root, snippet)
-        changed = ["analysis_history.md"]
-        append_session_digest_line(
-            project_root,
-            f"{last_user_text[:80]}… → {assistant_text[:120]}…",
-        )
-        changed.append("session_digest.md")
-        bullet = f"[分析记录](analysis_history.md) {assistant_text[:200]}".strip()
-        if len(bullet) > 240:
-            bullet = bullet[:237] + "…"
-        if merge_index_bullet(project_root, bullet):
-            changed.append("INDEX.md")
-        await emit("memory_updated", {"topics_changed": changed})
-    except Exception as e:
-        await emit("memory_update_failed", {"message": str(e)})
-        append_audit(
-            project_root,
-            session_id=session.session_id,
-            tool_name=None,
-            status="memory_update_failed",
-            detail={"error": str(e)},
-        )
+    """自动记忆写入已禁用。
+
+    此前每轮自动追加对话碎片到 analysis_history / session_digest / INDEX，
+    但存储内容为截断到 120-160 字的片段，无跨会话召回价值，且注入系统提示
+    导致 dynamic hash 频繁变化、缓存失效。保留函数签名供调用方兼容。
+    """
+    return

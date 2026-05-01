@@ -27,7 +27,7 @@ def load_overrides_raw(project_root: Path) -> dict[str, str]:
     if not isinstance(raw, dict):
         return {}
     out: dict[str, str] = {}
-    for k in ("api_key", "base_url", "main_model", "fast_model", "max_tokens"):
+    for k in ("api_key", "base_url", "provider", "main_model", "fast_model", "max_tokens"):
         v = raw.get(k)
         if isinstance(v, str) and v.strip():
             out[k] = v.strip()

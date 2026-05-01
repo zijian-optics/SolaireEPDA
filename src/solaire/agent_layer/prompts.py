@@ -186,11 +186,6 @@ def _layer_plan_execution(execution_plan_path: str) -> str:
     )
 
 
-def _layer_memory(memory_index_excerpt: str) -> str:
-    body = memory_index_excerpt.strip() or "（暂无记忆索引）"
-    return f"## 记忆索引（提示性质，引用前须用工具核对）\n{body}"
-
-
 def _layer_skill_catalog(skill_catalog: str | None) -> str:
     if not skill_catalog or not skill_catalog.strip():
         return ""
@@ -251,12 +246,11 @@ def _apply_overrides(base_prompt: str, overrides: str) -> str:
     return result
 
 
-def build_stable_system_prompt(*, tool_descriptions: str) -> str:
-    """不随页面/记忆/计划状态变化的系统提示核心（利于稳定前缀与缓存）。"""
+def build_stable_system_prompt() -> str:
+    """不随焦点/页面/计划状态变化的系统提示核心（利于稳定前缀与缓存）。"""
     parts = [
         _layer_role(),
         _layer_goal(),
-        _layer_tools(tool_descriptions),
         _layer_constraints(),
         _layer_risk_policy(),
         _layer_output_format(),
@@ -265,9 +259,13 @@ def build_stable_system_prompt(*, tool_descriptions: str) -> str:
     return "\n\n".join(parts)
 
 
+def build_tools_system_block(tool_descriptions: str) -> str:
+    """工具描述块：随焦点域变化但同一焦点内稳定。"""
+    return _layer_tools(tool_descriptions)
+
+
 def build_dynamic_system_prompt(
     *,
-    memory_index_excerpt: str,
     project_ctx: dict[str, Any],
     skill_guidance: str | None = None,
     current_focus: str | None = None,
@@ -275,7 +273,7 @@ def build_dynamic_system_prompt(
     execution_plan_path: str | None = None,
     skill_catalog: str | None = None,
 ) -> str:
-    """随项目摘要、界面、记忆摘录、计划状态变化的提示层。"""
+    """随项目摘要、界面、计划状态变化的提示层。"""
     chunks: list[str] = []
     if skill_guidance and skill_guidance.strip():
         chunks.append("## 当前协助重点\n" + skill_guidance.strip())
@@ -287,7 +285,6 @@ def build_dynamic_system_prompt(
         chunks.append(_layer_plan_execution(execution_plan_path))
     chunks.append(_layer_context(project_ctx))
     chunks.append(_layer_focus(current_focus))
-    chunks.append(_layer_memory(memory_index_excerpt))
     catalog_section = _layer_skill_catalog(skill_catalog)
     if catalog_section:
         chunks.append(catalog_section)
@@ -297,7 +294,6 @@ def build_dynamic_system_prompt(
 def build_system_prompt(
     *,
     tool_descriptions: str,
-    memory_index_excerpt: str,
     project_ctx: dict[str, Any],
     skill_guidance: str | None = None,
     current_focus: str | None = None,
@@ -306,10 +302,10 @@ def build_system_prompt(
     skill_catalog: str | None = None,
     project_root: Path | None = None,
 ) -> str:
-    """Assemble full system prompt (protocol stack)."""
-    stable = build_stable_system_prompt(tool_descriptions=tool_descriptions)
+    """Assemble full system prompt (protocol stack): stable + tools_block + dynamic."""
+    stable = build_stable_system_prompt()
+    tools_block = build_tools_system_block(tool_descriptions)
     dynamic = build_dynamic_system_prompt(
-        memory_index_excerpt=memory_index_excerpt,
         project_ctx=project_ctx,
         skill_guidance=skill_guidance,
         current_focus=current_focus,
@@ -317,7 +313,7 @@ def build_system_prompt(
         execution_plan_path=execution_plan_path,
         skill_catalog=skill_catalog,
     )
-    base = stable + "\n\n" + dynamic
+    base = stable + "\n\n" + tools_block + "\n\n" + dynamic
 
     overrides = _load_prompt_overrides(project_root)
     if overrides:

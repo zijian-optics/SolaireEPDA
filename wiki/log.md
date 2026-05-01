@@ -522,3 +522,75 @@
 **验证命令**：`pixi run pytest tests/test_agent_layer.py tests/test_agent_plan_and_subagent.py tests/test_agent_exam_export.py tests/test_user_llm_overrides.py -q`
 
 **结果要点**：41 项相关测试通过；SSE 可观测指标可区分稳定前缀变化与工具集变化；可按请求关闭单轮自动记忆写入。
+
+## [2026-05-01] 模型服务切换 | provider、Responses/Messages 适配与欢迎页/设置表单
+
+**改动摘要**：`LLMSettings` 增加 `provider`（`openai` / `anthropic` / `openai_compat` / `deepseek`），合并进本机与项目 `llm_overrides`；`openai` 走 OpenAI Responses API（`openai_responses.py`），`anthropic` 走 Messages API（`anthropic_messages.py`），兼容与 DeepSeek 仍用 Chat Completions；`GET/PUT /api/agent/llm-settings` 增加 `provider` 与 `provider_options`；前端 `AgentModelSettingsForm` 与欢迎页/设置页模型区；`pixi.toml` 增加 `anyio`、`anthropic` pypi 依赖。
+
+**验证命令**：`pixi run pytest tests/test_user_llm_overrides.py tests/test_llm_router.py tests/test_agent_layer.py tests/test_agent_plan_and_subagent.py -v`；`cd web && npm test -- AgentModelSettingsForm --run`
+
+**结果要点**：上述 pytest 与 Vitest 通过；文档已更新 `docs/api/agent.md`、`wiki/modules/agent-user-settings.md`、`wiki/modules/agent-layer.md`。
+
+## [2026-05-01] agent API | /api/agent/llm-settings 契约测试
+
+**改动摘要**：新增 `tests/test_agent_llm_settings_api.py`，覆盖 `provider`/`provider_options` 返回、项目内持久化、访问凭据脱敏、非法服务类型 400、`/api/agent/config` 的 `provider` 字段。
+
+**验证命令**：`pixi run pytest tests/test_agent_llm_settings_api.py -q`
+
+**结果要点**：5 项 pytest 通过。
+
+## [2026-05-01] DeepSeek 兼容 | OpenAI 思考模式请求形状
+
+**改动摘要**：`OpenAICompatAdapter` 在 `provider=deepseek` 或服务地址含 `deepseek.com` 时启用 `deepseek_compat`：请求增加 `extra_body["thinking"]` 与 `reasoning_effort`（与官方 OpenAI 兼容示例一致），有工具时不发 `parallel_tool_calls`，流式不启用 `stream_options`；`TypeError` 时回退去掉 `reasoning_effort`。补充单测与 `ModelRouter` 用例。
+
+**验证命令**：`pixi run pytest tests/test_agent_layer.py::test_openai_compat_deepseek_adds_thinking_extra_body tests/test_agent_layer.py::test_openai_compat_generic_parallel_tool_calls_with_tools tests/test_llm_router.py::test_model_router_adapter_by_provider -q`
+
+**结果要点**：上述用例通过；说明见 [DeepSeek 思考模式](https://api-docs.deepseek.com/zh-cn/guides/thinking_mode)。
+
+## [2026-05-01] DeepSeek | 工具 function.name 含点号被拒（400）
+
+**改动摘要**：DeepSeek 要求 `tools[].function.name` 符合 `^[a-zA-Z0-9_-]+$`。`OpenAICompatAdapter` 在 `deepseek_compat` 下对请求中的工具定义与历史 `assistant.tool_calls` 将 `analysis.foo` 转为 `analysis_foo`，响应再映射回注册表中的 canonical 名以便 `invoke_registered_tool`；已补充单测。
+
+**验证命令**：`pixi run pytest tests/test_agent_layer.py::test_openai_compat_deepseek_rewrites_dotted_tool_names -q`
+
+**结果要点**：1 passed。
+
+## [2026-05-01] DeepSeek | 后续工具轮：tool.name 字符集与空 reasoning
+
+**改动摘要**：出站历史中的 `role=tool` 的 `name` 与 assistant 的 `function.name` 一致改为下划线形式，避免网关对与 `tools[].function.name` 相同的模式校验；流式工具轮若未收到 `delta.reasoning_content`，用已组装的正文 `content` 作为 `accumulated_reasoning` 回退，再否则用 `"."`，避免落库空串导致下一轮思考模式 400；非流式 `chat()` 在带工具且 reasoning 空时同样用 `content` 兜底。补充 `test_prepare_deepseek_wires_tool_message_name`。
+
+**验证命令**：`pixi run pytest tests/test_agent_layer.py::test_prepare_deepseek_wires_tool_message_name tests/test_agent_layer.py::test_openai_compat_deepseek_extra_body_preserves_reasoning_in_messages -q`
+
+**结果要点**：2 passed。
+
+## [2026-05-01] 上下文压缩 | 避免拆散 assistant 与 tool 触发 400
+
+**改动摘要**：`ContextManager._maybe_compact` 原先用 `messages.pop(2)` 单条删除，可能删掉带 `tool_calls` 的 `assistant` 而留下后续 `tool`，严格网关（DeepSeek）报错「tool 必须紧接在带 tool_calls 的 assistant 之后」。改为按段删除：含工具的 `assistant` 与其后连续 `tool` 同删；`user` 则删至下一 `user` 之前的整块；若以孤儿 `tool` 开头则先删连续 `tool`。`build_messages` 在压缩前对前缀后历史做链式校验并去掉孤儿 `tool`。stub 起始下标按 1～2 条 system 前缀自适应。补充 `test_drop_oldest_history_*`、`test_sanitize_tool_chains_*`。
+
+**验证命令**：`pixi run pytest tests/test_agent_layer.py::test_drop_oldest_history_removes_assistant_and_tools_together tests/test_agent_layer.py::test_sanitize_tool_chains_drops_orphan_tool_after_system -q`
+
+**结果要点**：2 passed。
+
+## [2026-05-01] DeepSeek | reasoning_content 被 OpenAI SDK 裁掉致 400
+
+**改动摘要**：官方 `openai` 库在发起 Chat Completions 时按 TypedDict 裁剪 `messages`，导致已持久化的 `reasoning_content` 无法到达 DeepSeek 网关，思考模式 + 工具轮次触发「须回传 reasoning_content」。`deepseek_compat` 下在 `extra_body` 中合并完整 `messages` 深拷贝（SDK 合并 JSON 时 `extra_json` 覆盖同名键），流式与非流式共用；补充单测。
+
+**验证命令**：`pixi run pytest tests/test_agent_layer.py::test_openai_compat_deepseek_extra_body_preserves_reasoning_in_messages -q`
+
+**结果要点**：1 passed。
+
+## [2026-05-02] DeepSeek 兼容 + 缓存 | 多 tool_call 消息链断裂、工具名格式、memory 停用、提示拆层
+
+**改动摘要**：
+
+1. **`_sanitize_tool_chains` 修复**（致命 bug）：旧逻辑仅认前一条 `assistant` 为合法前驱，导致多 tool_call 场景下第 2+ 条 tool 响应被误删→严格网关 400。改为向前回溯到非 tool 锚点判断；新增 Pass 2 补全缺失 tool_call_id 的占位消息。
+2. **工具名 wire 转换扩展至所有 `openai_compat`**：不再限 `deepseek_compat=True`；废弃 `@lru_cache`，反向映射从 `_TOOL_BY_NAME` 实时构建，焦点切换后不会失效。`_prepare_deepseek_request_payload` → `_prepare_compat_request_payload`。
+3. **自动记忆写入禁用**：`emit_memory_after_assistant_turn` 改为空操作；系统提示移除记忆索引注入（`_layer_memory` / `memory_index_excerpt` 参数删除）；orchestrator 循环内不再调用 `read_index`。`memory.*` 只读工具保留。
+4. **系统提示拆三层**：`build_stable_system_prompt()` 不再接受 `tool_descriptions` 参数（纯角色/约束/规范），新增 `build_tools_system_block`；`context_metrics` 增加 `tools_block_sha12`。
+5. **orchestrator 循环缓存**：`stable_txt` 在循环外预构建；`tools_block_txt` 仅焦点切换后重建。
+6. **reasoning_content 兜底清理**：不再用 content 或 `"."` 填充 reasoning；tool_calls 无 reasoning 时设空串。
+7. **死代码清理**：删除 `session_to_api_messages`、`_layer_memory`；`_ensure_assistant_tool_calls_have_reasoning` 提取到 `llm/message_utils.py`；`subagent.py` docstring 补丁残留修复。
+
+**验证命令**：`pixi run pytest tests/test_agent_layer.py tests/test_llm_router.py -v`
+
+**结果要点**：40 passed（新增 7 测试全通过），1 pre-existing failure（`test_guardrail_read_vs_export`，与本次改动无关），llm_router 3 passed。

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from solaire.agent_layer.user_agent_paths import user_agent_state_dir
 
 _OVERRIDES_NAME = "llm_overrides.json"
-_OVERRIDE_KEYS = ("api_key", "base_url", "main_model", "fast_model", "max_tokens")
+_OVERRIDE_KEYS = ("api_key", "base_url", "provider", "main_model", "fast_model", "max_tokens")
 
 
 def user_overrides_path() -> Path:

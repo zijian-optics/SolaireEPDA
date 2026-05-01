@@ -6,20 +6,21 @@
 
 | 变量 | 说明 |
 |------|------|
-| `SOLAIRE_LLM_API_KEY` 或 `OPENAI_API_KEY` | 模型服务密钥 |
+| `SOLAIRE_LLM_PROVIDER` | 可选，模型服务类型：`openai` / `anthropic` / `openai_compat`（默认，与历史行为一致）/ `deepseek`；可与本机或项目内覆盖文件中的 `provider` 字段叠加 |
+| `SOLAIRE_LLM_API_KEY` 或按服务类型：`OPENAI_API_KEY`、`ANTHROPIC_API_KEY`、`DEEPSEEK_API_KEY` | 模型服务密钥；`SOLAIRE_LLM_API_KEY` 优先，否则按当前 `provider` 读取对应变量，最后回退 `OPENAI_API_KEY` |
 | `SOLAIRE_LLM_BASE_URL` 或 `OPENAI_BASE_URL` | 可选，兼容 OpenAI 的网关地址 |
 | `SOLAIRE_LLM_MODEL` | 主模型，默认 `gpt-4o-mini` |
 | `SOLAIRE_LLM_FAST_MODEL` | 可选，快模型（与主模型相同时可省略） |
 | `SOLAIRE_LLM_MAX_TOKENS` | 可选，单次助手生成最大 token；未设置时默认 `4096`（亦可通过本机或项目内覆盖文件覆盖） |
 | `SOLAIRE_USER_CONFIG_DIR` | 可选，指定本机用户级配置根目录（默认 Windows `%APPDATA%\SolEdu`，macOS `~/Library/Application Support/SolEdu`，Linux `$XDG_CONFIG_HOME/solaire` 或 `~/.config/solaire`）；其下 `agent/llm_overrides.json` 与 `agent/safety_mode.json` 在未打开项目时由设置页写入 |
 
-## 端点（前缀 `/api/agent`）
+当 `provider` 为 `deepseek`，或 `SOLAIRE_LLM_BASE_URL` / `base_url` 指向 `deepseek.com` 时，后端对 OpenAI 兼容 Chat Completions 会自动附加思考模式所需参数（与 [DeepSeek 思考模式 / OpenAI 格式](https://api-docs.deepseek.com/zh-cn/guides/thinking_mode) 一致），并省略部分仅部分网关实现的扩展字段，以降低调用失败概率。**说明**：官方 Python SDK 会裁剪请求里的 `messages` 字段并去掉 `reasoning_content`；在 DeepSeek 模式下会通过 `extra_body` 再次附带完整 `messages`，以满足「含工具调用的助手轮次须回传思维链」的要求。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/config` | 是否已配置密钥、当前模型名等 |
-| GET | `/llm-settings` | 当前生效的模型参数预览（访问密钥脱敏）；合并顺序为环境变量 → 本机用户目录 `agent/llm_overrides.json` → 当前项目 `.solaire/agent/llm_overrides.json`（后者优先）。响应含 `persist_scope`：`global` 表示未打开项目、`project` 表示已打开；`has_user_api_key_override` / `has_project_api_key_override` 标明密钥来源 |
-| PUT | `/llm-settings` | 未打开项目时写入本机 `agent/llm_overrides.json`；已打开项目时写入项目内同名文件（项目层覆盖本机与环境中的同名项） |
+| GET | `/config` | 是否已配置密钥、当前 `provider`、模型名等 |
+| GET | `/llm-settings` | 当前生效的模型参数预览（访问密钥脱敏）；合并顺序为环境变量 → 本机用户目录 `agent/llm_overrides.json` → 当前项目 `.solaire/agent/llm_overrides.json`（后者优先）。响应含 `persist_scope`：`global` 表示未打开项目、`project` 表示已打开；`has_user_api_key_override` / `has_project_api_key_override` 标明密钥来源；`provider` 为当前服务类型；`provider_options` 为可选服务类型列表（仅 `id`，界面文案由客户端翻译） |
+| PUT | `/llm-settings` | 未打开项目时写入本机 `agent/llm_overrides.json`；已打开项目时写入项目内同名文件（项目层覆盖本机与环境中的同名项）。可写字段含 `provider`（`openai` / `anthropic` / `openai_compat` / `deepseek`）、`main_model`、`fast_model`、`base_url`、`api_key`、`max_tokens` 等 |
 | GET | `/safety-mode` | 当前护栏模式与可选列表（`moderato` / `allegro` / `vivace` / `prestissimo`），合并顺序与 `llm_overrides` 类似（本机可被项目覆盖） |
 | PUT | `/safety-mode` | 未打开项目时写入本机；已打开项目时写入项目 `.solaire/agent/safety_mode.json` |
 | GET | `/skills` | 内置快捷协助列表（`id` / `label` / `description` / `suggested_user_input`） |

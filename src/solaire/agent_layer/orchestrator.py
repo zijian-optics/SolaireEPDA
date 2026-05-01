@@ -33,8 +33,7 @@ from solaire.agent_layer.tools import analysis_tools
 from solaire.agent_layer.tool_executor import run_draft_tool_loop
 from solaire.agent_layer.llm.token_budget import estimate_messages_tokens
 from solaire.agent_layer.llm.prompt_cache import hash_text_sha12, hash_tools_payload_sha12
-from solaire.agent_layer.prompts import build_dynamic_system_prompt, build_stable_system_prompt
-from solaire.agent_layer.memory import read_index
+from solaire.agent_layer.prompts import build_dynamic_system_prompt, build_stable_system_prompt, build_tools_system_block
 
 EmitFn = Callable[[str, dict[str, Any]], Awaitable[None]]
 
@@ -355,6 +354,14 @@ async def run_agent_turn(
     usage_acc: dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     text = ""
     auto_continue_count = 0
+
+    stable_txt = build_stable_system_prompt()
+    public_ctx = {k: v for k, v in full_ctx.items() if not str(k).startswith("_")}
+    # 首次构建（焦点切换后循环内会重建 tools_block_txt / dynamic_txt）
+    _desc = tool_descriptions_for_prompt(tools_selected)
+    tools_block_txt = build_tools_system_block(_desc)
+    _need_rebuild_prompts = False
+
     for _round in range(max_llm_rounds):
         if is_cancelled(session.session_id):
             clear_cancel(session.session_id)
@@ -364,6 +371,12 @@ async def run_agent_turn(
             return
 
         await emit("thinking", {"message": _thinking_for_round(_round)})
+
+        if _need_rebuild_prompts:
+            _desc = tool_descriptions_for_prompt(tools_selected)
+            tools_block_txt = build_tools_system_block(_desc)
+            _need_rebuild_prompts = False
+
         system_content = cm.build_system_content(
             full_ctx,
             tools=tools_selected,
@@ -373,15 +386,7 @@ async def run_agent_turn(
             execution_plan_path=session.execution_plan_path,
             skill_catalog=skill_catalog,
         )
-        desc = tool_descriptions_for_prompt(tools_selected)
-        try:
-            mem_ex = read_index(project_root)[:800]
-        except Exception:
-            mem_ex = ""
-        public_ctx = {k: v for k, v in full_ctx.items() if not str(k).startswith("_")}
-        stable_txt = build_stable_system_prompt(tool_descriptions=desc)
         dynamic_txt = build_dynamic_system_prompt(
-            memory_index_excerpt=mem_ex,
             project_ctx=public_ctx,
             skill_guidance=skill_guidance,
             current_focus=session.current_focus or None,
@@ -393,6 +398,7 @@ async def run_agent_turn(
             "context_metrics",
             {
                 "stable_sha12": hash_text_sha12(stable_txt),
+                "tools_block_sha12": hash_text_sha12(tools_block_txt),
                 "dynamic_sha12": hash_text_sha12(dynamic_txt),
                 "tool_schema_sha12": hash_tools_payload_sha12(tools_payload),
                 "tool_count": len(tools_payload),
@@ -454,6 +460,7 @@ async def run_agent_turn(
                 tools_selected, tools_payload = _rebuild_tools(
                     session, current_page, skill_id, cm.include_subtask_tool, project_root
                 )
+                _need_rebuild_prompts = True
                 if focus_switched:
                     await emit("focus_changed", {"focus": session.current_focus})
 

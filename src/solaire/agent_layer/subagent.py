@@ -1,4 +1,8 @@
-"""Isolated sub-agent run: shared tools, clean message stack, returns final text summary.\n+\n+子任务不挂载主会话状态（session=None），避免污染计划模式 / 焦点 / 任务步骤；\n+工具集排除会话类与项目写入类能力。\n+"""
+"""Isolated sub-agent run: shared tools, clean message stack, returns final text summary.
+
+子任务不挂载主会话状态（session=None），避免污染计划模式 / 焦点 / 任务步骤；
+工具集排除会话类与项目写入类能力。
+"""
 
 from __future__ import annotations
 

@@ -1,14 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Loader2, Save, Trash2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import {
   apiAgentLlmSettingsGet,
-  apiAgentLlmSettingsPut,
   apiAgentSafetyModeGet,
   apiAgentSafetyModePut,
   type AgentLlmSettingsResponse,
   type AgentSafetyModeOption,
 } from "../../api/client";
+import { AgentModelSettingsForm } from "../settings/AgentModelSettingsForm";
 import { changeAppLanguage } from "../../i18n/changeLanguage";
 import i18n from "../../i18n/i18n";
 import type { AppLang } from "../../i18n/tauriLocale";
@@ -19,10 +19,6 @@ export function ModelConfigPane({ onError }: { onError: (msg: string | null) => 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [data, setData] = useState<AgentLlmSettingsResponse | null>(null);
-  const [mainModel, setMainModel] = useState("");
-  const [fastModel, setFastModel] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
-  const [accessSecret, setAccessSecret] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [safetyMode, setSafetyMode] = useState("allegro");
   const [safetyOptions, setSafetyOptions] = useState<AgentSafetyModeOption[]>([]);
@@ -34,10 +30,6 @@ export function ModelConfigPane({ onError }: { onError: (msg: string | null) => 
     try {
       const [r, safety] = await Promise.all([apiAgentLlmSettingsGet(), apiAgentSafetyModeGet()]);
       setData(r);
-      setMainModel(r.main_model);
-      setFastModel(r.fast_model);
-      setBaseUrl(r.base_url);
-      setAccessSecret("");
       setSafetyMode(safety.mode);
       setSafetyOptions(safety.options ?? []);
     } catch (e) {
@@ -50,61 +42,6 @@ export function ModelConfigPane({ onError }: { onError: (msg: string | null) => 
   useEffect(() => {
     void load();
   }, [load]);
-
-  const keySourceNote = useMemo(() => {
-    if (!data) return "";
-    if (data.has_project_api_key_override && data.has_user_api_key_override) {
-      return t("settings:accessKeySourceBoth");
-    }
-    if (data.has_project_api_key_override) return t("settings:accessKeySourceProject");
-    if (data.has_user_api_key_override) return t("settings:accessKeySourceUser");
-    return "";
-  }, [data, t]);
-
-  const handleSave = async () => {
-    if (!data) return;
-    setSaving(true);
-    setMsg(null);
-    onError(null);
-    try {
-      const body: Parameters<typeof apiAgentLlmSettingsPut>[0] = {
-        main_model: mainModel,
-        fast_model: fastModel,
-        base_url: baseUrl,
-      };
-      if (accessSecret.trim()) {
-        body.api_key = accessSecret.trim();
-      }
-      await apiAgentLlmSettingsPut(body);
-      setAccessSecret("");
-      setMsg(data.persist_scope === "project" ? t("settings:savedProject") : t("settings:savedGlobal"));
-      await load();
-    } catch (e) {
-      onError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleClearSecret = async () => {
-    if (!data) return;
-    const confirmKey =
-      data.persist_scope === "project" ? "settings:confirmClearKey" : "settings:confirmClearKeyUser";
-    if (!confirm(t(confirmKey))) return;
-    setSaving(true);
-    setMsg(null);
-    onError(null);
-    try {
-      await apiAgentLlmSettingsPut({ clear_api_key_override: true });
-      setAccessSecret("");
-      setMsg(data.persist_scope === "project" ? t("settings:clearedKey") : t("settings:clearedKeyUser"));
-      await load();
-    } catch (e) {
-      onError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const handleSaveSafetyMode = async () => {
     if (!data) return;
@@ -157,60 +94,14 @@ export function ModelConfigPane({ onError }: { onError: (msg: string | null) => 
             )
           ) : null}
 
-          <div className="rounded-lg border border-slate-600/80 bg-slate-900/40 p-4">
-            <label className="block text-sm font-medium text-slate-200">{t("settings:modelBaseUrl")}</label>
-            <p className="mt-0.5 text-xs text-slate-400">{t("settings:modelBaseUrlHint")}</p>
-            <input
-              type="url"
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-              disabled={loading || !data || saving}
-              placeholder="https://…"
-              className="mt-2 w-full rounded-md border border-slate-500 bg-slate-950/50 px-3 py-2 text-sm text-slate-100 disabled:opacity-50"
-            />
-          </div>
-
-          <div className="rounded-lg border border-slate-600/80 bg-slate-900/40 p-4">
-            <label className="block text-sm font-medium text-slate-200">{t("settings:mainModel")}</label>
-            <input
-              type="text"
-              value={mainModel}
-              onChange={(e) => setMainModel(e.target.value)}
-              disabled={loading || !data || saving}
-              className="mt-2 w-full rounded-md border border-slate-500 bg-slate-950/50 px-3 py-2 font-mono text-sm text-slate-100 disabled:opacity-50"
-            />
-          </div>
-
-          <div className="rounded-lg border border-slate-600/80 bg-slate-900/40 p-4">
-            <label className="block text-sm font-medium text-slate-200">{t("settings:fastModel")}</label>
-            <p className="mt-0.5 text-xs text-slate-400">{t("settings:fastModelHint")}</p>
-            <input
-              type="text"
-              value={fastModel}
-              onChange={(e) => setFastModel(e.target.value)}
-              disabled={loading || !data || saving}
-              className="mt-2 w-full rounded-md border border-slate-500 bg-slate-950/50 px-3 py-2 font-mono text-sm text-slate-100 disabled:opacity-50"
-            />
-          </div>
-
-          <div className="rounded-lg border border-slate-600/80 bg-slate-900/40 p-4">
-            <label className="block text-sm font-medium text-slate-200">{t("settings:accessKey")}</label>
-            <p className="mt-0.5 text-xs text-slate-400">
-              {t("settings:accessKeyHint", {
-                masked: data?.api_key_masked ?? t("settings:notConfigured"),
-              })}
-              {keySourceNote ? ` ${keySourceNote}` : ""}
-            </p>
-            <input
-              type="password"
-              value={accessSecret}
-              onChange={(e) => setAccessSecret(e.target.value)}
-              disabled={loading || !data || saving}
-              placeholder={data ? t("settings:accessKeyPlaceholder") : ""}
-              autoComplete="off"
-              className="mt-2 w-full rounded-md border border-slate-500 bg-slate-950/50 px-3 py-2 text-sm text-slate-100 disabled:opacity-50"
-            />
-          </div>
+          <AgentModelSettingsForm
+            variant="welcome"
+            data={data}
+            loading={false}
+            saving={saving}
+            onError={onError}
+            onReload={load}
+          />
 
           <div className="rounded-lg border border-slate-600/80 bg-slate-900/40 p-4">
             <label className="block text-sm font-medium text-slate-200">{t("settings:safetyTitle")}</label>
@@ -254,43 +145,7 @@ export function ModelConfigPane({ onError }: { onError: (msg: string | null) => 
             </div>
           </div>
 
-          <p className="text-xs text-slate-500">{t("settings:footerNote")}</p>
-
           {msg ? <p className="text-sm text-emerald-300">{msg}</p> : null}
-
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={loading || !data || saving}
-              onClick={() => void handleSave()}
-              className="inline-flex items-center gap-2 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
-            >
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              {data?.persist_scope === "project" ? t("settings:saveToProject") : t("settings:saveToProfile")}
-            </button>
-            {data?.persist_scope === "project" && data.has_project_api_key_override && (
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => void handleClearSecret()}
-                className="inline-flex items-center gap-2 rounded-md border border-slate-500 bg-slate-900/50 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-50"
-              >
-                <Trash2 className="h-4 w-4" />
-                {t("settings:clearProjectKey")}
-              </button>
-            )}
-            {data?.persist_scope === "global" && data.has_user_api_key_override && (
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => void handleClearSecret()}
-                className="inline-flex items-center gap-2 rounded-md border border-slate-500 bg-slate-900/50 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-50"
-              >
-                <Trash2 className="h-4 w-4" />
-                {t("settings:clearUserKey")}
-              </button>
-            )}
-          </div>
         </div>
       )}
     </div>

@@ -6,6 +6,9 @@ import asyncio
 import sys
 import types
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 from solaire.agent_layer.history_writer import emit_memory_after_assistant_turn
 from solaire.agent_layer.guardrails import (
@@ -199,6 +202,257 @@ def test_guardrail_read_vs_export(tmp_path: Path) -> None:
     ctx = InvocationContext(project_root=tmp_path, session_id="x", session=sess, mode="execute")
     assert check_tool_call("analysis.list_datasets", {}, ctx) == GuardrailDecision.AUTO_APPROVE
     assert check_tool_call("exam.export_paper", {}, ctx) == GuardrailDecision.NEEDS_CONFIRMATION
+
+
+def test_openai_compat_deepseek_adds_thinking_extra_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    """DeepSeek OpenAI 兼容须在请求中带 thinking（见官方思考模式说明）。"""
+    from solaire.agent_layer.llm.openai_compat import OpenAICompatAdapter
+
+    captured: dict[str, Any] = {}
+
+    class FakeMsg:
+        content = "ok"
+        tool_calls = None
+
+    class FakeChoice:
+        message = FakeMsg()
+        finish_reason = "stop"
+
+    class FakeResp:
+        choices = [FakeChoice()]
+        usage = None
+
+    async def fake_create(**kwargs: Any) -> Any:
+        captured.update(kwargs)
+        return FakeResp()
+
+    adapter = OpenAICompatAdapter(
+        api_key="k",
+        base_url="https://api.deepseek.com",
+        model="deepseek-v4-pro",
+        deepseek_compat=True,
+    )
+    monkeypatch.setattr(adapter._client.chat.completions, "create", fake_create)
+    tool = {
+        "type": "function",
+        "function": {"name": "get_date", "description": "d", "parameters": {"type": "object", "properties": {}}},
+    }
+
+    async def _run() -> None:
+        await adapter.chat([{"role": "user", "content": "hi"}], tools=[tool])
+
+    asyncio.run(_run())
+    assert captured.get("extra_body", {}).get("thinking") == {"type": "enabled"}
+    assert captured.get("reasoning_effort") == "high"
+    assert "parallel_tool_calls" not in captured
+
+
+def test_openai_compat_deepseek_rewrites_dotted_tool_names(monkeypatch: pytest.MonkeyPatch) -> None:
+    """DeepSeek 拒绝 tools[].function.name 含 '.'；出站改为下划线，入站还原。"""
+    from solaire.agent_layer.llm.openai_compat import OpenAICompatAdapter
+    from solaire.agent_layer.registry import all_registered_tools, openai_tools_payload
+
+    rt = next(t for t in all_registered_tools() if t.name == "analysis.list_datasets")
+    tools = openai_tools_payload([rt])
+    captured: dict[str, Any] = {}
+
+    class FakeFn:
+        name = "analysis_list_datasets"
+        arguments = "{}"
+
+    class FakeTC:
+        id = "call_x"
+        function = FakeFn()
+
+    class FakeMsg:
+        content = "ok"
+        tool_calls = [FakeTC()]
+
+    class FakeChoice:
+        message = FakeMsg()
+        finish_reason = "tool_calls"
+
+    class FakeResp:
+        choices = [FakeChoice()]
+        usage = None
+
+    async def fake_create(**kwargs: Any) -> Any:
+        captured.clear()
+        captured.update(kwargs)
+        return FakeResp()
+
+    adapter = OpenAICompatAdapter(
+        api_key="k",
+        base_url="https://api.deepseek.com",
+        model="deepseek-v4-pro",
+        deepseek_compat=True,
+    )
+    monkeypatch.setattr(adapter._client.chat.completions, "create", fake_create)
+
+    async def _run_out() -> None:
+        await adapter.chat([{"role": "user", "content": "hi"}], tools=tools)
+
+    asyncio.run(_run_out())
+    assert captured["tools"][0]["function"]["name"] == "analysis_list_datasets"
+
+    async def _run_in() -> None:
+        resp = await adapter.chat([{"role": "user", "content": "hi"}], tools=tools)
+        assert resp.tool_calls and resp.tool_calls[0]["function"]["name"] == "analysis.list_datasets"
+
+    asyncio.run(_run_in())
+ 
+
+def test_openai_compat_deepseek_extra_body_preserves_reasoning_in_messages(monkeypatch: pytest.MonkeyPatch) -> None:
+    """DeepSeek 思考模式：SDK 会裁掉 messages 里的 reasoning_content，须经 extra_body 覆盖。"""
+    from solaire.agent_layer.llm.openai_compat import OpenAICompatAdapter
+
+    captured: dict[str, Any] = {}
+
+    class FakeMsg:
+        content = "ok"
+        tool_calls = None
+
+    class FakeChoice:
+        message = FakeMsg()
+        finish_reason = "stop"
+
+    class FakeResp:
+        choices = [FakeChoice()]
+        usage = None
+
+    async def fake_create(**kwargs: Any) -> Any:
+        captured.update(kwargs)
+        return FakeResp()
+
+    adapter = OpenAICompatAdapter(
+        api_key="k",
+        base_url="https://api.deepseek.com",
+        model="deepseek-v4-pro",
+        deepseek_compat=True,
+    )
+    monkeypatch.setattr(adapter._client.chat.completions, "create", fake_create)
+    tool = {
+        "type": "function",
+        "function": {"name": "get_date", "description": "d", "parameters": {"type": "object", "properties": {}}},
+    }
+    msgs = [
+        {"role": "user", "content": "hi"},
+        {
+            "role": "assistant",
+            "content": "call tool",
+            "reasoning_content": "上一轮流式思维链须随历史回传",
+            "tool_calls": [
+                {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {"name": "get_date", "arguments": "{}"},
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "c1", "content": "{}"},
+    ]
+
+    async def _run() -> None:
+        await adapter.chat(msgs, tools=[tool])
+
+    asyncio.run(_run())
+    eb = captured.get("extra_body") or {}
+    assert eb.get("thinking") == {"type": "enabled"}
+    roundtrip = eb.get("messages") or []
+    assert len(roundtrip) >= 2
+    assert roundtrip[1].get("reasoning_content") == "上一轮流式思维链须随历史回传"
+
+
+def test_drop_oldest_history_removes_assistant_and_tools_together() -> None:
+    from solaire.agent_layer.context import _drop_oldest_history_segment
+
+    msgs = [
+        {"role": "system", "content": "s"},
+        {"role": "user", "content": "u1"},
+        {
+            "role": "assistant",
+            "content": "a",
+            "tool_calls": [{"id": "1", "type": "function", "function": {"name": "f", "arguments": "{}"}}],
+        },
+        {"role": "tool", "tool_call_id": "1", "content": "{}"},
+        {"role": "user", "content": "u2"},
+    ]
+    assert _drop_oldest_history_segment(msgs, prefix_len=1) is True
+    assert len(msgs) == 2
+    assert msgs[0]["role"] == "system"
+    assert msgs[1]["role"] == "user" and msgs[1]["content"] == "u2"
+
+
+def test_sanitize_tool_chains_drops_orphan_tool_after_system() -> None:
+    from solaire.agent_layer.context import _sanitize_tool_chains
+
+    msgs = [
+        {"role": "system", "content": "s"},
+        {"role": "tool", "tool_call_id": "x", "content": "{}"},
+        {"role": "user", "content": "u"},
+    ]
+    _sanitize_tool_chains(msgs, start=1)
+    assert msgs == [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}]
+
+
+def test_prepare_compat_wires_tool_message_name() -> None:
+    from solaire.agent_layer.llm.openai_compat import _prepare_compat_request_payload
+
+    msgs = [
+        {"role": "tool", "tool_call_id": "c1", "content": "{}", "name": "agent.enter_plan_mode"},
+        {
+            "role": "assistant",
+            "content": "x",
+            "reasoning_content": "r",
+            "tool_calls": [
+                {"id": "c1", "type": "function", "function": {"name": "agent.enter_plan_mode", "arguments": "{}"}}
+            ],
+        },
+    ]
+    m2, _ = _prepare_compat_request_payload(msgs, None)
+    assert m2[0]["name"] == "agent_enter_plan_mode"
+    assert m2[1]["tool_calls"][0]["function"]["name"] == "agent_enter_plan_mode"
+
+
+def test_openai_compat_generic_parallel_tool_calls_with_tools(monkeypatch: pytest.MonkeyPatch) -> None:
+    from solaire.agent_layer.llm.openai_compat import OpenAICompatAdapter
+
+    captured: dict[str, Any] = {}
+
+    class FakeMsg:
+        content = "ok"
+        tool_calls = None
+
+    class FakeChoice:
+        message = FakeMsg()
+        finish_reason = "stop"
+
+    class FakeResp:
+        choices = [FakeChoice()]
+        usage = None
+
+    async def fake_create(**kwargs: Any) -> Any:
+        captured.update(kwargs)
+        return FakeResp()
+
+    adapter = OpenAICompatAdapter(
+        api_key="k",
+        base_url="https://example.com/v1",
+        model="gpt-4o-mini",
+        deepseek_compat=False,
+    )
+    monkeypatch.setattr(adapter._client.chat.completions, "create", fake_create)
+    tool = {
+        "type": "function",
+        "function": {"name": "get_date", "description": "d", "parameters": {"type": "object", "properties": {}}},
+    }
+
+    async def _run() -> None:
+        await adapter.chat([{"role": "user", "content": "hi"}], tools=[tool])
+
+    asyncio.run(_run())
+    assert captured.get("parallel_tool_calls") is True
+    assert "extra_body" not in captured
 
 
 def test_openai_compat_assistant_tool_calls_get_reasoning_placeholder() -> None:
@@ -476,3 +730,107 @@ def test_emit_memory_after_assistant_turn_respects_skip_flag(tmp_path: Path) -> 
     assert not any(ev == "memory_updated" for ev, _ in events)
     assert read_topic(tmp_path, "analysis_history.md") == ""
     assert read_topic(tmp_path, "session_digest.md") == ""
+
+
+# ---------------------------------------------------------------------------
+# _sanitize_tool_chains: multi-tool-call groups must be preserved
+# ---------------------------------------------------------------------------
+
+
+def test_sanitize_tool_chains_preserves_multi_tool_group() -> None:
+    """assistant 返回多个 tool_calls 时，所有 tool 响应都应保留。"""
+    from solaire.agent_layer.context import _sanitize_tool_chains
+
+    msgs = [
+        {"role": "system", "content": "s"},
+        {"role": "user", "content": "u"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "c1", "type": "function", "function": {"name": "a", "arguments": "{}"}},
+                {"id": "c2", "type": "function", "function": {"name": "b", "arguments": "{}"}},
+                {"id": "c3", "type": "function", "function": {"name": "c", "arguments": "{}"}},
+            ],
+        },
+        {"role": "tool", "tool_call_id": "c1", "content": "r1"},
+        {"role": "tool", "tool_call_id": "c2", "content": "r2"},
+        {"role": "tool", "tool_call_id": "c3", "content": "r3"},
+        {"role": "user", "content": "u2"},
+    ]
+    _sanitize_tool_chains(msgs, start=1)
+    tool_msgs = [m for m in msgs if m.get("role") == "tool"]
+    assert len(tool_msgs) == 3
+    assert {m["tool_call_id"] for m in tool_msgs} == {"c1", "c2", "c3"}
+
+
+def test_sanitize_tool_chains_fills_missing_tool_responses() -> None:
+    """assistant 有 3 个 tool_calls 但只有 1 条 tool 响应时，应补全缺失的。"""
+    from solaire.agent_layer.context import _sanitize_tool_chains
+
+    msgs = [
+        {"role": "system", "content": "s"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "c1", "type": "function", "function": {"name": "a", "arguments": "{}"}},
+                {"id": "c2", "type": "function", "function": {"name": "b", "arguments": "{}"}},
+                {"id": "c3", "type": "function", "function": {"name": "c", "arguments": "{}"}},
+            ],
+        },
+        {"role": "tool", "tool_call_id": "c1", "content": "r1"},
+    ]
+    _sanitize_tool_chains(msgs, start=1)
+    tool_msgs = [m for m in msgs if m.get("role") == "tool"]
+    assert len(tool_msgs) == 3
+    filled_ids = {m["tool_call_id"] for m in tool_msgs}
+    assert filled_ids == {"c1", "c2", "c3"}
+
+
+# ---------------------------------------------------------------------------
+# Wire name conversion: round-trip and all-compat coverage
+# ---------------------------------------------------------------------------
+
+
+def test_wire_name_roundtrip() -> None:
+    from solaire.agent_layer.llm.openai_compat import _tool_name_wire_inbound, _tool_name_wire_outbound
+
+    canonical = "analysis.list_datasets"
+    wire = _tool_name_wire_outbound(canonical)
+    assert "." not in wire
+    restored = _tool_name_wire_inbound(wire)
+    assert restored == canonical
+
+
+def test_compat_adapter_converts_tool_names_for_all_modes() -> None:
+    """即使 deepseek_compat=False，工具名也应被转换。"""
+    from solaire.agent_layer.llm.openai_compat import _prepare_compat_request_payload
+
+    tools = [
+        {"type": "function", "function": {"name": "graph.list_nodes", "description": "d", "parameters": {}}}
+    ]
+    _, t2 = _prepare_compat_request_payload([], tools)
+    assert t2 is not None
+    assert t2[0]["function"]["name"] == "graph_list_nodes"
+
+
+# ---------------------------------------------------------------------------
+# Stable system prompt hash stability
+# ---------------------------------------------------------------------------
+
+
+def test_stable_prompt_hash_does_not_change_across_calls() -> None:
+    from solaire.agent_layer.prompts import build_stable_system_prompt
+    from solaire.agent_layer.llm.prompt_cache import hash_text_sha12
+
+    h1 = hash_text_sha12(build_stable_system_prompt())
+    h2 = hash_text_sha12(build_stable_system_prompt())
+    assert h1 == h2
+
+
+def test_stable_prompt_excludes_tool_descriptions() -> None:
+    from solaire.agent_layer.prompts import build_stable_system_prompt
+
+    txt = build_stable_system_prompt()
+    assert "可用能力（通过工具调用）" not in txt
