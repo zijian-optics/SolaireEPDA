@@ -514,3 +514,11 @@
 **验证**：检视 `pixi.toml` 的 `dev-backend` 行。
 
 **结果要点**：热重载仅盯 `src/`，与 `start-web.ps1` / `start-web.sh` 一致；合并分支时注意勿覆盖此行。
+
+## [2026-05-01] agent_layer | 缺口补全（测试、记忆开关、上下文哈希）
+
+**改动摘要**：补充回归测试覆盖 `max_rounds` 耗尽、取消路径、`context_metrics` 工具哈希输出与记忆禁写；`/api/agent/chat` 新增 `skip_memory_write`（本轮不自动写记忆）；`orchestrator` 的 `context_metrics` 增加 `tool_schema_sha12` 与 `tool_count`；`prompt_cache.py` 增加可复用哈希函数（文本与工具 payload）；同步 `docs/api/agent.md` 与 `wiki/modules/agent-layer.md`。
+
+**验证命令**：`pixi run pytest tests/test_agent_layer.py tests/test_agent_plan_and_subagent.py tests/test_agent_exam_export.py tests/test_user_llm_overrides.py -q`
+
+**结果要点**：41 项相关测试通过；SSE 可观测指标可区分稳定前缀变化与工具集变化；可按请求关闭单轮自动记忆写入。

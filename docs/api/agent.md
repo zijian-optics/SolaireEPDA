@@ -50,6 +50,7 @@
 | `skill_id` | string? | 内置技能标识（与 `GET /skills` 中 `id` 对应），收窄下发工具并注入简短工作流指引 |
 | `execution_plan_path` | string? | **须在侧栏对 `plan_ready` 点击「执行」后**由前端传入；须与当前会话最近一次 `plan_ready` 对应的 `plan_file_path`（规范化相对路径）一致，且文件位于 `.solaire/agent/plans/` 且通过计划正文校验。否则返回 `error`（`code`: `plan_not_approved` 或 `invalid_plan`）并不进入计划执行提示 |
 | `clear_pending_plan_path` | string? | 取消待执行计划时传入；若与会话内待执行计划路径一致，则清除 `pending` 状态（与侧栏「取消」按钮配合） |
+| `skip_memory_write` | bool? | 可选；为 `true` 时本轮结束不自动写入 `analysis_history.md` / `session_digest.md` 与索引 |
 
 计划审批流简述：助手在计划模式中落盘计划并 `agent.exit_plan_mode` → 服务端推送 `plan_ready` 并记下待执行路径 → 仅当教师点击「执行」时，前端携带相同路径发 `execution_plan_path`，服务端才注入「计划执行」提示并同步任务步骤。
 
@@ -72,7 +73,7 @@
 - `confirm_needed`：需教师确认（含 `action_id`）；随后通常会收到 `done`，且数据中带 `awaiting_confirmation: true`，表示本轮已暂停等待确认而非仍在生成  
 - `task_update`：多步任务清单变更，`steps` 为 `{ title, status }[]`（计划落盘或点「执行」时也会推送）  
 - `plan_ready`：计划模式退出后已生成计划文件，含 `plan_file_path` 与正文摘要 `content`  
-- `context_metrics`：可观测性数据（`stable_sha12` / `dynamic_sha12` / `system_chars` / `est_prompt_tokens`），便于排查上下文体量与稳定前缀是否变化  
+- `context_metrics`：可观测性数据（`stable_sha12` / `dynamic_sha12` / `tool_schema_sha12` / `tool_count` / `system_chars` / `est_prompt_tokens`），便于排查上下文体量、稳定前缀与工具集抖动  
 - `subagent_start` / `subagent_done`：子任务深度分析  
 - `memory_updated`：已写入项目内记忆文件（含 `topics_changed` 文件名列表）  
 - `memory_update_failed`：会话末自动写入记忆失败，`message` 为原因（同时会记入 `audit.jsonl`）  

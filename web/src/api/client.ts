@@ -951,6 +951,8 @@ export type AgentChatStreamBody = {
   execution_plan_path?: string | null;
   /** 取消界面待执行计划时，与计划路径一致则清除服务端状态 */
   clear_pending_plan_path?: string | null;
+  /** 本轮结束后不写入会话记忆 */
+  skip_memory_write?: boolean | null;
 };
 
 /** Parse SSE lines; invokes onEvent(eventName, dataObj) for each complete event. */

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
@@ -33,6 +32,7 @@ from solaire.agent_layer.session import save_session
 from solaire.agent_layer.tools import analysis_tools
 from solaire.agent_layer.tool_executor import run_draft_tool_loop
 from solaire.agent_layer.llm.token_budget import estimate_messages_tokens
+from solaire.agent_layer.llm.prompt_cache import hash_text_sha12, hash_tools_payload_sha12
 from solaire.agent_layer.prompts import build_dynamic_system_prompt, build_stable_system_prompt
 from solaire.agent_layer.memory import read_index
 
@@ -197,6 +197,7 @@ async def run_agent_turn(
     sk = skills_mod.get_skill(skill_id, project_root) if skill_id else None
     skill_guidance = sk.prompt_fragment if sk else None
     skill_catalog = skills_mod.build_skill_catalog(project_root)
+    skip_memory_write = bool(project_ctx.get("_skip_memory_write"))
 
     raw_clear = project_ctx.get("_clear_pending_plan_path")
     if isinstance(raw_clear, str) and raw_clear.strip():
@@ -391,8 +392,10 @@ async def run_agent_turn(
         await emit(
             "context_metrics",
             {
-                "stable_sha12": hashlib.sha256(stable_txt.encode()).hexdigest()[:12],
-                "dynamic_sha12": hashlib.sha256(dynamic_txt.encode()).hexdigest()[:12],
+                "stable_sha12": hash_text_sha12(stable_txt),
+                "dynamic_sha12": hash_text_sha12(dynamic_txt),
+                "tool_schema_sha12": hash_tools_payload_sha12(tools_payload),
+                "tool_count": len(tools_payload),
                 "system_chars": len(system_content),
                 "est_prompt_tokens": estimate_messages_tokens(
                     [{"role": "system", "content": system_content}]
@@ -516,6 +519,7 @@ async def run_agent_turn(
             user_message=user_message,
             assistant_text=text,
             emit=emit,
+            skip_memory_write=skip_memory_write,
         )
 
 

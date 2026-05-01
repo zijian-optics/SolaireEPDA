@@ -97,6 +97,10 @@ class AgentChatBody(BaseModel):
         default=None,
         description="取消待执行计划时传入，与最近生成的计划路径一致则清除服务端待执行状态",
     )
+    skip_memory_write: bool | None = Field(
+        default=None,
+        description="本轮结束后不写入会话记忆",
+    )
 
 
 class MemoryPutBody(BaseModel):
@@ -382,6 +386,8 @@ async def agent_chat(body: AgentChatBody) -> StreamingResponse:
         ctx = {**ctx, "_execution_plan_path": str(body.execution_plan_path).strip()}
     if body.clear_pending_plan_path is not None and str(body.clear_pending_plan_path).strip():
         ctx = {**ctx, "_clear_pending_plan_path": str(body.clear_pending_plan_path).strip()}
+    if body.skip_memory_write is True:
+        ctx = {**ctx, "_skip_memory_write": True}
 
     user_msg = body.message.strip() if body.message else None
     if body.file_attachments and user_msg:

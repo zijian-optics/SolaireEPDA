@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 import types
 from pathlib import Path
 
+from solaire.agent_layer.history_writer import emit_memory_after_assistant_turn
 from solaire.agent_layer.guardrails import (
     GuardrailDecision,
     SAFETY_MODE_PRESTISSIMO,
@@ -19,6 +21,7 @@ from solaire.agent_layer.memory import (
     list_topic_filenames,
     merge_index_bullet,
     read_index,
+    read_topic,
     write_index,
     write_topic,
 )
@@ -426,3 +429,50 @@ def test_load_plan_steps_from_rel_path_reads_file(tmp_path: Path) -> None:
     steps = load_plan_steps_from_rel_path(tmp_path, rel)
     assert len(steps) == 1
     assert "任务" in steps[0]["title"]
+
+
+def test_emit_memory_after_assistant_turn_skips_trivial_chat(tmp_path: Path) -> None:
+    ensure_memory_layout(tmp_path)
+    session = SessionState(session_id="m1")
+    events: list[tuple[str, dict]] = []
+
+    async def _emit(ev: str, data: dict) -> None:
+        events.append((ev, data))
+
+    async def _run() -> None:
+        await emit_memory_after_assistant_turn(
+            tmp_path,
+            session,
+            user_message="好的",
+            assistant_text="收到",
+            emit=_emit,
+        )
+
+    asyncio.run(_run())
+    assert not any(ev == "memory_updated" for ev, _ in events)
+    assert read_topic(tmp_path, "analysis_history.md") == ""
+    assert read_topic(tmp_path, "session_digest.md") == ""
+
+
+def test_emit_memory_after_assistant_turn_respects_skip_flag(tmp_path: Path) -> None:
+    ensure_memory_layout(tmp_path)
+    session = SessionState(session_id="m2")
+    events: list[tuple[str, dict]] = []
+
+    async def _emit(ev: str, data: dict) -> None:
+        events.append((ev, data))
+
+    async def _run() -> None:
+        await emit_memory_after_assistant_turn(
+            tmp_path,
+            session,
+            user_message="请分析这次月考数学错因",
+            assistant_text="本次分析显示函数与几何综合题是主要薄弱点，建议分层训练。",
+            emit=_emit,
+            skip_memory_write=True,
+        )
+
+    asyncio.run(_run())
+    assert not any(ev == "memory_updated" for ev, _ in events)
+    assert read_topic(tmp_path, "analysis_history.md") == ""
+    assert read_topic(tmp_path, "session_digest.md") == ""

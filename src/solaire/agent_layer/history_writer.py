@@ -84,8 +84,11 @@ async def emit_memory_after_assistant_turn(
     user_message: str | None,
     assistant_text: str,
     emit: EmitFn,
+    skip_memory_write: bool = False,
 ) -> None:
     """Append analysis history / digest when there is both a user line and assistant reply."""
+    if skip_memory_write:
+        return
     last_user_text = user_message
     if not (last_user_text and last_user_text.strip()):
         for m in reversed(session.messages):
