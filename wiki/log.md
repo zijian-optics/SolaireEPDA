@@ -499,6 +499,14 @@
 
 **结果要点**：用户在「设置 → 扩展组件」指定的安装目录/程序文件会在实际导出与工具调用中生效，不再仅依赖系统 PATH。
 
+## [2026-05-01] agent_layer | 计划审批、导出对齐、子任务隔离与记忆策略
+
+**改动摘要**：`exam.export_paper` 对齐组卷页导出（备份/恢复、`mark_exported`、失败草稿、冲突目录需显式允许）；`agent.exit_plan_mode` 强制校验计划文件；`execution_plan_path` 须与会话内 `plan_ready` 待执行路径一致；子任务使用独立会话态并收窄工具集，Vivace 复核下沉至 `guardrails.vivace_fast_review`；`confirm_needed` 后补发 `done(awaiting_confirmation)`；主循环支持 `max_rounds` 与截断续写上限提示；系统提示拆稳定/动态层并推送 `context_metrics`；记忆自动写入加门槛、索引合并默认高阈值、`session_digest`/分析记录超长裁剪；补充 API 文档与 `wiki/modules/agent-layer.md`。
+
+**验证命令**：`pixi run pytest tests/test_agent_layer.py tests/test_agent_plan_and_subagent.py tests/test_agent_exam_export.py tests/test_user_llm_overrides.py -v`
+
+**结果要点**：31+5 项相关 pytest 通过；前端计划「取消」携带 `clear_pending_plan_path`。
+
 ## [2026-04-16] 开发环境 | 恢复 dev-backend 的 `--reload-dir src`
 
 **改动摘要**：当前 `pixi.toml` 中 `dev-backend` 曾回退为仅 `--reload`（监视整个仓库根目录），`tauri dev` 时 `src-tauri/target/.../site-packages` 会再次触发 WatchFiles 误重载；已重新加上 `--reload-dir src`。

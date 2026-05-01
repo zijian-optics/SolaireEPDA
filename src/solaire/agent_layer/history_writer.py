@@ -12,6 +12,52 @@ from solaire.agent_layer.models import SessionState
 
 EmitFn = Callable[[str, dict[str, Any]], Awaitable[None]]
 
+_MAX_TOPIC_LINES = 240
+_TRIM_KEEP_TAIL = 130
+
+
+def _cap_lines(text: str) -> str:
+    lines = text.strip().splitlines()
+    if len(lines) <= _MAX_TOPIC_LINES:
+        t = text.strip()
+        return t + ("\n" if t and not t.endswith("\n") else "")
+    tail = lines[-_TRIM_KEEP_TAIL:]
+    head_notice = "## （较早记录已省略，仅保留最近条目）\n\n"
+    return head_notice + "\n".join(tail) + "\n"
+
+
+def _should_auto_remember(last_user: str, assistant_text: str) -> bool:
+    """闲聊与过短回复不写盘，减少记忆污染。"""
+    u = last_user.strip()
+    a = assistant_text.strip()
+    if len(a) < 36:
+        return False
+    trivial_u = {x.lower() for x in ("好的", "好", "谢谢", "感谢", "嗯", "ok", "okay", "yes", "y")}
+    if len(u) <= 12 and u.lower() in trivial_u:
+        return False
+    if len(u) >= 10:
+        return True
+    keywords = (
+        "分析",
+        "导出",
+        "试卷",
+        "题目",
+        "图谱",
+        "成绩",
+        "考试",
+        "模板",
+        "校验",
+        "组卷",
+        "学生",
+        "班级",
+        "作业",
+        "知识点",
+    )
+    blob = u + a
+    if any(k in blob for k in keywords):
+        return True
+    return len(a) >= 100
+
 
 def append_analysis_history_line(project_root: Path, line: str) -> None:
     from datetime import datetime, timezone
@@ -21,7 +67,7 @@ def append_analysis_history_line(project_root: Path, line: str) -> None:
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
     prev = read_topic(project_root, "analysis_history.md")
     block = (prev.strip() + "\n\n" if prev.strip() else "") + f"- {ts} UTC — {line}\n"
-    write_topic(project_root, "analysis_history.md", block)
+    write_topic(project_root, "analysis_history.md", _cap_lines(block))
     idx = mem_mod.read_index(project_root)
     if "暂无条目" in idx or len(idx) < 40:
         mem_mod.write_index(
@@ -47,6 +93,8 @@ async def emit_memory_after_assistant_turn(
                 last_user_text = m.content.strip()
                 break
     if not (last_user_text and assistant_text.strip()):
+        return
+    if not _should_auto_remember(last_user_text, assistant_text):
         return
     try:
         snippet = f"用户：{last_user_text[:120]}… / 助手摘要：{assistant_text[:160]}…"

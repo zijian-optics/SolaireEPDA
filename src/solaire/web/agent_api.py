@@ -93,6 +93,10 @@ class AgentChatBody(BaseModel):
         default=None,
         description="教师批准执行的计划文件项目内相对路径（与 exit_plan_mode 一致）",
     )
+    clear_pending_plan_path: str | None = Field(
+        default=None,
+        description="取消待执行计划时传入，与最近生成的计划路径一致则清除服务端待执行状态",
+    )
 
 
 class MemoryPutBody(BaseModel):
@@ -376,6 +380,8 @@ async def agent_chat(body: AgentChatBody) -> StreamingResponse:
         ctx = {**ctx, "_skill_id": str(body.skill_id).strip()}
     if body.execution_plan_path is not None and str(body.execution_plan_path).strip():
         ctx = {**ctx, "_execution_plan_path": str(body.execution_plan_path).strip()}
+    if body.clear_pending_plan_path is not None and str(body.clear_pending_plan_path).strip():
+        ctx = {**ctx, "_clear_pending_plan_path": str(body.clear_pending_plan_path).strip()}
 
     user_msg = body.message.strip() if body.message else None
     if body.file_attachments and user_msg:

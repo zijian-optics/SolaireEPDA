@@ -949,6 +949,8 @@ export type AgentChatStreamBody = {
   file_attachments?: AgentFileAttachment[] | null;
   /** 教师批准执行的计划文件项目内相对路径 */
   execution_plan_path?: string | null;
+  /** 取消界面待执行计划时，与计划路径一致则清除服务端状态 */
+  clear_pending_plan_path?: string | null;
 };
 
 /** Parse SSE lines; invokes onEvent(eventName, dataObj) for each complete event. */

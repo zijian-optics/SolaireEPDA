@@ -56,7 +56,7 @@
   "planGenerated": "执行计划已生成",
   "planExecute": "已确认执行。",
   "planModify": "已提交修改意见。",
-  "planCancelled": "已取消。",
+  "planCancelMsg": "我已取消执行该计划，请不要再按此计划推进。",
   "execute": "执行",
   "modify": "修改",
   "processing": "处理中…",

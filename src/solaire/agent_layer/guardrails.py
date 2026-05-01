@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from solaire.agent_layer import registry as tool_registry
 from solaire.agent_layer.models import GuardrailDecision, InvocationContext, SessionState, ToolRisk
@@ -126,6 +127,35 @@ def vivace_needs_fast_model_review(tool_name: str) -> bool:
     """Whether Vivace mode runs the extra fast-model safety pass for this tool (see tool_executor)."""
     rt = tool_registry.get_registered_tool(tool_name)
     return bool(rt and rt.vivace_fast_review)
+
+
+async def vivace_fast_review(
+    *,
+    fast_adapter: Any,
+    tool_name: str,
+    args: dict[str, Any],
+) -> tuple[bool, str]:
+    """返回 (需要人工确认, 原因摘要)。需要确认时第一个元素为 True。"""
+    try:
+        prompt = (
+            "你是安全复核器。判断下面操作是否可能造成较大风险。"
+            "若需要人工确认，只输出 RISKY:原因；否则输出 SAFE:原因。\n"
+            f"操作: {tool_name}\n参数: {json.dumps(args, ensure_ascii=False, default=str)[:1200]}"
+        )
+        resp = await fast_adapter.chat(
+            [
+                {"role": "system", "content": "只输出一行，格式必须是 SAFE:... 或 RISKY:..."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.0,
+        )
+        txt = (resp.content or "").strip()
+        upper = txt.upper()
+        if upper.startswith("RISKY:"):
+            return True, (txt.split(":", 1)[1] or "存在潜在风险").strip()
+        return False, (txt.split(":", 1)[1] if ":" in txt else txt or "风险较低，可直接执行").strip()
+    except Exception:
+        return True, "快速复核异常，已转为人工确认以保证安全。"
 
 
 def check_tool_call(

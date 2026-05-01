@@ -56,7 +56,7 @@
   "planGenerated": "Plan ready",
   "planExecute": "Execution confirmed.",
   "planModify": "Feedback sent.",
-  "planCancelled": "Cancelled.",
+  "planCancelMsg": "I cancelled this plan—do not continue with it.",
   "execute": "Run",
   "modify": "Revise",
   "processing": "Working…",

@@ -92,7 +92,7 @@ def merge_index_bullet(
     project_root: Path,
     new_bullet_text: str,
     *,
-    overlap_threshold: float = 0.6,
+    overlap_threshold: float = 0.92,
 ) -> bool:
     """Self-healing: merge or replace index line when token overlap exceeds threshold; else append.
 
@@ -160,6 +160,21 @@ def merge_index_bullet(
     return True
 
 
+_MEMORY_TOPIC_MAX_LINES = 240
+_MEMORY_TOPIC_KEEP_TAIL = 130
+
+
+def _cap_memory_file_lines(text: str) -> str:
+    raw = text.strip()
+    if not raw:
+        return ""
+    lines = raw.splitlines()
+    if len(lines) <= _MEMORY_TOPIC_MAX_LINES:
+        return raw + "\n"
+    tail = lines[-_MEMORY_TOPIC_KEEP_TAIL:]
+    return "## （较早记录已省略，仅保留最近条目）\n\n" + "\n".join(tail) + "\n"
+
+
 def append_session_digest_line(project_root: Path, line: str) -> None:
     """L3: append one structured line to session_digest topic (topic file)."""
     line = line.strip()
@@ -170,7 +185,8 @@ def append_session_digest_line(project_root: Path, line: str) -> None:
 
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
     block = (prev.strip() + "\n\n" if prev.strip() else "") + f"- {ts} UTC — {line}\n"
-    write_topic(project_root, "session_digest.md", block)
+    capped = _cap_memory_file_lines(block)
+    write_topic(project_root, "session_digest.md", capped)
 
 
 def search_topics(project_root: Path, query: str, *, max_hits: int = 20) -> list[dict[str, Any]]:

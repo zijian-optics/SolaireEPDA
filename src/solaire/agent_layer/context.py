@@ -40,7 +40,7 @@ class ContextManager:
         mem_excerpt = ""
         if root is not None:
             try:
-                mem_excerpt = read_index(root)[:2500]
+                mem_excerpt = read_index(root)[:800]
             except Exception:
                 mem_excerpt = ""
         public_ctx = {k: v for k, v in project_ctx.items() if not str(k).startswith("_")}

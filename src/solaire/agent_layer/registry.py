@@ -245,6 +245,10 @@ _RAW_TOOLS: list[RegisteredTool] = [
                 "export_label": {"type": "string"},
                 "subject": {"type": "string"},
                 "metadata_title": {"type": "string"},
+                "allow_replace_conflicting_export": {
+                    "type": "boolean",
+                    "description": "当已有其他目录占用相同试卷说明与学科时，是否仍允许导出（请谨慎）",
+                },
             },
             "required": ["template_ref", "template_path", "selected_items", "export_label", "subject"],
             "additionalProperties": False,
@@ -1142,6 +1146,35 @@ def select_tools_for_turn(
                     picked.append(pt)
                     seen.add(_plan_tool)
     return picked
+
+
+SUBAGENT_EXCLUDED_NAMES: frozenset[str] = frozenset(
+    {
+        "agent.enter_plan_mode",
+        "agent.exit_plan_mode",
+        "agent.switch_focus",
+        "agent.set_task_plan",
+        "agent.update_task_step",
+        "agent.run_subtask",
+        "agent.run_tool_pipeline",
+        "agent.activate_skill",
+        "file.write",
+        "file.edit",
+    }
+)
+
+
+def tools_for_subagent(*, allowed_prefixes: list[str] | None) -> list[RegisteredTool]:
+    """子任务可调用工具：排除会话/计划/焦点/落盘类能力，避免污染主对话状态。"""
+    tools = [t for t in all_registered_tools(include_subtask=False) if t.name not in SUBAGENT_EXCLUDED_NAMES]
+    if allowed_prefixes:
+        pfx = tuple(allowed_prefixes)
+
+        def _ok(name: str) -> bool:
+            return any(name.startswith(x.rstrip("*")) or name.startswith(x) for x in pfx)
+
+        tools = [t for t in tools if _ok(t.name)]
+    return tools
 
 
 SUBTASK_TOOL_NAME = "agent.run_subtask"

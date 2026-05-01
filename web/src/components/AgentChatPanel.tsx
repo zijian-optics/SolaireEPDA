@@ -484,6 +484,13 @@ export function AgentChatPanel({
             mode: "execute",
           });
         }
+      } else if (action === "cancel") {
+        await runStream({
+          session_id: sid,
+          message: i18n.t("agent:planCancelMsg"),
+          mode: "execute",
+          clear_pending_plan_path: planPath,
+        });
       }
     },
     [busy, ensureSession, runStream],

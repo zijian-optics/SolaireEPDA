@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from solaire.agent_layer.models import InvocationContext, ToolResult
+from solaire.agent_layer.plan_document import normalize_rel_path, validate_agent_plan_rel_path
 from solaire.agent_layer.task_tracker import set_plan, update_step
 
 
@@ -98,11 +99,17 @@ def tool_exit_plan_mode(ctx: InvocationContext, args: dict[str, Any]) -> ToolRes
     if not ctx.session.plan_mode_active:
         return ToolResult(status="failed", error_message="当前不在计划模式中")
     plan_path = str(args.get("plan_file_path") or "").strip()
+    if not plan_path:
+        return ToolResult(status="failed", error_message="plan_file_path 必填")
+    ok, err = validate_agent_plan_rel_path(ctx.project_root, plan_path)
+    if not ok:
+        return ToolResult(status="failed", error_message=err)
+    norm = normalize_rel_path(plan_path)
     ctx.session.plan_mode_active = False
-    ctx.session.current_plan_path = plan_path or None
+    ctx.session.current_plan_path = norm
     return ToolResult(data={
         "ok": True,
-        "plan_file_path": plan_path,
+        "plan_file_path": norm,
         "message": "计划模式已退出，等待教师审批。",
     })
 

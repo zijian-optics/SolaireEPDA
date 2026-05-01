@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
@@ -16,16 +17,24 @@ from solaire.agent_layer.guardrails import load_safety_mode, register_approval
 from solaire.agent_layer.llm.router import ModelRouter, load_llm_settings
 from solaire.agent_layer.history_writer import emit_memory_after_assistant_turn
 from solaire.agent_layer.models import ChatMessage, InvocationContext, SessionState
-from solaire.agent_layer.plan_document import load_plan_steps_from_rel_path
+from solaire.agent_layer.plan_document import (
+    load_plan_steps_from_rel_path,
+    normalize_rel_path,
+    validate_agent_plan_rel_path,
+)
 from solaire.agent_layer.task_tracker import set_plan
 from solaire.agent_layer.registry import (
     invoke_registered_tool,
     openai_tools_payload,
     select_tools_for_turn,
+    tool_descriptions_for_prompt,
 )
 from solaire.agent_layer.session import save_session
 from solaire.agent_layer.tools import analysis_tools
 from solaire.agent_layer.tool_executor import run_draft_tool_loop
+from solaire.agent_layer.llm.token_budget import estimate_messages_tokens
+from solaire.agent_layer.prompts import build_dynamic_system_prompt, build_stable_system_prompt
+from solaire.agent_layer.memory import read_index
 
 EmitFn = Callable[[str, dict[str, Any]], Awaitable[None]]
 
@@ -189,9 +198,41 @@ async def run_agent_turn(
     skill_guidance = sk.prompt_fragment if sk else None
     skill_catalog = skills_mod.build_skill_catalog(project_root)
 
+    raw_clear = project_ctx.get("_clear_pending_plan_path")
+    if isinstance(raw_clear, str) and raw_clear.strip():
+        cnorm = normalize_rel_path(raw_clear.strip())
+        pend = session.pending_plan_path
+        if pend and normalize_rel_path(pend) == cnorm:
+            session.pending_plan_path = None
+            session.execution_plan_path = None
+            session.touch()
+
     raw_exec = project_ctx.get("_execution_plan_path")
     if isinstance(raw_exec, str) and raw_exec.strip():
-        ep = raw_exec.strip()
+        ep = normalize_rel_path(raw_exec.strip())
+        if not ep:
+            await emit("error", {"code": "invalid_plan", "message": "执行计划路径无效。"})
+            save_session(project_root, session)
+            await emit("done", {"usage": {}})
+            return
+        ok_plan, plan_err = validate_agent_plan_rel_path(project_root, ep)
+        if not ok_plan:
+            await emit("error", {"code": "invalid_plan", "message": plan_err})
+            save_session(project_root, session)
+            await emit("done", {"usage": {}})
+            return
+        pend = session.pending_plan_path
+        if pend is None or normalize_rel_path(pend) != ep:
+            await emit(
+                "error",
+                {
+                    "code": "plan_not_approved",
+                    "message": "请先在对话中生成计划，并在界面点击「执行」后再运行；若计划已变更请重新生成。",
+                },
+            )
+            save_session(project_root, session)
+            await emit("done", {"usage": {}})
+            return
         session.execution_plan_path = ep
         steps = load_plan_steps_from_rel_path(project_root, ep)
         if steps:
@@ -331,6 +372,33 @@ async def run_agent_turn(
             execution_plan_path=session.execution_plan_path,
             skill_catalog=skill_catalog,
         )
+        desc = tool_descriptions_for_prompt(tools_selected)
+        try:
+            mem_ex = read_index(project_root)[:800]
+        except Exception:
+            mem_ex = ""
+        public_ctx = {k: v for k, v in full_ctx.items() if not str(k).startswith("_")}
+        stable_txt = build_stable_system_prompt(tool_descriptions=desc)
+        dynamic_txt = build_dynamic_system_prompt(
+            memory_index_excerpt=mem_ex,
+            project_ctx=public_ctx,
+            skill_guidance=skill_guidance,
+            current_focus=session.current_focus or None,
+            plan_mode_active=session.plan_mode_active,
+            execution_plan_path=session.execution_plan_path,
+            skill_catalog=skill_catalog,
+        )
+        await emit(
+            "context_metrics",
+            {
+                "stable_sha12": hashlib.sha256(stable_txt.encode()).hexdigest()[:12],
+                "dynamic_sha12": hashlib.sha256(dynamic_txt.encode()).hexdigest()[:12],
+                "system_chars": len(system_content),
+                "est_prompt_tokens": estimate_messages_tokens(
+                    [{"role": "system", "content": system_content}]
+                ),
+            },
+        )
         api_messages = cm.build_messages(
             system_content=system_content,
             session=session,
@@ -400,10 +468,13 @@ async def run_agent_turn(
                 if steps:
                     set_plan(session, steps)
                     await emit("task_update", {"steps": list(session.task_plan)})
+                plan_norm = normalize_rel_path(plan_path)
                 await emit("plan_ready", {
-                    "plan_file_path": plan_path,
+                    "plan_file_path": plan_norm,
                     "content": plan_content,
                 })
+                session.pending_plan_path = plan_norm
+                session.execution_plan_path = None
                 session.current_plan_path = None
 
             continue
@@ -416,12 +487,24 @@ async def run_agent_turn(
             auto_continue_count += 1
             session.touch()
             continue
+        if finish_reason == "length" and auto_continue_count >= MAX_AUTO_CONTINUES:
+            tail = (full_content or "").strip()
+            text = tail or "内容较长，已达到自动续写上限；请回复「继续」以接着生成。"
+            session.messages.append(ChatMessage(role="assistant", content=text))
+            session.touch()
+            break
 
         text = (full_content or "").strip()
         if text:
             session.messages.append(ChatMessage(role="assistant", content=text))
             session.touch()
         break
+    else:
+        msg = "本轮推理步数已达上限；请发送「继续」以便我汇总结论。"
+        await emit("error", {"code": "max_rounds", "message": msg})
+        session.messages.append(ChatMessage(role="assistant", content=msg))
+        session.touch()
+        text = msg
 
     await emit("done", {"usage": usage_acc})
     save_session(project_root, session)

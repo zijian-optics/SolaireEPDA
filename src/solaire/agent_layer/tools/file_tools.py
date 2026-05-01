@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from solaire.agent_layer.models import InvocationContext, ToolResult
-from solaire.agent_layer.plan_document import PLAN_MD_FRONTMATTER
+from solaire.agent_layer.plan_document import validate_plan_markdown_body
 from solaire.common.security import assert_within_project
 
 # 计划模式：仅允许落盘到该目录（与 Cursor 类 harness 一致）
@@ -40,22 +40,6 @@ def _plan_mode_write_path_ok(ctx: InvocationContext, rel: str) -> bool:
     if ctx.session is None or not ctx.session.plan_mode_active:
         return True
     return _is_under_agent_plans(ctx.project_root, rel)
-
-
-def _validate_plan_markdown_harness(content: str) -> tuple[bool, str]:
-    """计划模式落盘的 *.md：YAML --- 围栏 + name/overview/todos（对齐 Cursor 等 plan 文件形态）。"""
-    text = content.lstrip("\ufeff")
-    m = PLAN_MD_FRONTMATTER.match(text)
-    if not m:
-        return False, "须以 YAML 围栏开头：首行 ---，中间为 YAML，再以独占一行的 --- 结束，随后为正文"
-    fm = m.group("fm")
-    if "name:" not in fm:
-        return False, "YAML 围栏内须包含 name 字段"
-    if "overview:" not in fm:
-        return False, "YAML 围栏内须包含 overview 字段"
-    if "todos" not in fm:
-        return False, "YAML 围栏内须包含 todos 字段（任务列表，含 id/content/status 等）"
-    return True, ""
 
 
 def _resolve(ctx: InvocationContext, rel: str) -> Path:
@@ -104,7 +88,7 @@ def tool_file_write(ctx: InvocationContext, args: dict[str, Any]) -> ToolResult:
         )
     body = str(content)
     if ctx.session and ctx.session.plan_mode_active and _normalize_rel(rel).lower().endswith(".md"):
-        ok, err = _validate_plan_markdown_harness(body)
+        ok, err = validate_plan_markdown_body(body)
         if not ok:
             return ToolResult(status="failed", error_message=err)
     try:
@@ -156,7 +140,7 @@ def tool_file_edit(ctx: InvocationContext, args: dict[str, Any]) -> ToolResult:
         )
     result = text.replace(old_string, new_string) if args.get("replace_all") else text.replace(old_string, new_string, 1)
     if ctx.session and ctx.session.plan_mode_active and _normalize_rel(rel).lower().endswith(".md"):
-        ok, err = _validate_plan_markdown_harness(result)
+        ok, err = validate_plan_markdown_body(result)
         if not ok:
             return ToolResult(status="failed", error_message=err)
     try:

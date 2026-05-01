@@ -1,4 +1,4 @@
-"""Isolated sub-agent run: shared tools, clean message stack, returns final text summary."""
+"""Isolated sub-agent run: shared tools, clean message stack, returns final text summary.\n+\n+子任务不挂载主会话状态（session=None），避免污染计划模式 / 焦点 / 任务步骤；\n+工具集排除会话类与项目写入类能力。\n+"""
 
 from __future__ import annotations
 
@@ -9,12 +9,18 @@ from typing import Any, Awaitable, Callable
 from solaire.agent_layer.audit import append_audit
 from solaire.agent_layer.compactor import summarize_tool_result
 from solaire.agent_layer.context import tool_result_to_content
-from solaire.agent_layer.guardrails import check_tool_call
+from solaire.agent_layer.guardrails import (
+    SAFETY_MODE_VIVACE,
+    check_tool_call,
+    load_safety_mode,
+    vivace_fast_review,
+    vivace_needs_fast_model_review,
+)
 from solaire.agent_layer.models import GuardrailDecision, InvocationContext
 from solaire.agent_layer.registry import (
-    all_registered_tools,
     invoke_registered_tool,
     openai_tools_payload,
+    tools_for_subagent,
 )
 from solaire.agent_layer.utils import parse_tool_arguments
 
@@ -27,19 +33,15 @@ async def run_subagent(
     llm_chat: Callable[..., Awaitable[Any]],
     max_rounds: int = 8,
     emit: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
+    fast_adapter: Any | None = None,
 ) -> str:
     """Run inner tool loop; return concise final answer for parent context."""
-    tools = all_registered_tools(include_subtask=False)
-    if allowed_prefixes:
-        pfx = tuple(allowed_prefixes)
-
-        def _ok(name: str) -> bool:
-            return any(name.startswith(x.rstrip("*")) or name.startswith(x) for x in pfx)
-
-        tools = [t for t in tools if _ok(t.name)]
+    tools = tools_for_subagent(allowed_prefixes=allowed_prefixes)
     otools = openai_tools_payload(tools)
 
-    inner_ctx = ctx.model_copy(update={"subagent": True, "session": ctx.session})
+    inner_ctx = ctx.model_copy(update={"subagent": True, "session": None})
+    safety_mode = load_safety_mode(ctx.project_root)
+
     messages: list[dict[str, Any]] = [
         {
             "role": "system",
@@ -73,7 +75,7 @@ async def run_subagent(
                         "tool_start",
                         {"tool_name": name, "arguments": args, "subagent": True, "round": round_i},
                     )
-                dec = check_tool_call(name, args, inner_ctx)
+                dec = check_tool_call(name, args, inner_ctx, safety_mode=safety_mode)
                 if dec != GuardrailDecision.AUTO_APPROVE:
                     msg = "子任务中该工具需确认，已中止；请回到主对话授权后重试。"
                     messages.append(
@@ -85,6 +87,36 @@ async def run_subagent(
                         }
                     )
                     continue
+                if (
+                    dec == GuardrailDecision.AUTO_APPROVE
+                    and safety_mode == SAFETY_MODE_VIVACE
+                    and vivace_needs_fast_model_review(name)
+                ):
+                    if fast_adapter is None:
+                        msg = "子任务中该操作需要安全复核，但未配置复核模型；请回到主对话执行或调整安全策略。"
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tid,
+                                "name": name,
+                                "content": json.dumps({"error": msg}, ensure_ascii=False),
+                            }
+                        )
+                        continue
+                    need_confirm, reason = await vivace_fast_review(
+                        fast_adapter=fast_adapter, tool_name=name, args=args
+                    )
+                    if need_confirm:
+                        msg = f"子任务中安全复核建议人工确认：{reason}。请回到主对话重试。"
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tid,
+                                "name": name,
+                                "content": json.dumps({"error": msg}, ensure_ascii=False),
+                            }
+                        )
+                        continue
                 tr = invoke_registered_tool(name, args, inner_ctx)
                 payload = tr.data if tr.status == "succeeded" else {"error": tr.error_message}
                 messages.append(
@@ -130,6 +162,7 @@ async def run_subagents_parallel(
     llm_chat: Callable[..., Awaitable[Any]],
     max_rounds: int = 8,
     emit: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
+    fast_adapter: Any | None = None,
 ) -> list[str]:
     """Run multiple isolated sub-agents concurrently; returns summaries in input order."""
 
@@ -141,6 +174,7 @@ async def run_subagents_parallel(
             llm_chat=llm_chat,
             max_rounds=max_rounds,
             emit=emit,
+            fast_adapter=fast_adapter,
         )
 
     return list(await asyncio.gather(*[_one(o) for o in objectives]))

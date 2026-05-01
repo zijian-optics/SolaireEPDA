@@ -70,6 +70,8 @@ class SessionState(BaseModel):
     current_plan_path: str | None = None
     # 教师点「执行」时锁定的计划文件（项目内相对路径）；与 task_plan 对齐
     execution_plan_path: str | None = None
+    # 最近一次助手 `plan_ready` 对应的计划路径（规范化相对路径）；须与 execution 请求匹配
+    pending_plan_path: str | None = None
     # Phase 6: 已在本会话中激活的技能（去重）
     activated_skills: list[str] = Field(default_factory=list)
 

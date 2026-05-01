@@ -251,6 +251,49 @@ def _apply_overrides(base_prompt: str, overrides: str) -> str:
     return result
 
 
+def build_stable_system_prompt(*, tool_descriptions: str) -> str:
+    """不随页面/记忆/计划状态变化的系统提示核心（利于稳定前缀与缓存）。"""
+    parts = [
+        _layer_role(),
+        _layer_goal(),
+        _layer_tools(tool_descriptions),
+        _layer_constraints(),
+        _layer_risk_policy(),
+        _layer_output_format(),
+        _layer_decision_rules(),
+    ]
+    return "\n\n".join(parts)
+
+
+def build_dynamic_system_prompt(
+    *,
+    memory_index_excerpt: str,
+    project_ctx: dict[str, Any],
+    skill_guidance: str | None = None,
+    current_focus: str | None = None,
+    plan_mode_active: bool = False,
+    execution_plan_path: str | None = None,
+    skill_catalog: str | None = None,
+) -> str:
+    """随项目摘要、界面、记忆摘录、计划状态变化的提示层。"""
+    chunks: list[str] = []
+    if skill_guidance and skill_guidance.strip():
+        chunks.append("## 当前协助重点\n" + skill_guidance.strip())
+    if (current_focus or "").strip() == "compose":
+        chunks.append(_layer_compose_hints())
+    if plan_mode_active:
+        chunks.append(_layer_plan_mode())
+    if execution_plan_path and execution_plan_path.strip():
+        chunks.append(_layer_plan_execution(execution_plan_path))
+    chunks.append(_layer_context(project_ctx))
+    chunks.append(_layer_focus(current_focus))
+    chunks.append(_layer_memory(memory_index_excerpt))
+    catalog_section = _layer_skill_catalog(skill_catalog)
+    if catalog_section:
+        chunks.append(catalog_section)
+    return "\n\n".join(chunks)
+
+
 def build_system_prompt(
     *,
     tool_descriptions: str,
@@ -264,31 +307,17 @@ def build_system_prompt(
     project_root: Path | None = None,
 ) -> str:
     """Assemble full system prompt (protocol stack)."""
-    parts = [
-        _layer_role(),
-        _layer_goal(),
-        _layer_context(project_ctx),
-        _layer_focus(current_focus),
-        _layer_tools(tool_descriptions),
-        _layer_constraints(),
-        _layer_risk_policy(),
-        _layer_output_format(),
-        _layer_decision_rules(),
-        _layer_memory(memory_index_excerpt),
-    ]
-    if skill_guidance and skill_guidance.strip():
-        parts.insert(4, "## 当前协助重点\n" + skill_guidance.strip())
-    if (current_focus or "").strip() == "compose":
-        parts.insert(4, _layer_compose_hints())
-    if plan_mode_active:
-        parts.insert(4, _layer_plan_mode())
-    if execution_plan_path and execution_plan_path.strip():
-        parts.insert(4, _layer_plan_execution(execution_plan_path))
-    catalog_section = _layer_skill_catalog(skill_catalog)
-    if catalog_section:
-        parts.append(catalog_section)
-
-    base = "\n\n".join(parts)
+    stable = build_stable_system_prompt(tool_descriptions=tool_descriptions)
+    dynamic = build_dynamic_system_prompt(
+        memory_index_excerpt=memory_index_excerpt,
+        project_ctx=project_ctx,
+        skill_guidance=skill_guidance,
+        current_focus=current_focus,
+        plan_mode_active=plan_mode_active,
+        execution_plan_path=execution_plan_path,
+        skill_catalog=skill_catalog,
+    )
+    base = stable + "\n\n" + dynamic
 
     overrides = _load_prompt_overrides(project_root)
     if overrides:

@@ -142,10 +142,24 @@ def test_merge_index_self_heal(tmp_path: Path) -> None:
     assert merge_index_bullet(
         tmp_path,
         "[分析记录](analysis_history.md): 月考薄弱点为函数与几何综合题",
+        overlap_threshold=0.55,
     )
     idx = read_index(tmp_path)
     assert "几何" in idx
     assert idx.count("[分析记录]") <= 1
+
+
+def test_merge_index_strict_threshold_appends(tmp_path: Path) -> None:
+    """高阈值时相近但不完全重叠的条目保留为两行，降低误替换。"""
+    ensure_memory_layout(tmp_path)
+    write_index(tmp_path, "## 记忆索引\n- [分析记录](analysis_history.md): 月考薄弱点为函数\n")
+    assert merge_index_bullet(
+        tmp_path,
+        "[分析记录](analysis_history.md): 月考薄弱点为函数与几何综合题",
+        overlap_threshold=0.92,
+    )
+    idx = read_index(tmp_path)
+    assert idx.count("[分析记录]") == 2
 
 
 def test_list_topics_after_write(tmp_path: Path) -> None:

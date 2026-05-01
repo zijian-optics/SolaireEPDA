@@ -17,6 +17,7 @@ from solaire.agent_layer.guardrails import (
     SAFETY_MODE_VIVACE,
     check_tool_call,
     human_confirmation_message,
+    vivace_fast_review,
     vivace_needs_fast_model_review,
 )
 from solaire.agent_layer.models import (
@@ -129,34 +130,6 @@ def thinking_label_for_tool(tool_name: str) -> str:
     return "正在执行操作…"
 
 
-async def vivace_fast_review(
-    *,
-    fast_adapter: Any,
-    tool_name: str,
-    args: dict[str, Any],
-) -> tuple[bool, str]:
-    try:
-        prompt = (
-            "你是安全复核器。判断下面操作是否可能造成较大风险。"
-            "若需要人工确认，只输出 RISKY:原因；否则输出 SAFE:原因。\n"
-            f"操作: {tool_name}\n参数: {json.dumps(args, ensure_ascii=False, default=str)[:1200]}"
-        )
-        resp = await fast_adapter.chat(
-            [
-                {"role": "system", "content": "只输出一行，格式必须是 SAFE:... 或 RISKY:..."},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.0,
-        )
-        txt = (resp.content or "").strip()
-        upper = txt.upper()
-        if upper.startswith("RISKY:"):
-            return True, (txt.split(":", 1)[1] or "存在潜在风险").strip()
-        return False, (txt.split(":", 1)[1] if ":" in txt else txt or "风险较低，可直接执行").strip()
-    except Exception:
-        return True, "快速复核异常，已转为人工确认以保证安全。"
-
-
 async def run_draft_tool_loop(
     *,
     project_root: Path,
@@ -263,6 +236,7 @@ async def run_draft_tool_loop(
                     llm_chat=adapter.chat,
                     max_rounds=ctx.max_subagent_tool_rounds,
                     emit=sub_emit,
+                    fast_adapter=fast_adapter,
                 )
                 return i, tid_i, summary
 
@@ -311,6 +285,7 @@ async def run_draft_tool_loop(
                 llm_chat=adapter.chat,
                 max_rounds=ctx.max_subagent_tool_rounds,
                 emit=sub_emit,
+                fast_adapter=fast_adapter,
             )
             await emit("subagent_done", {"summary": summary[:2000]})
             session.draft_tool_results.append(
@@ -364,6 +339,7 @@ async def run_draft_tool_loop(
                 },
             )
             save_session(project_root, session)
+            await emit("done", {"usage": {}, "awaiting_confirmation": True})
             return True
         if name == "analysis.save_script" and args.get("code"):
             ok, err = analysis_tools.validate_python_syntax(str(args["code"]))

@@ -10,11 +10,21 @@ from solaire.common.security import assert_within_project
 from solaire.exam_compiler.facade import SelectedSection, load_template
 from solaire.web.exam_service import (
     VALIDATE_EXAM_NAME,
+    discard_build_yaml_backup,
     export_pdfs,
+    find_export_conflict,
+    restore_build_yaml_from_backup,
     run_validate,
     run_validate_with_checks,
     write_build_exam_yaml,
     write_exam_yaml,
+    snapshot_build_yaml_before_export,
+)
+from solaire.web.exam_workspace_service import (
+    exam_id_from_labels,
+    mark_exported,
+    save_exam_workspace_after_export_failure,
+    workspace_dir,
 )
 
 
@@ -171,6 +181,7 @@ def tool_export_paper(ctx: InvocationContext, args: dict[str, Any]) -> ToolResul
     template_path = str(args.get("template_path") or "").strip()
     export_label = str(args.get("export_label") or "").strip()
     subject = str(args.get("subject") or "").strip()
+    allow_replace = bool(args.get("allow_replace_conflicting_export"))
     if not all([template_ref, template_path, export_label, subject]):
         return ToolResult(
             status="failed",
@@ -184,33 +195,61 @@ def tool_export_paper(ctx: InvocationContext, args: dict[str, Any]) -> ToolResul
         return ToolResult(status="failed", error_code="invalid_arguments", error_message=str(e))
     if not tpl.is_file():
         return ToolResult(status="failed", error_code="not_found", error_message="模板文件不存在")
-    title = args.get("metadata_title") or export_label
-    metadata: dict[str, Any] = {
-        "title": str(title),
-        "subject": subject,
-        "export_label": export_label,
-    }
-    sections = _sections_from_args(args)
-    exam_yaml = write_build_exam_yaml(
-        root,
-        exam_id="agent_export",
-        template_ref=template_ref,
-        template_relative=template_path,
-        metadata=metadata,
-        selected_items=sections,
-    )
-    try:
-        run_validate(root, exam_yaml)
-    except ValueError as e:
-        return ToolResult(status="failed", error_code="validation_failed", error_message=str(e))
-    template = load_template(tpl)
-    try:
-        from solaire.web.exam_workspace_service import exam_id_from_labels, workspace_dir
 
-        dest_dir = workspace_dir(root, exam_id_from_labels(export_label, subject))
+    try:
+        mark_id = exam_id_from_labels(export_label, subject)
     except ValueError as e:
         return ToolResult(status="failed", error_code="invalid_arguments", error_message=str(e))
+
+    sections = _sections_from_args(args)
+    snapshot_items = [s.model_dump(mode="json", exclude_none=True) for s in sections]
+
+    def _failure_snapshot(exc: BaseException) -> None:
+        try:
+            save_exam_workspace_after_export_failure(
+                root,
+                template_ref=template_ref,
+                template_path=template_path,
+                export_label=export_label,
+                subject=subject,
+                selected_items=snapshot_items,
+            )
+        except Exception:
+            pass
+
+    backup = snapshot_build_yaml_before_export(root)
     try:
+        conflict = find_export_conflict(root, export_label, subject)
+        if conflict.get("conflict") and conflict.get("existing_exam_id"):
+            ex_id = str(conflict["existing_exam_id"])
+            if ex_id != mark_id and not allow_replace:
+                discard_build_yaml_backup(backup)
+                return ToolResult(
+                    status="failed",
+                    error_code="export_conflict",
+                    error_message=(
+                        "已存在相同试卷说明与学科的其它考试目录。"
+                        "若确认仍要导出，请在参数中启用允许替换冲突目录。"
+                    ),
+                )
+
+        title = args.get("metadata_title") or export_label
+        metadata: dict[str, Any] = {
+            "title": str(title),
+            "subject": subject,
+            "export_label": export_label,
+        }
+        exam_yaml = write_build_exam_yaml(
+            root,
+            exam_id="agent_export",
+            template_ref=template_ref,
+            template_relative=template_path,
+            metadata=metadata,
+            selected_items=sections,
+        )
+        run_validate(root, exam_yaml)
+        template = load_template(tpl)
+        dest_dir = workspace_dir(root, mark_id)
         exam_dir, s_name, t_name = export_pdfs(
             root,
             exam_yaml=exam_yaml,
@@ -219,10 +258,30 @@ def tool_export_paper(ctx: InvocationContext, args: dict[str, Any]) -> ToolResul
             template=template,
             dest_dir=dest_dir,
         )
+    except ValueError as e:
+        restore_build_yaml_from_backup(root, backup)
+        _failure_snapshot(e)
+        return ToolResult(status="failed", error_code="validation_failed", error_message=str(e))
     except FileNotFoundError as e:
+        restore_build_yaml_from_backup(root, backup)
+        _failure_snapshot(e)
         return ToolResult(status="failed", error_code="not_found", error_message=str(e))
     except RuntimeError as e:
+        restore_build_yaml_from_backup(root, backup)
+        _failure_snapshot(e)
         return ToolResult(status="failed", error_code="runtime_error", error_message=str(e))
+    except Exception as e:
+        restore_build_yaml_from_backup(root, backup)
+        _failure_snapshot(e)
+        return ToolResult(status="failed", error_code="runtime_error", error_message=str(e))
+    else:
+        discard_build_yaml_backup(backup)
+
+    try:
+        mark_exported(root, mark_id)
+    except Exception:
+        pass
+
     rel = exam_dir.relative_to(root).as_posix()
     return ToolResult(
         status="succeeded",
