@@ -20,6 +20,7 @@
   "uploadFail": "Upload failed: {{name}}",
   "modifyPrompt": "Enter change requests:",
   "title": "Assistant",
+  "contextTokensEst": "~{{count}} context (estimated)",
   "collapseSidebar": "Collapse sidebar",
   "history": "History",
   "historyDialogTitle": "Past chats",

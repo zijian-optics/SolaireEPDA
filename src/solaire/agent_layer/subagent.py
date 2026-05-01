@@ -26,7 +26,7 @@ from solaire.agent_layer.registry import (
     openai_tools_payload,
     tools_for_subagent,
 )
-from solaire.agent_layer.utils import parse_tool_arguments
+from solaire.agent_layer.utils import parse_tool_arguments, tool_calls_signature
 
 
 async def run_subagent(
@@ -57,9 +57,22 @@ async def run_subagent(
         {"role": "user", "content": objective},
     ]
 
-    for round_i in range(max_rounds):
+    repeat_count = 0
+    last_tool_calls_sig = ""
+    round_i = -1
+
+    while True:
+        round_i += 1
         resp = await llm_chat(messages, tools=otools, temperature=0.2)
         if resp.tool_calls:
+            sig = tool_calls_signature(resp.tool_calls)
+            if sig == last_tool_calls_sig:
+                repeat_count += 1
+            else:
+                repeat_count = 0
+                last_tool_calls_sig = sig
+            if repeat_count >= max_rounds:
+                return "（子任务检测到重复操作，已中止；请缩小目标后重试）"
             messages.append(
                 {
                     "role": "assistant",
@@ -155,7 +168,6 @@ async def run_subagent(
         if text:
             return text[:8000]
         return "（子任务未产生文本结论）"
-    return "（子任务达到最大轮次，请缩小目标后重试）"
 
 
 async def run_subagents_parallel(

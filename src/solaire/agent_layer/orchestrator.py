@@ -31,14 +31,12 @@ from solaire.agent_layer.registry import (
 from solaire.agent_layer.session import save_session
 from solaire.agent_layer.tools import analysis_tools
 from solaire.agent_layer.tool_executor import run_draft_tool_loop
+from solaire.agent_layer.utils import tool_calls_signature
 from solaire.agent_layer.llm.token_budget import estimate_messages_tokens
 from solaire.agent_layer.llm.prompt_cache import hash_text_sha12, hash_tools_payload_sha12
 from solaire.agent_layer.prompts import build_dynamic_system_prompt, build_stable_system_prompt, build_tools_system_block
 
 EmitFn = Callable[[str, dict[str, Any]], Awaitable[None]]
-
-# 纯文本因 length 截断时的自动续写次数上限（费用/防失控预算，非模型规范值）；应先保证 max_tokens 与流式 finish_reason 兜底
-MAX_AUTO_CONTINUES = 6
 
 
 def _thinking_for_round(round_idx: int) -> str:
@@ -353,7 +351,10 @@ async def run_agent_turn(
 
     usage_acc: dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     text = ""
-    auto_continue_count = 0
+    repeat_count = 0
+    last_tool_calls_sig = ""
+    peak_context_est = 0
+    loop_round = -1
 
     stable_txt = build_stable_system_prompt()
     public_ctx = {k: v for k, v in full_ctx.items() if not str(k).startswith("_")}
@@ -362,15 +363,19 @@ async def run_agent_turn(
     tools_block_txt = build_tools_system_block(_desc)
     _need_rebuild_prompts = False
 
-    for _round in range(max_llm_rounds):
+    while True:
+        loop_round += 1
         if is_cancelled(session.session_id):
             clear_cancel(session.session_id)
             await emit("error", {"code": "cancelled", "message": "已按您的操作停止。"})
-            await emit("done", {"usage": usage_acc, "cancelled": True})
+            await emit(
+                "done",
+                {"usage": usage_acc, "cancelled": True, "context_tokens_est": peak_context_est},
+            )
             save_session(project_root, session)
             return
 
-        await emit("thinking", {"message": _thinking_for_round(_round)})
+        await emit("thinking", {"message": _thinking_for_round(loop_round)})
 
         if _need_rebuild_prompts:
             _desc = tool_descriptions_for_prompt(tools_selected)
@@ -416,6 +421,8 @@ async def run_agent_turn(
         if api_messages and api_messages[-1].get("role") == "user" and api_messages[-1].get("content") == "":
             api_messages.pop()
 
+        peak_context_est = max(peak_context_est, estimate_messages_tokens(api_messages))
+
         try:
             full_content, streamed_tools, udelta, round_reasoning, finish_reason = await _llm_round_call(
                 adapter,
@@ -428,12 +435,32 @@ async def run_agent_turn(
         except Exception as e:
             await emit("error", {"code": "llm_error", "message": str(e)})
             save_session(project_root, session)
-            await emit("done", {"usage": usage_acc})
+            await emit("done", {"usage": usage_acc, "context_tokens_est": peak_context_est})
             return
         for kk, vv in udelta.items():
             usage_acc[kk] = usage_acc.get(kk, 0) + vv
 
         if streamed_tools:
+            sig = tool_calls_signature(streamed_tools)
+            if sig == last_tool_calls_sig:
+                repeat_count += 1
+            else:
+                repeat_count = 0
+                last_tool_calls_sig = sig
+            if repeat_count >= max_llm_rounds:
+                msg = "检测到助手重复发起相同操作，已暂停本轮。"
+                await emit("error", {"code": "repeat_loop", "message": msg})
+                session.messages.append(
+                    ChatMessage(
+                        role="assistant",
+                        content=msg,
+                        reasoning_content=round_reasoning or "",
+                    )
+                )
+                session.touch()
+                text = msg
+                break
+
             # Phase 1: check if switch_focus was called; rebuild tools if so
             focus_switched = False
             for tc in streamed_tools:
@@ -489,34 +516,31 @@ async def run_agent_turn(
 
             continue
 
-        # No tool calls: check finish_reason for auto-continuation (Phase 3)
-        if finish_reason == "length" and auto_continue_count < MAX_AUTO_CONTINUES:
-            session.messages.append(ChatMessage(role="assistant", content=full_content or ""))
-            session.messages.append(ChatMessage(role="user", content="请继续上面未完成的内容"))
-            await emit("thinking", {"message": "回复较长，正在继续生成…"})
-            auto_continue_count += 1
+        if finish_reason == "length":
+            session.messages.append(
+                ChatMessage(
+                    role="assistant",
+                    content=full_content or "",
+                    reasoning_content=round_reasoning or "",
+                )
+            )
             session.touch()
-            continue
-        if finish_reason == "length" and auto_continue_count >= MAX_AUTO_CONTINUES:
-            tail = (full_content or "").strip()
-            text = tail or "内容较长，已达到自动续写上限；请回复「继续」以接着生成。"
-            session.messages.append(ChatMessage(role="assistant", content=text))
-            session.touch()
+            text = (full_content or "").strip()
             break
 
         text = (full_content or "").strip()
         if text:
-            session.messages.append(ChatMessage(role="assistant", content=text))
+            session.messages.append(
+                ChatMessage(
+                    role="assistant",
+                    content=text,
+                    reasoning_content=round_reasoning or "",
+                )
+            )
             session.touch()
         break
-    else:
-        msg = "本轮推理步数已达上限；请发送「继续」以便我汇总结论。"
-        await emit("error", {"code": "max_rounds", "message": msg})
-        session.messages.append(ChatMessage(role="assistant", content=msg))
-        session.touch()
-        text = msg
 
-    await emit("done", {"usage": usage_acc})
+    await emit("done", {"usage": usage_acc, "context_tokens_est": peak_context_est})
     save_session(project_root, session)
 
     if text:

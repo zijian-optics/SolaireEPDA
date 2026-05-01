@@ -594,3 +594,19 @@
 **验证命令**：`pixi run pytest tests/test_agent_layer.py tests/test_llm_router.py -v`
 
 **结果要点**：40 passed（新增 7 测试全通过），1 pre-existing failure（`test_guardrail_read_vs_export`，与本次改动无关），llm_router 3 passed。
+
+## [2026-05-02] 编排层 | 重复工具批次熔断、上下文 200k、去除自动续写、侧栏上下文估算
+
+**改动摘要**：主循环改为按「连续完全相同的 tool_calls 批次」计数触发 `repeat_loop`（`max_llm_rounds` 现为该阈值）；移除 length 自动续写与用户「请继续」注入；`ContextManager.TOKEN_BUDGET_TOTAL` 调至 200000；`done` 事件增加 `context_tokens_est`（发往模型的消息估算峰值）；`utils.tool_calls_signature` 统一规范化指纹；子任务循环对齐重复熔断逻辑；侧栏标题展示上下文估算文案；更新 `docs/api/agent.md`、`wiki/modules/agent-layer.md`；测试 `test_run_agent_turn_emits_repeat_loop_when_identical_tool_calls_repeat` 替换原 max_rounds 用例。
+
+**验证命令**：`pixi run pytest tests/test_agent_plan_and_subagent.py tests/test_agent_layer.py -v --tb=short`
+
+**结果要点**：`test_agent_plan_and_subagent` 7 passed；`test_agent_layer` 中 40 passed，1 failed（`test_guardrail_read_vs_export`，与本次改动无关，与 log 既有记录一致）。
+
+## [2026-05-02] 编排层 | 修复无工具调用时丢失 reasoning_content 的问题
+
+**改动摘要**：`orchestrator.py` 在 `run_agent_turn` 中，如果助手回复无工具调用（常见于结束任务或退出 `plan_mode` 时纯文本响应），创建 `ChatMessage` 时漏传了 `reasoning_content`。这导致 `Pydantic` 默认将其置为 `None`，进而序列化为 `null` 并在持久化层和前端交互中丢失了思考过程。本次修复在追加消息时显示传入 `reasoning_content=round_reasoning or ""`，包含自动因为长度或结束而返回的文本节点，以及因为死循环产生的报错节点。
+
+**验证命令**：手动代码走查与确认。
+
+**结果要点**：修复逻辑已在本地写入。

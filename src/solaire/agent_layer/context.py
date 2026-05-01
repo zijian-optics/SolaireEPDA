@@ -94,7 +94,7 @@ def _drop_oldest_history_segment(messages: list[dict[str, Any]], *, prefix_len: 
 
 
 class ContextManager:
-    TOKEN_BUDGET_TOTAL = 28000
+    TOKEN_BUDGET_TOTAL = 200000
 
     def __init__(self, *, include_subtask_tool: bool = True) -> None:
         self.include_subtask_tool = include_subtask_tool

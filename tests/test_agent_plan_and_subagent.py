@@ -142,7 +142,7 @@ def test_run_agent_turn_emits_done_after_confirm_needed(
     assert any(e[0] == "done" and e[1].get("awaiting_confirmation") for e in events)
 
 
-def test_run_agent_turn_emits_max_rounds_error_when_tool_loop_exhausted(
+def test_run_agent_turn_emits_repeat_loop_when_identical_tool_calls_repeat(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     session = SessionState(session_id="sid3")
@@ -186,10 +186,10 @@ def test_run_agent_turn_emits_max_rounds_error_when_tool_loop_exhausted(
 
     asyncio.run(_run())
 
-    assert any(e[0] == "error" and e[1].get("code") == "max_rounds" for e in events)
+    assert any(e[0] == "error" and e[1].get("code") == "repeat_loop" for e in events)
     assert any(e[0] == "done" for e in events)
     assert session.messages and session.messages[-1].role == "assistant"
-    assert "继续" in (session.messages[-1].content or "")
+    assert "重复" in (session.messages[-1].content or "")
 
 
 def test_run_agent_turn_cancelled_emits_error_and_done(tmp_path: Path) -> None:

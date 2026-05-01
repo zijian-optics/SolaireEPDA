@@ -20,6 +20,7 @@
   "uploadFail": "文件上传失败: {{name}}",
   "modifyPrompt": "请输入修改意见：",
   "title": "智能助手",
+  "contextTokensEst": "上下文约 {{count}}（估算）",
   "collapseSidebar": "收起侧栏",
   "history": "历史",
   "historyDialogTitle": "历史对话",

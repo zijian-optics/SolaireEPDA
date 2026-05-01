@@ -78,8 +78,8 @@
 - `subagent_start` / `subagent_done`：子任务深度分析  
 - `memory_updated`：已写入项目内记忆文件（含 `topics_changed` 文件名列表）  
 - `memory_update_failed`：会话末自动写入记忆失败，`message` 为原因（同时会记入 `audit.jsonl`）  
-- `done`：本轮结束，`usage` 为 token 统计（若提供商返回）；若用户停止可带 `cancelled: true`；若在 `confirm_needed` 之后结束等待，可带 `awaiting_confirmation: true`  
-- `error`：错误信息（含用户停止时 `code: cancelled`）；若推理轮次耗尽可能为 `code: max_rounds`  
+- `done`：本轮结束，`usage` 为 token 统计（若提供商返回）；可含 `context_tokens_est`（按发往模型的完整消息估算的本轮上下文规模）；若用户停止可带 `cancelled: true`；若在 `confirm_needed` 之后结束等待，可带 `awaiting_confirmation: true`  
+- `error`：错误信息（含用户停止时 `code: cancelled`）；若模型在多轮中重复发起完全相同的工具调用批次达到阈值则为 `code: repeat_loop`  
 
 ### 子任务（`agent.run_subtask`）与确认
 
