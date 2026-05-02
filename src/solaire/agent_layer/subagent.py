@@ -20,6 +20,7 @@ from solaire.agent_layer.guardrails import (
     vivace_fast_review,
     vivace_needs_fast_model_review,
 )
+from solaire.agent_layer.llm.adapter import LLMAdapter
 from solaire.agent_layer.models import GuardrailDecision, InvocationContext
 from solaire.agent_layer.registry import (
     invoke_registered_tool,
@@ -37,7 +38,7 @@ async def run_subagent(
     llm_chat: Callable[..., Awaitable[Any]],
     max_rounds: int = 8,
     emit: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
-    fast_adapter: Any | None = None,
+    fast_adapter: LLMAdapter | None = None,
 ) -> str:
     """Run inner tool loop; return concise final answer for parent context."""
     tools = tools_for_subagent(allowed_prefixes=allowed_prefixes)
@@ -178,7 +179,7 @@ async def run_subagents_parallel(
     llm_chat: Callable[..., Awaitable[Any]],
     max_rounds: int = 8,
     emit: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
-    fast_adapter: Any | None = None,
+    fast_adapter: LLMAdapter | None = None,
 ) -> list[str]:
     """Run multiple isolated sub-agents concurrently; returns summaries in input order."""
 

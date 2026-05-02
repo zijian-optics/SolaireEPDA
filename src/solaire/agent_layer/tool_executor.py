@@ -6,6 +6,7 @@ import asyncio
 import json
 import uuid
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,7 @@ from solaire.agent_layer.guardrails import (
     vivace_fast_review,
     vivace_needs_fast_model_review,
 )
+from solaire.agent_layer.llm.adapter import LLMAdapter
 from solaire.agent_layer.models import (
     ChatMessage,
     GuardrailDecision,
@@ -39,6 +41,18 @@ from solaire.agent_layer.tools import analysis_tools
 from solaire.agent_layer.utils import parse_tool_arguments as _parse_args
 
 EmitFn = Callable[[str, dict[str, Any]], Awaitable[None]]
+
+
+@dataclass
+class DraftToolContext:
+    """Bundle of context needed to execute a tool-call draft loop."""
+    project_root: Path
+    session: SessionState
+    ctx: InvocationContext
+    safety_mode: str
+    adapter: LLMAdapter
+    fast_adapter: LLMAdapter
+    emit: EmitFn
 
 
 def flush_draft_to_messages(session: SessionState) -> None:
@@ -132,15 +146,16 @@ def thinking_label_for_tool(tool_name: str) -> str:
 
 async def run_draft_tool_loop(
     *,
-    project_root: Path,
-    session: SessionState,
-    ctx: InvocationContext,
-    safety_mode: str,
-    adapter: Any,
-    fast_adapter: Any,
-    emit: EmitFn,
+    dtc: DraftToolContext,
 ) -> bool:
     """Returns True if stopped for confirmation or cancel."""
+    project_root = dtc.project_root
+    session = dtc.session
+    ctx = dtc.ctx
+    safety_mode = dtc.safety_mode
+    adapter = dtc.adapter
+    fast_adapter = dtc.fast_adapter
+    emit = dtc.emit
     d = session.draft_assistant
     if not d:
         return False

@@ -13,8 +13,9 @@ from solaire.agent_layer.cancel_signal import clear_cancel, is_cancelled
 from solaire.agent_layer.compactor import summarize_tool_result
 from solaire.agent_layer.context import ContextManager, tool_result_to_content
 from solaire.agent_layer.guardrails import load_safety_mode, register_approval
+from solaire.agent_layer.llm.adapter import LLMAdapter
 from solaire.agent_layer.llm.router import ModelRouter, load_llm_settings
-from solaire.agent_layer.history_writer import emit_memory_after_assistant_turn
+
 from solaire.agent_layer.models import ChatMessage, InvocationContext, SessionState
 from solaire.agent_layer.plan_document import (
     load_plan_steps_from_rel_path,
@@ -30,7 +31,7 @@ from solaire.agent_layer.registry import (
 )
 from solaire.agent_layer.session import save_session
 from solaire.agent_layer.tools import analysis_tools
-from solaire.agent_layer.tool_executor import run_draft_tool_loop
+from solaire.agent_layer.tool_executor import DraftToolContext, run_draft_tool_loop
 from solaire.agent_layer.utils import tool_calls_signature
 from solaire.agent_layer.llm.token_budget import estimate_messages_tokens
 from solaire.agent_layer.llm.prompt_cache import hash_text_sha12, hash_tools_payload_sha12
@@ -62,7 +63,7 @@ def _tool_calls_arguments_json_ok(tool_calls: list[dict[str, Any]]) -> bool:
 
 
 async def _llm_round_call(
-    adapter: Any,
+    adapter: LLMAdapter,
     api_messages: list[dict[str, Any]],
     tools_payload: list[dict[str, Any]],
     *,
@@ -148,6 +149,148 @@ def _rebuild_tools(
     return tools_selected, openai_tools_payload(tools_selected)
 
 
+async def _resolve_plan_and_exec_path(
+    project_root: Path,
+    session: SessionState,
+    project_ctx: dict[str, Any],
+    emit: EmitFn,
+) -> bool:
+    """Resolve plan clear/execution paths from project_ctx. Returns True if should abort turn."""
+    raw_clear = project_ctx.get("_clear_pending_plan_path")
+    if isinstance(raw_clear, str) and raw_clear.strip():
+        cnorm = normalize_rel_path(raw_clear.strip())
+        pend = session.pending_plan_path
+        if pend and normalize_rel_path(pend) == cnorm:
+            session.pending_plan_path = None
+            session.execution_plan_path = None
+            session.touch()
+
+    raw_exec = project_ctx.get("_execution_plan_path")
+    if not (isinstance(raw_exec, str) and raw_exec.strip()):
+        return False
+
+    ep = normalize_rel_path(raw_exec.strip())
+    if not ep:
+        await emit("error", {"code": "invalid_plan", "message": "执行计划路径无效。"})
+        save_session(project_root, session)
+        await emit("done", {"usage": {}})
+        return True
+    ok_plan, plan_err = validate_agent_plan_rel_path(project_root, ep)
+    if not ok_plan:
+        await emit("error", {"code": "invalid_plan", "message": plan_err})
+        save_session(project_root, session)
+        await emit("done", {"usage": {}})
+        return True
+    pend = session.pending_plan_path
+    if pend is None or normalize_rel_path(pend) != ep:
+        await emit(
+            "error",
+            {
+                "code": "plan_not_approved",
+                "message": "请先在对话中生成计划，并在界面点击「执行」后再运行；若计划已变更请重新生成。",
+            },
+        )
+        save_session(project_root, session)
+        await emit("done", {"usage": {}})
+        return True
+    session.execution_plan_path = ep
+    steps = load_plan_steps_from_rel_path(project_root, ep)
+    if steps:
+        set_plan(session, steps)
+        await emit("task_update", {"steps": list(session.task_plan)})
+    session.touch()
+    return False
+
+
+async def _handle_confirmation_resume(
+    *,
+    project_root: Path,
+    session: SessionState,
+    ctx: InvocationContext,
+    confirm_action_id: str,
+    confirm_accepted: bool,
+    emit: EmitFn,
+) -> str | None:
+    """Handle confirmation resume. Returns user_message override (or None on early exit)."""
+    if confirm_accepted is None:
+        confirm_accepted = True
+    pending = session.pending_confirmations.pop(confirm_action_id, None)
+    if pending is None:
+        await emit("error", {"code": "unknown_action", "message": "无效或已过期的确认项"})
+        save_session(project_root, session)
+        await emit("done", {"usage": {}})
+        return None
+    if confirm_accepted is False:
+        await emit("text_delta", {"text": "已取消该操作。"})
+        session.draft_assistant = None
+        session.draft_tool_results = []
+        save_session(project_root, session)
+        await emit("done", {"usage": {}})
+        return None
+    register_approval(session, ctx, pending.tool_name, pending.arguments)
+    ran_ok = True
+    if pending.tool_name == "analysis.save_script" and pending.arguments.get("code"):
+        ok, err = analysis_tools.validate_python_syntax(str(pending.arguments["code"]))
+        if not ok:
+            ran_ok = False
+            session.draft_tool_results.append(
+                {
+                    "tool_call_id": pending.tool_call_id,
+                    "name": pending.tool_name,
+                    "content": json.dumps(
+                        {"tool": pending.tool_name, "error": err},
+                        ensure_ascii=False,
+                    ),
+                }
+            )
+            append_audit(
+                project_root,
+                session_id=session.session_id,
+                tool_name=pending.tool_name,
+                status="failed",
+                detail={"confirmed": True, "syntax": err},
+            )
+            await emit(
+                "tool_result",
+                {
+                    "tool_name": pending.tool_name,
+                    "status": "failed",
+                    "summary": err[:200],
+                },
+            )
+    if ran_ok:
+        tr = invoke_registered_tool(pending.tool_name, pending.arguments, ctx)
+        payload = tr.data if tr.status == "succeeded" else {"error": tr.error_message, "error_code": tr.error_code}
+        session.draft_tool_results.append(
+            {
+                "tool_call_id": pending.tool_call_id,
+                "name": pending.tool_name,
+                "content": tool_result_to_content(pending.tool_name, payload),
+            }
+        )
+        append_audit(
+            project_root,
+            session_id=session.session_id,
+            tool_name=pending.tool_name,
+            status=tr.status,
+            detail={"confirmed": True},
+        )
+        await emit(
+            "tool_result",
+            {
+                "tool_name": pending.tool_name,
+                "status": tr.status,
+                "summary": summarize_tool_result(pending.tool_name, payload),
+            },
+        )
+        if ctx.session and pending.tool_name in (
+            "agent.set_task_plan",
+            "agent.update_task_step",
+        ):
+            await emit("task_update", {"steps": list(ctx.session.task_plan)})
+    return ""
+
+
 async def run_agent_turn(
     project_root: Path,
     session: SessionState,
@@ -194,49 +337,9 @@ async def run_agent_turn(
     sk = skills_mod.get_skill(skill_id, project_root) if skill_id else None
     skill_guidance = sk.prompt_fragment if sk else None
     skill_catalog = skills_mod.build_skill_catalog(project_root)
-    skip_memory_write = bool(project_ctx.get("_skip_memory_write"))
 
-    raw_clear = project_ctx.get("_clear_pending_plan_path")
-    if isinstance(raw_clear, str) and raw_clear.strip():
-        cnorm = normalize_rel_path(raw_clear.strip())
-        pend = session.pending_plan_path
-        if pend and normalize_rel_path(pend) == cnorm:
-            session.pending_plan_path = None
-            session.execution_plan_path = None
-            session.touch()
-
-    raw_exec = project_ctx.get("_execution_plan_path")
-    if isinstance(raw_exec, str) and raw_exec.strip():
-        ep = normalize_rel_path(raw_exec.strip())
-        if not ep:
-            await emit("error", {"code": "invalid_plan", "message": "执行计划路径无效。"})
-            save_session(project_root, session)
-            await emit("done", {"usage": {}})
-            return
-        ok_plan, plan_err = validate_agent_plan_rel_path(project_root, ep)
-        if not ok_plan:
-            await emit("error", {"code": "invalid_plan", "message": plan_err})
-            save_session(project_root, session)
-            await emit("done", {"usage": {}})
-            return
-        pend = session.pending_plan_path
-        if pend is None or normalize_rel_path(pend) != ep:
-            await emit(
-                "error",
-                {
-                    "code": "plan_not_approved",
-                    "message": "请先在对话中生成计划，并在界面点击「执行」后再运行；若计划已变更请重新生成。",
-                },
-            )
-            save_session(project_root, session)
-            await emit("done", {"usage": {}})
-            return
-        session.execution_plan_path = ep
-        steps = load_plan_steps_from_rel_path(project_root, ep)
-        if steps:
-            set_plan(session, steps)
-            await emit("task_update", {"steps": list(session.task_plan)})
-        session.touch()
+    if await _resolve_plan_and_exec_path(project_root, session, project_ctx, emit):
+        return
 
     tools_selected = select_tools_for_turn(
         current_page=current_page,
@@ -248,96 +351,30 @@ async def run_agent_turn(
     )
     tools_payload = openai_tools_payload(tools_selected)
 
+    dtc = DraftToolContext(
+        project_root=project_root,
+        session=session,
+        ctx=ctx,
+        safety_mode=safety_mode,
+        adapter=adapter,
+        fast_adapter=fast_adapter,
+        emit=emit,
+    )
+
     async def process_draft_loop() -> bool:
-        return await run_draft_tool_loop(
+        return await run_draft_tool_loop(dtc=dtc)
+
+    if confirm_action_id is not None:
+        user_message = await _handle_confirmation_resume(
             project_root=project_root,
             session=session,
             ctx=ctx,
-            safety_mode=safety_mode,
-            adapter=adapter,
-            fast_adapter=fast_adapter,
+            confirm_action_id=confirm_action_id,
+            confirm_accepted=confirm_accepted or True,
             emit=emit,
         )
-
-    # --- confirmation resume ---
-    if confirm_action_id is not None:
-        if confirm_accepted is None:
-            confirm_accepted = True
-        pending = session.pending_confirmations.pop(confirm_action_id, None)
-        if pending is None:
-            await emit("error", {"code": "unknown_action", "message": "无效或已过期的确认项"})
-            save_session(project_root, session)
-            await emit("done", {"usage": {}})
+        if user_message is None:
             return
-        if confirm_accepted is False:
-            await emit("text_delta", {"text": "已取消该操作。"})
-            session.draft_assistant = None
-            session.draft_tool_results = []
-            save_session(project_root, session)
-            await emit("done", {"usage": {}})
-            return
-        register_approval(session, ctx, pending.tool_name, pending.arguments)
-        ran_ok = True
-        if pending.tool_name == "analysis.save_script" and pending.arguments.get("code"):
-            ok, err = analysis_tools.validate_python_syntax(str(pending.arguments["code"]))
-            if not ok:
-                ran_ok = False
-                session.draft_tool_results.append(
-                    {
-                        "tool_call_id": pending.tool_call_id,
-                        "name": pending.tool_name,
-                        "content": json.dumps(
-                            {"tool": pending.tool_name, "error": err},
-                            ensure_ascii=False,
-                        ),
-                    }
-                )
-                append_audit(
-                    project_root,
-                    session_id=session.session_id,
-                    tool_name=pending.tool_name,
-                    status="failed",
-                    detail={"confirmed": True, "syntax": err},
-                )
-                await emit(
-                    "tool_result",
-                    {
-                        "tool_name": pending.tool_name,
-                        "status": "failed",
-                        "summary": err[:200],
-                    },
-                )
-        if ran_ok:
-            tr = invoke_registered_tool(pending.tool_name, pending.arguments, ctx)
-            payload = tr.data if tr.status == "succeeded" else {"error": tr.error_message, "error_code": tr.error_code}
-            session.draft_tool_results.append(
-                {
-                    "tool_call_id": pending.tool_call_id,
-                    "name": pending.tool_name,
-                    "content": tool_result_to_content(pending.tool_name, payload),
-                }
-            )
-            append_audit(
-                project_root,
-                session_id=session.session_id,
-                tool_name=pending.tool_name,
-                status=tr.status,
-                detail={"confirmed": True},
-            )
-            await emit(
-                "tool_result",
-                {
-                    "tool_name": pending.tool_name,
-                    "status": tr.status,
-                    "summary": summarize_tool_result(pending.tool_name, payload),
-                },
-            )
-            if ctx.session and pending.tool_name in (
-                "agent.set_task_plan",
-                "agent.update_task_step",
-            ):
-                await emit("task_update", {"steps": list(ctx.session.task_plan)})
-        user_message = None
 
     if user_message is not None and user_message.strip():
         session.messages.append(ChatMessage(role="user", content=user_message.strip()))
@@ -542,16 +579,6 @@ async def run_agent_turn(
 
     await emit("done", {"usage": usage_acc, "context_tokens_est": peak_context_est})
     save_session(project_root, session)
-
-    if text:
-        await emit_memory_after_assistant_turn(
-            project_root,
-            session,
-            user_message=user_message,
-            assistant_text=text,
-            emit=emit,
-            skip_memory_write=skip_memory_write,
-        )
 
 
 async def iter_agent_turn_sse(

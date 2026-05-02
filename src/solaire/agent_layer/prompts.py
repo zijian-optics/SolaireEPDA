@@ -149,30 +149,11 @@ def _layer_compose_hints() -> str:
 def _layer_plan_mode() -> str:
     return (
         "## 计划模式（当前激活）\n"
-        "你正处于计划模式（对齐 Cursor 等 harness：先只读探索，再落盘结构化计划文件）。\n"
-        "流程：\n"
-        "1. 仅允许调用只读工具了解当前状况。\n"
-        "2. 禁止执行写入或破坏性操作；**唯一例外**是使用 `file.write` 将计划写入 `.solaire/agent/plans/` 下，"
-        "或使用 `file.edit` 修正该目录下已有计划文件。\n"
-        "3. 计划文件须为 `.md`，且以 **YAML 围栏** 开头：首行 `---`，随后 YAML（须含 `name`、`overview`、`todos`），"
-        "再以独占一行的 `---` 结束围栏；围栏后为正文（任务分解、风险、验收等）。\n"
-        "`todos` 为列表，建议每项含 `id`、`content`、`status`（如 pending）。\n"
-        "4. 落盘后调用 `agent.exit_plan_mode`，参数 `plan_file_path` 为本次写入的**项目内相对路径**（如 `.solaire/agent/plans/xxx.md`）。\n"
-        "\n"
-        "结构示例（占位须替换为真实内容）：\n"
-        "```\n"
-        "---\n"
-        "name: 计划标题\n"
-        "overview: 一句话概述\n"
-        "todos:\n"
-        "  - id: step-1\n"
-        "    content: 第一步要做什么\n"
-        "    status: pending\n"
-        "---\n"
-        "\n"
-        "## 正文\n"
-        "…\n"
-        "```\n"
+        "流程：先只读探索 → 将计划写入 `.solaire/agent/plans/{name}.md` → 调用 `agent.exit_plan_mode`。\n"
+        "- 计划文件须以 YAML 围栏开头（`---`），含 `name`、`overview`、`todos` 字段，再以 `---` 结束。\n"
+        "- todos 为列表，每项含 `id`、`content`、`status`（如 pending）。\n"
+        "- 仅允许只读工具与 `.solaire/agent/plans/` 下的 file.write / file.edit。\n"
+        "- 落盘后调用 `agent.exit_plan_mode`，参数 `plan_file_path` 为写入的项目内相对路径。\n"
     )
 
 
@@ -320,3 +301,22 @@ def build_system_prompt(
         base = _apply_overrides(base, overrides)
 
     return base
+
+
+# Prompt layer versions for observability (incremented on semantic change)
+PROMPT_LAYER_VERSIONS: dict[str, int] = {
+    "role": 1,
+    "goal": 1,
+    "context": 1,
+    "focus": 1,
+    "tools": 1,
+    "constraints": 1,
+    "risk_policy": 1,
+    "output_format": 1,
+    "decision_rules": 1,
+    "compose_hints": 1,
+    "plan_mode": 2,
+    "plan_execution": 1,
+    "skill_catalog": 1,
+    "overrides": 1,
+}
