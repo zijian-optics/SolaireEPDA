@@ -604,7 +604,7 @@ _RAW_TOOLS: list[RegisteredTool] = [
             "properties": {
                 "question_qualified_id": {"type": "string"},
                 "node_id": {"type": "string"},
-                "graph": {"type": "string"},
+                "graph": {"type": "string", "description": "科目图谱 slug，留空则自动查找"},
             },
             "required": ["question_qualified_id", "node_id"],
             "additionalProperties": False,
@@ -629,7 +629,7 @@ _RAW_TOOLS: list[RegisteredTool] = [
                         "required": ["question_qualified_id", "node_id"],
                     },
                 },
-                "graph": {"type": "string"},
+                "graph": {"type": "string", "description": "科目图谱 slug，留空则自动查找节点归属"},
             },
             "required": ["bindings"],
             "additionalProperties": False,
