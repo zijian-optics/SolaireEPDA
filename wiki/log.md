@@ -650,3 +650,11 @@
 **验证命令**：`Get-Process python* | ...` 确认存在来自 `.pixi\envs\default\python.exe` 的进程时复现原因。
 
 **结果要点**：与 `yaml/_yaml.cp312-win_amd64.pyd` 删除失败（os error 5）一致；结束对应 Python 后即可重试 Pixi。
+
+## [2026-05-02] 助手侧栏 | 上下文用量小圆环与 context-meter 接口
+
+**改动摘要**：新增 `agent_layer/context_meter.py` 与 `GET /api/agent/sessions/{id}/context-meter`；`AgentChatPanel` 将原横条改为附件按钮上方的小圆环（悬停 `title` 展示已用/窗口上限），历史会话加载与 SSE `done` 后调用该接口刷新估算；`docs/api/agent.md`、`wiki/modules/agent-layer.md` 补充说明。
+
+**验证命令**：`pixi run pytest tests/test_agent_context_meter_api.py -q`
+
+**结果要点**：2 passed。

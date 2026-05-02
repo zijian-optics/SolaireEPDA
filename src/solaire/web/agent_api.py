@@ -25,6 +25,7 @@ from solaire.agent_layer.memory import list_topic_filenames, read_index, read_to
 from solaire.agent_layer.cancel_signal import clear_cancel, request_cancel
 from solaire.agent_layer.orchestrator import iter_agent_turn_sse
 from solaire.agent_layer.skills import list_skills_public
+from solaire.agent_layer.context_meter import context_meter_for_session
 from solaire.agent_layer.session import create_session, delete_session, list_sessions, load_session
 from solaire.knowledge_forge import list_graphs
 from solaire.web import state
@@ -265,6 +266,16 @@ def agent_session_get(session_id: str) -> dict[str, Any]:
     if s is None:
         raise HTTPException(status_code=404, detail="会话不存在")
     return {"session": s.model_dump(mode="json")}
+
+
+@router.get("/sessions/{session_id}/context-meter")
+def agent_session_context_meter(session_id: str) -> dict[str, Any]:
+    """按当前会话与项目上下文估算上下文用量（与 SSE `context_metrics` 同源逻辑）。"""
+    root = _require_root()
+    s = load_session(root, session_id)
+    if s is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return context_meter_for_session(root, s, project_ctx=_project_ctx(root))
 
 
 @router.delete("/sessions/{session_id}")

@@ -28,6 +28,7 @@
 | GET | `/sessions` | 列出当前项目下的会话摘要（含 `title`：首条用户话摘要） |
 | POST | `/sessions` | 新建会话，返回 `session_id` |
 | GET | `/sessions/{id}` | 会话详情（消息 JSON） |
+| GET | `/sessions/{id}/context-meter` | 按当前落盘会话与项目上下文估算 `context_tokens_est` / `context_limit`（与 SSE `context_metrics` 同源；供侧栏历史切换等无流式事件时刷新） |
 | POST | `/sessions/{id}/cancel` | 请求停止当前进行中的助手生成（与前端中止配合） |
 | DELETE | `/sessions/{id}` | 删除会话 |
 | GET | `/memory` | 记忆索引 `INDEX.md` 全文 |

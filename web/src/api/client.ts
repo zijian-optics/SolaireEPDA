@@ -896,6 +896,17 @@ export async function apiAgentSessionGet(sessionId: string): Promise<AgentSessio
   return apiGet<AgentSessionSnapshot>(`/api/agent/sessions/${encodeURIComponent(sessionId)}`);
 }
 
+export type AgentSessionContextMeter = {
+  context_tokens_est: number;
+  context_limit?: number;
+};
+
+export async function apiAgentSessionContextMeter(sessionId: string): Promise<AgentSessionContextMeter> {
+  return apiGet<AgentSessionContextMeter>(
+    `/api/agent/sessions/${encodeURIComponent(sessionId)}/context-meter`,
+  );
+}
+
 export async function apiAgentSessionCancel(sessionId: string): Promise<{ ok: boolean }> {
   return apiPost<{ ok: boolean }>(`/api/agent/sessions/${encodeURIComponent(sessionId)}/cancel`, {});
 }

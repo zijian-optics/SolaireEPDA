@@ -12,7 +12,7 @@
 - 系统提示分为三层：**稳定层**（角色、任务范围、约束、风险策略、输出规范、决策规则——不含工具表）→ **工具块**（当前聚焦域下的工具描述，焦点与技能不变则 hash 恒定）→ **动态层**（白名单内的项目摘要、聚焦域文案、任务步骤摘要、技能目录、`page_context` 汇总的短「界面速览」等）。其中 **第三条独立 system 已不再使用**：任务步骤摘要并入第二条动态 system。**App 传来的 `page_context`** 仅进入动态摘要，不参与工具筛选与 `tool_schema_sha12`。稳定层 hash 在同一会话内不变，便于对接前缀类上下文缓存。
 - **软预算**（约 96k token）：先保留最近几条完整工具链，将更早链路内 `tool` 输出收窄为占位，并对早于该范围的非工具助手轮清空 `reasoning_content`。若仍超限，再走总预算分支。
 - **总预算**（默认约 200k token）：先将较早的 `tool` 输出折叠为短占位；仍超限则按**整段**丢弃最旧历史（`user` 轮到下一 `user`；含 `tool_calls` 的 `assistant` 与其后连续 `tool` 同删）。任一压缩路径后均需：(1) 剔除孤儿 `tool`；(2) 为每个 `assistant+tool_calls` 补全缺失的 `tool_call_id` 响应，以满足严格网关对工具链顺序的要求。**DeepSeek KV 前缀缓存**：尽量保持第一条 `system`(稳定层+工具块) 字节级稳定；易变业务信息留在第二条动态 `system`，任务步骤不写第三条独立消息。
-- 每轮 **主模型推理完成后**推送 SSE `context_metrics`（与当轮用量、`history_sha12`、分项动态 hash、`provider_system_shape` 对齐），详见 `docs/api/agent.md`。在 DeepSeek 兼容模式下另含 `context_tokens_est` 与 `context_limit`（100 万口径），供侧栏进度展示。工具集仅在显式切换聚焦域、`plan_mode_active` 变化或技能收窄时重建，不因 `page_context` 变化抖动。
+- 每轮 **主模型推理完成后**推送 SSE `context_metrics`（与当轮用量、`history_sha12`、分项动态 hash、`provider_system_shape` 对齐），详见 `docs/api/agent.md`。在 DeepSeek 兼容模式下另含 `context_tokens_est` 与 `context_limit`（100 万口径），供侧栏进度展示。无 SSE 时（如切换历史会话）可调用 `GET /api/agent/sessions/{id}/context-meter`：由 `context_meter.context_meter_for_session` 复用与编排层相同的 `ContextManager.build_*` + `estimate_context_prompt_tokens`。工具集仅在显式切换聚焦域、`plan_mode_active` 变化或技能收窄时重建，不因 `page_context` 变化抖动。
 
 ## 计划模式与执行审批
 
