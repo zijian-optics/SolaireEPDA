@@ -168,7 +168,7 @@ def build_skill_catalog(project_root: Path | None = None) -> str:
     if not cache:
         return ""
     lines: list[str] = []
-    for s in cache.values():
+    for s in sorted(cache.values(), key=lambda x: x.name):
         lines.append(f"- **{s.label or s.name}**（`{s.name}`）：{s.description}")
     return "\n".join(lines)
 

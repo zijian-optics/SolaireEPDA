@@ -8,7 +8,7 @@ metadata:
   author: solaire-builtin
   version: "1.0"
   label: 卷面主模板（Jinja2）
-  tool_patterns: "exam.list_templates exam.get_template_preview file.read file.write file.edit file.list memory.* agent.*"
+  tool_patterns: "exam.list_templates exam.get_template_preview file.read file.write file.edit file.list file.search agent.switch_focus agent.activate_skill agent.read_skill_reference agent.enter_plan_mode agent.exit_plan_mode agent.set_task_plan agent.update_task_step agent.run_subtask agent.run_tool_pipeline memory.read_index memory.read_topic memory.search"
   suggested_user_input: 请根据现有高考样例，帮我起草一份同结构的卷面主模板并保存到模板目录。
 ---
 

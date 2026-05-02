@@ -2,8 +2,41 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
+
+# 进入提示词的项目级字段白名单（减小动态层抖动；其它键仅用于 HTTP/观测不下发 LLM）
+PROJECT_CTX_WHITELIST: frozenset[str] = frozenset(
+    {"project_label", "exam_summary", "template_count", "graph_node_count"}
+)
+
+
+def whitelist_project_ctx_for_prompt(project_ctx: dict[str, Any]) -> dict[str, Any]:
+    """只保留白名单字段，键名排序后参与拼装，利于稳定序列化。"""
+    keys = sorted(k for k in project_ctx if k in PROJECT_CTX_WHITELIST and k in project_ctx)
+    return {k: project_ctx[k] for k in keys}
+
+
+def format_page_context_brief(page_context: dict[str, Any] | None) -> str:
+    """短动态块：教师当前界面摘要（不得参与工具集选择）。"""
+    if not page_context:
+        return ""
+    cur = page_context.get("current_page")
+    sel_t = page_context.get("selected_resource_type")
+    sel_id = page_context.get("selected_resource_id")
+    summ = page_context.get("summary")
+    lines: list[str] = ["## 界面速览"]
+    if cur:
+        lines.append(f"- 当前：**{cur}**")
+    else:
+        lines.append("- 当前：未指定")
+    if sel_id or sel_t:
+        st = sel_t or ""
+        lines.append(f"- 选中资源：**{st}** `{sel_id or ''}`".strip())
+    if summ and str(summ).strip():
+        lines.append(f"- 教师备注：**{str(summ).strip()[:500]}**")
+    return "\n".join(lines)
 
 
 def _layer_role() -> str:
@@ -38,15 +71,16 @@ _FOCUS_LABEL: dict[str, str] = {
 
 
 def _layer_context(project_ctx: dict[str, Any]) -> str:
-    # 仅输出会话内稳定的项目级统计；页面上下文每轮可能变化，会破坏 KV Cache 前缀匹配
+    # 仅输出白名单内的项目级统计；界面信息放在 format_page_context_brief
+    ctx = whitelist_project_ctx_for_prompt(project_ctx)
     lines = ["## 项目状态"]
-    lines.append(f"- 项目路径：{project_ctx.get('project_label', '当前项目')}")
-    if exams := project_ctx.get("exam_summary"):
+    lines.append(f"- 项目路径：{ctx.get('project_label', '当前项目')}")
+    if exams := ctx.get("exam_summary"):
         lines.append(f"- 考试数据概览：{exams}")
-    if "template_count" in project_ctx:
-        lines.append(f"- 可用试卷模板数量：{project_ctx.get('template_count')}")
-    if "graph_node_count" in project_ctx:
-        lines.append(f"- 知识图谱节点数量：{project_ctx.get('graph_node_count')}")
+    if "template_count" in ctx:
+        lines.append(f"- 可用试卷模板数量：{ctx.get('template_count')}")
+    if "graph_node_count" in ctx:
+        lines.append(f"- 知识图谱节点数量：{ctx.get('graph_node_count')}")
     return "\n".join(lines)
 
 
@@ -227,8 +261,10 @@ def build_dynamic_system_prompt(
     plan_mode_active: bool = False,
     execution_plan_path: str | None = None,
     skill_catalog: str | None = None,
+    task_plan_block: str | None = None,
+    page_context_brief: str | None = None,
 ) -> str:
-    """随项目摘要、界面、计划状态变化的提示层。"""
+    """随项目摘要、计划状态变化的提示层（任务步骤与界面速览为短动态）。"""
     chunks: list[str] = []
     if skill_guidance and skill_guidance.strip():
         chunks.append("## 当前协助重点\n" + skill_guidance.strip())
@@ -238,12 +274,48 @@ def build_dynamic_system_prompt(
         chunks.append(_layer_plan_mode())
     if execution_plan_path and execution_plan_path.strip():
         chunks.append(_layer_plan_execution(execution_plan_path))
+    if task_plan_block and task_plan_block.strip():
+        chunks.append(task_plan_block.strip())
     chunks.append(_layer_context(project_ctx))
     chunks.append(_layer_focus(current_focus))
     catalog_section = _layer_skill_catalog(skill_catalog)
     if catalog_section:
         chunks.append(catalog_section)
+    if page_context_brief and page_context_brief.strip():
+        chunks.append(page_context_brief.strip())
     return "\n\n".join(chunks)
+
+
+def dynamic_source_hashes(
+    *,
+    project_ctx: dict[str, Any],
+    skill_catalog: str | None,
+    task_plan_block: str | None,
+    page_context_brief: str | None,
+    plan_mode_active: bool,
+    execution_plan_path: str | None,
+) -> dict[str, str]:
+    """分项 sha12，便于观测是哪块导致动态层变化。"""
+    from solaire.agent_layer.llm.prompt_cache import hash_text_sha12
+
+    w = whitelist_project_ctx_for_prompt(project_ctx)
+    proj_h = hash_text_sha12(json.dumps(w, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str))
+    cat_h = hash_text_sha12(skill_catalog or "")
+    plan_blk_h = hash_text_sha12(task_plan_block or "")
+    page_h = hash_text_sha12(page_context_brief or "")
+    state = {
+        "plan_mode_active": plan_mode_active,
+        "execution_plan_path": (execution_plan_path or "").strip(),
+    }
+    plan_st_h = hash_text_sha12(json.dumps(state, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+    return {
+        "project_ctx_sha12": proj_h,
+        "skill_catalog_sha12": cat_h,
+        "task_plan_sha12": plan_blk_h,
+        "page_context_sha12": page_h,
+        "plan_state_sha12": plan_st_h,
+        "dynamic_sources_sha12": hash_text_sha12(proj_h + "|" + cat_h + "|" + plan_blk_h + "|" + page_h + "|" + plan_st_h),
+    }
 
 
 def build_system_prompt(
@@ -267,6 +339,8 @@ def build_system_prompt(
         plan_mode_active=plan_mode_active,
         execution_plan_path=execution_plan_path,
         skill_catalog=skill_catalog,
+        task_plan_block=None,
+        page_context_brief=None,
     )
     base = stable + "\n\n" + tools_block + "\n\n" + dynamic
 
@@ -286,6 +360,8 @@ def build_system_prompt_cached(
     plan_mode_active: bool = False,
     execution_plan_path: str | None = None,
     skill_catalog: str | None = None,
+    task_plan_block: str | None = None,
+    page_context_brief: str | None = None,
     project_root: Path | None = None,
 ) -> tuple[str, str]:
     """返回 (cacheable_prefix, dynamic_suffix)。
@@ -303,6 +379,8 @@ def build_system_prompt_cached(
         plan_mode_active=plan_mode_active,
         execution_plan_path=execution_plan_path,
         skill_catalog=skill_catalog,
+        task_plan_block=task_plan_block,
+        page_context_brief=page_context_brief,
     )
     prefix = stable + "\n\n" + tools_block
     overwrites = _load_prompt_overrides(project_root)

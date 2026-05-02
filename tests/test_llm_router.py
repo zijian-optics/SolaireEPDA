@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import types
 from pathlib import Path
 
 import pytest
@@ -9,7 +10,7 @@ import pytest
 from solaire.agent_layer.llm.anthropic_messages import AnthropicMessagesAdapter
 from solaire.agent_layer.llm.llm_overrides import save_overrides_raw
 from solaire.agent_layer.llm.openai_compat import OpenAICompatAdapter
-from solaire.agent_layer.llm.openai_responses import OpenAIResponsesAdapter
+from solaire.agent_layer.llm.openai_responses import OpenAIResponsesAdapter, _parse_response_output
 from solaire.agent_layer.llm.router import LLMSettings, ModelRouter, load_llm_settings
 from solaire.agent_layer.llm.user_llm_overrides import save_user_overrides_raw
 
@@ -28,6 +29,20 @@ def test_load_llm_settings_deepseek_fills_default_base(monkeypatch: pytest.Monke
     s = load_llm_settings(None)
     assert s.provider == "deepseek"
     assert s.base_url == "https://api.deepseek.com"
+
+
+def test_openai_responses_parse_usage_cached_tokens() -> None:
+    """Responses API：解析 input_tokens_details.cached_tokens。"""
+    u = types.SimpleNamespace(
+        input_tokens=900,
+        output_tokens=40,
+        total_tokens=940,
+        input_tokens_details=types.SimpleNamespace(cached_tokens=300),
+    )
+    resp = types.SimpleNamespace(output=[], incomplete_details=None, usage=u)
+    _c, _r, _tc, _fr, usage = _parse_response_output(resp)
+    assert usage.get("prompt_cache_hit_tokens") == 300
+    assert usage.get("prompt_cache_miss_tokens") == 600
 
 
 def test_model_router_adapter_by_provider() -> None:

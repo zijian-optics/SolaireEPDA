@@ -34,8 +34,17 @@ from solaire.agent_layer.tools import analysis_tools
 from solaire.agent_layer.tool_executor import DraftToolContext, run_draft_tool_loop
 from solaire.agent_layer.utils import tool_calls_signature
 from solaire.agent_layer.llm.token_budget import estimate_messages_tokens
-from solaire.agent_layer.llm.prompt_cache import hash_text_sha12, hash_tools_payload_sha12
-from solaire.agent_layer.prompts import build_stable_system_prompt, build_tools_system_block
+from solaire.agent_layer.llm.anthropic_messages import AnthropicMessagesAdapter
+from solaire.agent_layer.llm.openai_responses import OpenAIResponsesAdapter
+from solaire.agent_layer.llm.prompt_cache import hash_messages_slice_sha12, hash_text_sha12, hash_tools_payload_sha12
+from solaire.agent_layer.prompts import (
+    build_stable_system_prompt,
+    build_tools_system_block,
+    dynamic_source_hashes,
+    format_page_context_brief,
+    whitelist_project_ctx_for_prompt,
+)
+from solaire.agent_layer.task_tracker import build_task_plan_dynamic_block
 
 EmitFn = Callable[[str, dict[str, Any]], Awaitable[None]]
 
@@ -132,14 +141,12 @@ async def _llm_round_call(
 
 def _rebuild_tools(
     session: SessionState,
-    current_page: str | None,
     skill_id: str | None,
     include_subtask: bool,
     project_root: Path | None = None,
 ) -> tuple[list[Any], list[dict[str, Any]]]:
-    """Rebuild tool selection (e.g. after focus switch)."""
+    """Rebuild tool selection（仅随显式聚焦域 / 计划模式 / 技能变化，与 App 界面无关）。"""
     tools_selected = select_tools_for_turn(
-        current_page=current_page,
         skill_id=skill_id,
         include_subtask=include_subtask,
         current_focus=session.current_focus or None,
@@ -327,22 +334,21 @@ async def run_agent_turn(
     else:
         skill_id = None
     pc = project_ctx.get("page_context")
-    current_page: str | None = None
+    page_ctx_dict: dict[str, Any] = {}
     if isinstance(pc, dict):
-        cp = pc.get("current_page")
-        current_page = str(cp) if cp else None
+        page_ctx_dict = {str(k): v for k, v in pc.items() if v is not None}
 
     from solaire.agent_layer import skills as skills_mod
 
     sk = skills_mod.get_skill(skill_id, project_root) if skill_id else None
     skill_guidance = sk.prompt_fragment if sk else None
     skill_catalog = skills_mod.build_skill_catalog(project_root)
+    page_context_brief = format_page_context_brief(page_ctx_dict if page_ctx_dict else None)
 
     if await _resolve_plan_and_exec_path(project_root, session, project_ctx, emit):
         return
 
     tools_selected = select_tools_for_turn(
-        current_page=current_page,
         skill_id=skill_id,
         include_subtask=cm.include_subtask_tool,
         current_focus=session.current_focus or None,
@@ -392,9 +398,10 @@ async def run_agent_turn(
     last_tool_calls_sig = ""
     peak_context_est = 0
     loop_round = -1
+    prev_plan_mode_for_tools = session.plan_mode_active
 
     stable_txt = build_stable_system_prompt()
-    public_ctx = {k: v for k, v in full_ctx.items() if not str(k).startswith("_")}
+    public_ctx = {k: v for k, v in full_ctx.items() if not str(k).startswith("_") and k != "page_context"}
     # 首次构建（焦点切换后循环内会重建 tools_block_txt / dynamic_txt）
     _desc = tool_descriptions_for_prompt(tools_selected)
     tools_block_txt = build_tools_system_block(_desc)
@@ -421,28 +428,14 @@ async def run_agent_turn(
 
         system_prefix, system_suffix = cm.build_system_parts(
             full_ctx,
+            session=session,
             tools=tools_selected,
             skill_guidance=skill_guidance,
             current_focus=session.current_focus or None,
             plan_mode_active=session.plan_mode_active,
             execution_plan_path=session.execution_plan_path,
             skill_catalog=skill_catalog,
-        )
-        await emit(
-            "context_metrics",
-            {
-                "stable_sha12": hash_text_sha12(stable_txt),
-                "cacheable_prefix_sha12": hash_text_sha12(system_prefix),
-                "tools_block_sha12": hash_text_sha12(tools_block_txt),
-                "dynamic_sha12": hash_text_sha12(system_suffix),
-                "tool_schema_sha12": hash_tools_payload_sha12(tools_payload),
-                "tool_count": len(tools_payload),
-                "system_chars": len(system_prefix) + len(system_suffix),
-                "cacheable_prefix_chars": len(system_prefix),
-                "est_prompt_tokens": estimate_messages_tokens(
-                    [{"role": "system", "content": system_prefix}, {"role": "system", "content": system_suffix}]
-                ),
-            },
+            page_context_brief=page_context_brief,
         )
         api_messages = cm.build_messages(
             system_prefix=system_prefix,
@@ -469,8 +462,70 @@ async def run_agent_turn(
             save_session(project_root, session)
             await emit("done", {"usage": usage_acc, "context_tokens_est": peak_context_est})
             return
+
+        provider_system_shape = "dual_system_messages"
+        if isinstance(adapter, AnthropicMessagesAdapter):
+            provider_system_shape = "merged_system"
+        elif isinstance(adapter, OpenAIResponsesAdapter):
+            provider_system_shape = "responses_instructions"
+
+        instructions_sha12: str | None = None
+        if isinstance(adapter, OpenAIResponsesAdapter):
+            instructions_sha12 = hash_text_sha12(f"{system_prefix}\n\n{system_suffix}")
+
+        task_blk = build_task_plan_dynamic_block(session)
+        wh_ctx = whitelist_project_ctx_for_prompt(public_ctx)
+        dyn_hs = dynamic_source_hashes(
+            project_ctx=wh_ctx,
+            skill_catalog=skill_catalog,
+            task_plan_block=task_blk,
+            page_context_brief=page_context_brief,
+            plan_mode_active=session.plan_mode_active,
+            execution_plan_path=session.execution_plan_path,
+        )
+
+        round_metrics: dict[str, Any] = {
+            "round_index": loop_round,
+            "stable_sha12": hash_text_sha12(stable_txt),
+            "cacheable_prefix_sha12": hash_text_sha12(system_prefix),
+            "tools_block_sha12": hash_text_sha12(tools_block_txt),
+            "dynamic_sha12": hash_text_sha12(system_suffix),
+            "tool_schema_sha12": hash_tools_payload_sha12(tools_payload),
+            "tool_count": len(tools_payload),
+            "system_chars": len(system_prefix) + len(system_suffix),
+            "cacheable_prefix_chars": len(system_prefix),
+            "est_prompt_tokens": estimate_messages_tokens(
+                [{"role": "system", "content": system_prefix}, {"role": "system", "content": system_suffix}]
+            ),
+            "history_sha12": hash_messages_slice_sha12(api_messages, start=2),
+            "provider_system_shape": provider_system_shape,
+            **dyn_hs,
+        }
+        if instructions_sha12 is not None:
+            round_metrics["instructions_sha12"] = instructions_sha12
+
+        for uk in (
+            "prompt_cache_hit_tokens",
+            "prompt_cache_miss_tokens",
+            "prompt_cache_write_tokens",
+            "prompt_tokens",
+            "completion_tokens",
+            "total_tokens",
+        ):
+            if uk in udelta:
+                try:
+                    round_metrics[uk] = int(udelta[uk] or 0)
+                except (TypeError, ValueError):
+                    pass
+
+        await emit("context_metrics", round_metrics)
+
         for kk, vv in udelta.items():
-            usage_acc[kk] = usage_acc.get(kk, 0) + vv
+            try:
+                iv = int(vv)
+            except (TypeError, ValueError):
+                continue
+            usage_acc[kk] = usage_acc.get(kk, 0) + iv
 
         if streamed_tools:
             sig = tool_calls_signature(streamed_tools)
@@ -514,12 +569,13 @@ async def run_agent_turn(
             if stopped:
                 return
 
-            # Phase 1: if focus was switched during this round, rebuild tool set
-            if focus_switched or session.current_focus:
+            plan_mode_changed = session.plan_mode_active != prev_plan_mode_for_tools
+            if focus_switched or plan_mode_changed:
                 tools_selected, tools_payload = _rebuild_tools(
-                    session, current_page, skill_id, cm.include_subtask_tool, project_root
+                    session, skill_id, cm.include_subtask_tool, project_root
                 )
                 _need_rebuild_prompts = True
+                prev_plan_mode_for_tools = session.plan_mode_active
                 if focus_switched:
                     await emit("focus_changed", {"focus": session.current_focus})
 

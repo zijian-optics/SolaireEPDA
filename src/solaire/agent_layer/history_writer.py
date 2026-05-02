@@ -2,9 +2,27 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import Any
 
 from solaire.agent_layer.memory import _cap_memory_file_lines as _cap_lines, read_topic, write_topic
+from solaire.agent_layer.models import SessionState
+
+EmitFn = Callable[[str, dict[str, Any]], Awaitable[None]]
+
+
+async def emit_memory_after_assistant_turn(
+    project_root: Path,
+    session: SessionState,
+    *,
+    user_message: str,
+    assistant_text: str,
+    emit: EmitFn,
+    skip_memory_write: bool | None = None,
+) -> None:
+    """已禁用跨轮自动写入；保留占位以兼容旧测试与钩子。"""
+    return
 
 
 def append_analysis_history_line(project_root: Path, line: str) -> None:

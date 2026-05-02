@@ -16,6 +16,80 @@ from solaire.agent_layer.tools.tool_definitions import (
 _TOOL_BY_NAME: dict[str, RegisteredTool] = {t.name: t for t in TOOLS}
 
 
+def _names_starting(prefix: str) -> tuple[str, ...]:
+    return tuple(sorted(t.name for t in TOOLS if t.name.startswith(prefix)))
+
+
+def _merge_unique(*groups: tuple[str, ...]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for g in groups:
+        for n in g:
+            if n not in seen:
+                seen.add(n)
+                out.append(n)
+    return tuple(out)
+
+
+_ALL_ANALYSIS = _names_starting("analysis.")
+_ALL_BANK = _names_starting("bank.")
+_ALL_GRAPH = _names_starting("graph.")
+_ALL_EXAM = _names_starting("exam.")
+_ALL_FILE = _names_starting("file.")
+_ALL_DOC = _names_starting("doc.")
+_ALL_MEMORY = _names_starting("memory.")
+_ALL_WEB = _names_starting("web.")
+
+_AGENT_CORE: tuple[str, ...] = (
+    "agent.switch_focus",
+    "agent.activate_skill",
+    "agent.read_skill_reference",
+    "agent.enter_plan_mode",
+    "agent.exit_plan_mode",
+    "agent.set_task_plan",
+    "agent.update_task_step",
+)
+_SUBTASK_PIPELINE: tuple[str, ...] = ("agent.run_subtask", "agent.run_tool_pipeline")
+_FILE_RO: tuple[str, ...] = ("file.read", "file.list", "file.search")
+
+_GENERAL_DOMAIN: tuple[str, ...] = (
+    "analysis.list_datasets",
+    "analysis.list_builtins",
+    "analysis.run_builtin",
+    "analysis.get_job",
+    "exam.list_templates",
+    "graph.list_nodes",
+    "graph.search_nodes",
+    "bank.search_items",
+    "bank.get_item",
+)
+
+_COMPOSE_GRAPH: tuple[str, ...] = ("graph.list_nodes", "graph.list_relations", "graph.search_nodes")
+
+_BANK_GRAPH: tuple[str, ...] = (
+    "graph.bind_question",
+    "graph.batch_bind_questions",
+    "graph.list_nodes",
+    "graph.search_nodes",
+)
+
+_ANALYSIS_FOCUS = _merge_unique(_AGENT_CORE, _FILE_RO, _SUBTASK_PIPELINE, _ALL_MEMORY, _ALL_WEB, _ALL_ANALYSIS)
+_BANK_FOCUS = _merge_unique(_AGENT_CORE, _FILE_RO, _SUBTASK_PIPELINE, _ALL_BANK, _BANK_GRAPH)
+_GRAPH_FOCUS = _merge_unique(_AGENT_CORE, _FILE_RO, _SUBTASK_PIPELINE, _ALL_GRAPH, _ALL_BANK)
+_COMPOSE_FOCUS = _merge_unique(
+    _AGENT_CORE,
+    _FILE_RO,
+    _SUBTASK_PIPELINE,
+    _ALL_MEMORY,
+    _ALL_EXAM,
+    _ALL_BANK,
+    _COMPOSE_GRAPH,
+    ("file.write", "file.edit"),
+)
+_DOC_FOCUS = _merge_unique(_AGENT_CORE, _FILE_RO, _SUBTASK_PIPELINE, _ALL_FILE, _ALL_DOC)
+_GENERAL_FOCUS = _merge_unique(_AGENT_CORE, _FILE_RO, _GENERAL_DOMAIN)
+
+
 def get_registered_tool(tool_name: str) -> RegisteredTool | None:
     if tool_name == SUBTASK_TOOL_NAME:
         return subtask_tool_schema()
@@ -33,92 +107,47 @@ def tool_name_matches_patterns(name: str, patterns: Iterable[str]) -> bool:
     return False
 
 
-# 通用工具：所有聚焦态下始终可见
-_ALWAYS_VISIBLE: tuple[str, ...] = (
-    "memory.*",
-    "agent.*",
-    "web.*",
-    "file.read",
-    "file.list",
-    "file.search",
-)
+def resolve_effective_tool_scope(
+    *,
+    skill_id: str | None,
+    session_focus: str | None,
+) -> str:
+    """用于选择工具集的聚焦域；不得从 App 当前界面推导。"""
+    if skill_id and skill_id.strip():
+        return (session_focus or "").strip() or "general"
+    return (session_focus or "").strip() or "general"
 
-# 聚焦态工具预设
+
+# 聚焦态工具预设（显式工具名，避免通配导致 schema 抖动）
 FOCUS_PRESETS: dict[str, tuple[str, ...]] = {
-    "general": (
-        *_ALWAYS_VISIBLE,
-        "analysis.list_datasets",
-        "analysis.list_builtins",
-        "analysis.run_builtin",
-        "analysis.get_job",
-        "exam.list_templates",
-        "graph.list_nodes",
-        "graph.search_nodes",
-        "bank.search_items",
-        "bank.get_item",
-    ),
-    "analysis": (*_ALWAYS_VISIBLE, "analysis.*"),
-    "bank": (
-        *_ALWAYS_VISIBLE,
-        "bank.*",
-        "graph.bind_question",
-        "graph.batch_bind_questions",
-        "graph.list_nodes",
-        "graph.search_nodes",
-    ),
-    "graph": (*_ALWAYS_VISIBLE, "graph.*", "bank.*"),
-    "compose": (
-        *_ALWAYS_VISIBLE,
-        "exam.*",
-        "bank.*",
-        "graph.list_nodes",
-        "graph.list_relations",
-        "graph.search_nodes",
-        "file.write",
-        "file.edit",
-    ),
-    "doc_process": (
-        *_ALWAYS_VISIBLE,
-        "file.*",
-        "doc.*",
-    ),
-}
-
-# 旧页面名到聚焦态的映射（向后兼容前端 page_context）
-_PAGE_TO_FOCUS: dict[str, str] = {
-    "analysis": "analysis",
-    "bank": "bank",
-    "graph": "graph",
-    "compose": "compose",
-    "template": "compose",
-    "help": "general",
-    "log": "general",
-    "settings": "general",
+    "general": _GENERAL_FOCUS,
+    "analysis": _ANALYSIS_FOCUS,
+    "bank": _BANK_FOCUS,
+    "graph": _GRAPH_FOCUS,
+    "compose": _COMPOSE_FOCUS,
+    "doc_process": _DOC_FOCUS,
 }
 
 
 def select_tools_for_turn(
     *,
-    current_page: str | None,
     skill_id: str | None,
     include_subtask: bool,
     current_focus: str | None = None,
     project_root: Any = None,
     plan_mode_active: bool = False,
 ) -> list[RegisteredTool]:
+    """选择本轮可用工具。**不得**传入或依据 App 当前页面。"""
     from solaire.agent_layer import skills as skills_mod
 
+    focus_key = resolve_effective_tool_scope(skill_id=skill_id, session_focus=current_focus)
     patterns: tuple[str, ...] | None = None
     if skill_id:
         sk = skills_mod.get_skill(skill_id.strip(), project_root)
         if sk:
             patterns = sk.tool_patterns
     if patterns is None:
-        focus = (current_focus or "").strip()
-        if not focus:
-            page_key = (current_page or "").strip()
-            focus = _PAGE_TO_FOCUS.get(page_key, "general")
-        patterns = FOCUS_PRESETS.get(focus) or FOCUS_PRESETS["general"]
+        patterns = FOCUS_PRESETS.get(focus_key) or FOCUS_PRESETS["general"]
 
     picked: list[RegisteredTool] = []
     seen: set[str] = set()
@@ -131,8 +160,9 @@ def select_tools_for_turn(
         picked.append(t)
     if include_subtask:
         st = subtask_tool_schema()
-        if tool_name_matches_patterns(st.name, patterns) and st.name not in seen:
+        if st.name not in seen:
             picked.append(st)
+            seen.add(st.name)
     # 计划模式：暴露写入/编辑工具以落盘计划文件
     if plan_mode_active:
         for _plan_tool in ("file.write", "file.edit"):

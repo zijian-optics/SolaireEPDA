@@ -610,3 +610,11 @@
 **验证命令**：手动代码走查与确认。
 
 **结果要点**：修复逻辑已在本地写入。
+
+## [2026-05-02] Agent KV 缓存观测与上下文收敛
+
+**改动摘要**：`context_metrics` 移至每轮 `_llm_round_call` **之后**，绑定 `history_sha12`、分项 `dynamic_sources_sha12`/`task_plan_sha12`、`prompt_cache_*`（若适配器返回）及 `provider_system_shape`/`instructions_sha12`（Responses）。任务步骤不再追加第三条 system，并入动态层；项目上下文拼装白名单化；技能目录排序；工具集收窄为显式名列表，`page_context` 不参与聚焦/工具预选；编排层仅在 `switch_focus` 或计划模式开关变化时重建工具；上下文软预算 + 保留最近工具链占位折叠；Responses 适配器解析 `input_tokens_details.cached_tokens`；各内置技能 `tool_patterns` 去通配符；补齐 `history_writer.emit_memory_after_assistant_turn` 空操作占位与相关测试补丁。
+
+**验证命令**：`pixi run pytest tests/test_agent_layer.py tests/test_agent_plan_and_subagent.py tests/test_llm_router.py -q --tb=short`
+
+**结果要点**：56 passed。

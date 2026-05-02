@@ -13,6 +13,7 @@ import pytest
 from solaire.agent_layer.history_writer import emit_memory_after_assistant_turn
 from solaire.agent_layer.guardrails import (
     GuardrailDecision,
+    SAFETY_MODE_ALLEGRO,
     SAFETY_MODE_PRESTISSIMO,
     SAFETY_MODE_VIVACE,
     check_tool_call,
@@ -200,8 +201,9 @@ def test_graph_search_nodes_empty_project(tmp_path: Path) -> None:
 def test_guardrail_read_vs_export(tmp_path: Path) -> None:
     sess = SessionState(session_id="x")
     ctx = InvocationContext(project_root=tmp_path, session_id="x", session=sess, mode="execute")
-    assert check_tool_call("analysis.list_datasets", {}, ctx) == GuardrailDecision.AUTO_APPROVE
-    assert check_tool_call("exam.export_paper", {}, ctx) == GuardrailDecision.NEEDS_CONFIRMATION
+    mode = SAFETY_MODE_ALLEGRO
+    assert check_tool_call("analysis.list_datasets", {}, ctx, safety_mode=mode) == GuardrailDecision.AUTO_APPROVE
+    assert check_tool_call("exam.export_paper", {}, ctx, safety_mode=mode) == GuardrailDecision.NEEDS_CONFIRMATION
 
 
 def test_openai_compat_deepseek_adds_thinking_extra_body(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -594,7 +596,6 @@ def test_select_tools_plan_mode_merges_file_write_edit(tmp_path: Path) -> None:
     names = {
         t.name
         for t in select_tools_for_turn(
-            current_page=None,
             skill_id=None,
             include_subtask=False,
             current_focus="general",
@@ -786,6 +787,98 @@ def test_sanitize_tool_chains_fills_missing_tool_responses() -> None:
     assert len(tool_msgs) == 3
     filled_ids = {m["tool_call_id"] for m in tool_msgs}
     assert filled_ids == {"c1", "c2", "c3"}
+
+
+def test_fold_tool_outputs_preserves_tool_call_ids() -> None:
+    """折叠旧工具链输出时保留 tool_call_id 与分段结构。"""
+    from solaire.agent_layer.context import _fold_tool_outputs_outside_recent_chains, _sanitize_tool_chains
+
+    stub = "[stub]"
+    msgs = [
+        {"role": "system", "content": "x"},
+        {"role": "system", "content": "y"},
+        {
+            "role": "assistant",
+            "tool_calls": [{"id": "o1", "type": "function", "function": {"name": "f", "arguments": "{}"}}],
+        },
+        {"role": "tool", "tool_call_id": "o1", "name": "f", "content": "OLD_OUT"},
+        {
+            "role": "assistant",
+            "tool_calls": [{"id": "n1", "type": "function", "function": {"name": "f", "arguments": "{}"}}],
+        },
+        {"role": "tool", "tool_call_id": "n1", "content": "NEW_OUT"},
+    ]
+    _sanitize_tool_chains(msgs, start=2)
+    _fold_tool_outputs_outside_recent_chains(msgs, start=2, keep_recent=1, general_stub=stub, skill_stub=stub)
+    _sanitize_tool_chains(msgs, start=2)
+    assert msgs[3]["tool_call_id"] == "o1"
+    assert msgs[3]["content"] == stub
+    assert msgs[5]["tool_call_id"] == "n1"
+    assert msgs[5]["content"] == "NEW_OUT"
+
+
+def test_whitelist_project_ctx_for_prompt() -> None:
+    from solaire.agent_layer.prompts import whitelist_project_ctx_for_prompt
+
+    raw = {"project_label": "p", "graph_subjects": [], "exam_summary": "e", "template_count": 1}
+    slim = whitelist_project_ctx_for_prompt(raw)
+    assert "graph_subjects" not in slim
+    assert slim["exam_summary"] == "e"
+
+
+def test_build_messages_at_most_two_leading_systems() -> None:
+    """任务步骤并入动态 system，不得超过两条前缀 system。"""
+    from solaire.agent_layer.context import ContextManager
+
+    sess = SessionState(session_id="s2")
+    sess.task_plan = [{"title": "一步", "status": "pending"}]
+    cm = ContextManager(include_subtask_tool=False)
+    from solaire.agent_layer.registry import select_tools_for_turn
+
+    tools = select_tools_for_turn(
+        skill_id=None,
+        include_subtask=False,
+        current_focus="general",
+        project_root=None,
+        plan_mode_active=False,
+    )
+    pref, suf = cm.build_system_parts(
+        {"project_label": "x", "exam_summary": "无", "template_count": 0, "graph_node_count": 0},
+        session=sess,
+        tools=tools,
+        current_focus="general",
+        plan_mode_active=False,
+        execution_plan_path=None,
+        skill_catalog="",
+        page_context_brief="",
+    )
+    msgs = cm.build_messages(system_prefix=pref, system_suffix=suf, session=sess, user_message="")
+    lead = 0
+    for m in msgs:
+        if m.get("role") != "system":
+            break
+        lead += 1
+    assert lead == 2
+    merged = suf
+    assert "当前任务进度" in merged
+
+
+def test_select_tools_compose_more_than_general(tmp_path: Path) -> None:
+    g = select_tools_for_turn(
+        skill_id=None,
+        include_subtask=True,
+        current_focus=None,
+        project_root=tmp_path,
+        plan_mode_active=False,
+    )
+    comp = select_tools_for_turn(
+        skill_id=None,
+        include_subtask=True,
+        current_focus="compose",
+        project_root=tmp_path,
+        plan_mode_active=False,
+    )
+    assert len(comp) >= len(g)
 
 
 # ---------------------------------------------------------------------------

@@ -105,18 +105,20 @@ def test_run_agent_turn_emits_done_after_confirm_needed(
     async def fake_draft_loop(**kwargs):
         from solaire.agent_layer.session import save_session
 
-        kwargs["session"].pending_confirmations["aid"] = PendingConfirmation(
+        dtc = kwargs["dtc"]
+        sess = dtc.session
+        sess.pending_confirmations["aid"] = PendingConfirmation(
             tool_call_id="c1",
             tool_name="file.write",
             arguments={},
             description="test",
         )
-        await kwargs["emit"](
+        await dtc.emit(
             "confirm_needed",
             {"action_id": "aid", "tool_name": "file.write", "description": "x", "risk": "w"},
         )
-        save_session(kwargs["project_root"], kwargs["session"])
-        await kwargs["emit"]("done", {"usage": {}, "awaiting_confirmation": True})
+        save_session(dtc.project_root, sess)
+        await dtc.emit("done", {"usage": {}, "awaiting_confirmation": True})
         return True
 
     monkeypatch.setattr(orch_mod, "run_draft_tool_loop", fake_draft_loop)

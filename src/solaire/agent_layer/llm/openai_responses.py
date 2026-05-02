@@ -126,6 +126,16 @@ def _parse_response_output(resp: Any) -> tuple[str | None, str | None, list[dict
             "completion_tokens": int(getattr(u, "output_tokens", None) or 0),
             "total_tokens": int(getattr(u, "total_tokens", None) or 0),
         }
+        details = getattr(u, "input_tokens_details", None) or getattr(u, "prompt_tokens_details", None)
+        if details is not None:
+            ct = getattr(details, "cached_tokens", None)
+            if ct is not None:
+                usage["prompt_cache_hit_tokens"] = int(ct or 0)
+            # Responses：未命中缓存部分常落在 input_tokens − cached
+            inp = usage.get("prompt_tokens", 0)
+            hit = usage.get("prompt_cache_hit_tokens", 0)
+            if int(inp) > int(hit):
+                usage["prompt_cache_miss_tokens"] = int(inp) - int(hit)
     return content, reasoning, tool_calls, finish_reason, usage
 
 

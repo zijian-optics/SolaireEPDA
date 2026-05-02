@@ -59,7 +59,8 @@
 
 | 字段 | 说明 |
 |------|------|
-| `current_page` | 模块标识：`compose` / `bank` / `template` / `graph` / `analysis` / `help` / `log` |
+| `current_page` | 客户端模块标识（如 `compose` / `bank` / `analysis`）；**仅供动态摘要**，服务端**不会**据此切换工具集或聚焦域 |
+
 | `selected_resource_type` | 当前选中资源类型（如 `question`、`exam`、`graph_node`、`template_file`） |
 | `selected_resource_id` | 对应标识（题号、考试 id、节点 id、模板路径等） |
 | `summary` | 一句业务语言场景说明（展示给模型，宜用教师可读表述） |
@@ -74,7 +75,7 @@
 - `confirm_needed`：需教师确认（含 `action_id`）；随后通常会收到 `done`，且数据中带 `awaiting_confirmation: true`，表示本轮已暂停等待确认而非仍在生成  
 - `task_update`：多步任务清单变更，`steps` 为 `{ title, status }[]`（计划落盘或点「执行」时也会推送）  
 - `plan_ready`：计划模式退出后已生成计划文件，含 `plan_file_path` 与正文摘要 `content`  
-- `context_metrics`：可观测性数据（`stable_sha12` / `dynamic_sha12` / `tool_schema_sha12` / `tool_count` / `system_chars` / `est_prompt_tokens`），便于排查上下文体量、稳定前缀与工具集抖动  
+- `context_metrics`：**每一次**主模型推理返回后推送（与同轮用量同源），字段含 `round_index`、`stable_sha12`、`cacheable_prefix_sha12`、`tools_block_sha12`、`dynamic_sha12`、`dynamic_sources_sha12`（或分项：`project_ctx_sha12`、`skill_catalog_sha12`、`task_plan_sha12`、`page_context_sha12`、`plan_state_sha12`）、`tool_schema_sha12`、`tool_count`、`history_sha12`、若干 token 体量估算；若后端适配器能提供供应商用量，还带 `prompt_tokens`/`completion_tokens`/`total_tokens` 及缓存相关 `prompt_cache_hit_tokens`/`prompt_cache_miss_tokens`/`prompt_cache_write_tokens`（无则省略）。对接 OpenAI Responses 时另可有 `instructions_sha12`；`provider_system_shape` 标明系统提示出站形态：`dual_system_messages`/`merged_system`(Anthropic)/`responses_instructions`  
 - `subagent_start` / `subagent_done`：子任务深度分析  
 - `memory_updated`：已写入项目内记忆文件（含 `topics_changed` 文件名列表）  
 - `memory_update_failed`：会话末自动写入记忆失败，`message` 为原因（同时会记入 `audit.jsonl`）  

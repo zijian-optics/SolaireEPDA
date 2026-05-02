@@ -7,7 +7,7 @@ metadata:
   author: solaire-builtin
   version: "1.1"
   label: 智能组卷协助
-  tool_patterns: "bank.* exam.* graph.list_nodes graph.list_relations graph.search_nodes memory.* agent.*"
+  tool_patterns: "bank.search_items bank.get_item bank.update_item bank.create_item exam.list_templates exam.get_template_preview exam.validate_paper exam.export_paper graph.list_nodes graph.list_relations graph.search_nodes agent.switch_focus agent.activate_skill agent.read_skill_reference agent.enter_plan_mode agent.exit_plan_mode agent.set_task_plan agent.update_task_step agent.run_subtask agent.run_tool_pipeline memory.read_index memory.read_topic memory.search file.read file.list file.search"
   suggested_user_input: 我想组一份卷子，请根据当前模板和题库给我建议和校验步骤。
 ---
 

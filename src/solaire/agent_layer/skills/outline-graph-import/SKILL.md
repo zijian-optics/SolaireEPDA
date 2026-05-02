@@ -7,7 +7,7 @@ metadata:
   author: solaire-builtin
   version: "2.1"
   label: 课标大纲导入图谱
-  tool_patterns: "graph.* file.write file.list web.search memory.* agent.*"
+  tool_patterns: "graph.list_graphs graph.create_graph graph.delete_graph graph.list_nodes graph.search_nodes graph.create_node graph.batch_create_nodes graph.update_node graph.delete_node graph.list_relations graph.create_relation graph.update_relation graph.batch_create_relations graph.delete_relation graph.bind_question graph.batch_bind_questions graph.attach_resource file.write file.list file.read file.search web.search agent.switch_focus agent.activate_skill agent.read_skill_reference agent.enter_plan_mode agent.exit_plan_mode agent.set_task_plan agent.update_task_step agent.run_subtask agent.run_tool_pipeline memory.read_index memory.read_topic memory.search"
   suggested_user_input: 请根据我提供的高考大纲内容，整理成知识要点并批量写入当前项目的知识图谱。
 ---
 

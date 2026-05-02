@@ -7,7 +7,7 @@ metadata:
   author: solaire-builtin
   version: "1.1"
   label: 薄弱项分析
-  tool_patterns: "analysis.* graph.list_nodes graph.list_relations graph.search_nodes memory.* agent.*"
+  tool_patterns: "analysis.list_datasets analysis.list_builtins analysis.run_builtin analysis.save_script analysis.run_script analysis.get_job graph.list_nodes graph.list_relations graph.search_nodes agent.switch_focus agent.activate_skill agent.read_skill_reference agent.enter_plan_mode agent.exit_plan_mode agent.set_task_plan agent.update_task_step agent.run_subtask agent.run_tool_pipeline memory.read_index memory.read_topic memory.search file.read file.list file.search"
   suggested_user_input: 请根据已有成绩数据，帮我分析班级薄弱知识点并对应到图谱。
 ---
 

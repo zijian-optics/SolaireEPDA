@@ -8,7 +8,7 @@ metadata:
   author: solaire-builtin
   version: "1.0"
   label: PrimeBrush 绘图协助
-  tool_patterns: "bank.get_item bank.update_item bank.search_items file.read file.edit agent.read_skill_reference memory.* agent.*"
+  tool_patterns: "bank.search_items bank.get_item bank.update_item file.read file.edit exam.validate_paper agent.switch_focus agent.activate_skill agent.read_skill_reference agent.enter_plan_mode agent.exit_plan_mode agent.set_task_plan agent.update_task_step agent.run_subtask agent.run_tool_pipeline memory.read_index memory.read_topic memory.search"
   suggested_user_input: 请帮我在题干里加一幅平面几何图，用 PrimeBrush 写法并保证能编译。
 ---
 
