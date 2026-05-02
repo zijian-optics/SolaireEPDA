@@ -18,6 +18,14 @@ from solaire.agent_layer.llm.router import load_llm_settings
 from solaire.agent_layer.llm.user_llm_overrides import load_user_overrides_raw, save_user_overrides_raw
 
 
+def test_load_llm_settings_reasoning_effort_project_over_user(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SOLAIRE_USER_CONFIG_DIR", str(tmp_path / "u"))
+    save_user_overrides_raw({"reasoning_effort": "high"})
+    save_overrides_raw(tmp_path, {"reasoning_effort": "max"})
+    s = load_llm_settings(tmp_path)
+    assert s.reasoning_effort == "max"
+
+
 def test_load_llm_settings_user_then_project_priority(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     udir = tmp_path / "profile"
     monkeypatch.setenv("SOLAIRE_USER_CONFIG_DIR", str(udir))

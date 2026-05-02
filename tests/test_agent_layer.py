@@ -34,6 +34,7 @@ from solaire.agent_layer.plan_document import load_plan_steps_from_rel_path, ste
 from solaire.agent_layer.registry import invoke_registered_tool, openai_tools_payload, select_tools_for_turn
 from solaire.agent_layer.tool_executor import consecutive_subtask_tool_indices
 from solaire.agent_layer.tools import file_tools
+from solaire.agent_layer.llm.providers import ReasoningEffort
 
 
 def test_doc_ocr_image_uses_saved_tesseract_path(tmp_path: Path, monkeypatch) -> None:
@@ -206,7 +207,10 @@ def test_guardrail_read_vs_export(tmp_path: Path) -> None:
     assert check_tool_call("exam.export_paper", {}, ctx, safety_mode=mode) == GuardrailDecision.NEEDS_CONFIRMATION
 
 
-def test_openai_compat_deepseek_adds_thinking_extra_body(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("effort", ("high", "max"))
+def test_openai_compat_deepseek_adds_thinking_extra_body(
+    effort: ReasoningEffort, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """DeepSeek OpenAI 兼容须在请求中带 thinking（见官方思考模式说明）。"""
     from solaire.agent_layer.llm.openai_compat import OpenAICompatAdapter
 
@@ -233,6 +237,7 @@ def test_openai_compat_deepseek_adds_thinking_extra_body(monkeypatch: pytest.Mon
         base_url="https://api.deepseek.com",
         model="deepseek-v4-pro",
         deepseek_compat=True,
+        reasoning_effort=effort,
     )
     monkeypatch.setattr(adapter._client.chat.completions, "create", fake_create)
     tool = {
@@ -245,7 +250,7 @@ def test_openai_compat_deepseek_adds_thinking_extra_body(monkeypatch: pytest.Mon
 
     asyncio.run(_run())
     assert captured.get("extra_body", {}).get("thinking") == {"type": "enabled"}
-    assert captured.get("reasoning_effort") == "high"
+    assert captured.get("reasoning_effort") == effort
     assert "parallel_tool_calls" not in captured
 
 

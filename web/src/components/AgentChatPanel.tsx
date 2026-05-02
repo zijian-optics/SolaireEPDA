@@ -134,6 +134,7 @@ export function AgentChatPanel({
   const [memoryMsg, setMemoryMsg] = useState<string | null>(null);
   const [thinkingText, setThinkingText] = useState<string | null>(null);
   const [contextTokensEst, setContextTokensEst] = useState<number | null>(null);
+  const [contextLimit, setContextLimit] = useState<number | null>(null);
   const [skills, setSkills] = useState<AgentSkillInfo[]>([]);
   const [activeSkillId, setActiveSkillId] = useState<string | null>(null);
   const [sessionList, setSessionList] = useState<AgentSessionListItem[]>([]);
@@ -316,6 +317,16 @@ export function AgentChatPanel({
               );
             }
           }
+          if (ev === "context_metrics") {
+            const rawEst = (data as { context_tokens_est?: unknown }).context_tokens_est;
+            const rawLim = (data as { context_limit?: unknown }).context_limit;
+            if (typeof rawEst === "number" && Number.isFinite(rawEst)) {
+              setContextTokensEst(Math.round(rawEst));
+            }
+            if (typeof rawLim === "number" && Number.isFinite(rawLim)) {
+              setContextLimit(Math.round(rawLim));
+            }
+          }
           if (ev === "memory_updated") {
             setLines((prev) => [...prev, { kind: "system", text: i18n.t("agent:memoryUpdatedRound") }]);
             if (!sidebarOpen) {
@@ -348,6 +359,7 @@ export function AgentChatPanel({
           if (ev === "done") {
             setThinkingText(null);
             const rawEst = (data as { context_tokens_est?: unknown }).context_tokens_est;
+            const rawLim = (data as { context_limit?: unknown }).context_limit;
             const usage = (data as { usage?: { total_tokens?: unknown } }).usage;
             if (typeof rawEst === "number" && Number.isFinite(rawEst)) {
               setContextTokensEst(Math.round(rawEst));
@@ -357,6 +369,9 @@ export function AgentChatPanel({
               Number.isFinite(usage.total_tokens)
             ) {
               setContextTokensEst(Math.round(usage.total_tokens));
+            }
+            if (typeof rawLim === "number" && Number.isFinite(rawLim)) {
+              setContextLimit(Math.round(rawLim));
             }
             void refreshSessionList();
             if (!sidebarOpen) {
@@ -515,6 +530,7 @@ export function AgentChatPanel({
     setTaskSteps(null);
     setActiveSkillId(null);
     setContextTokensEst(null);
+    setContextLimit(null);
   }, []);
 
   const stopStream = useCallback(async () => {
@@ -586,7 +602,7 @@ export function AgentChatPanel({
             <div className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-slate-700">
               <Sparkles className="h-3.5 w-3.5 shrink-0 text-violet-500" />
               <span className="truncate">{t("title")}</span>
-              {contextTokensEst != null ? (
+              {contextTokensEst != null && contextLimit == null ? (
                 <span className="shrink-0 text-[10px] font-normal text-slate-500 tabular-nums">
                   {t("contextTokensEst", { count: contextTokensEst.toLocaleString() })}
                 </span>
@@ -977,6 +993,30 @@ export function AgentChatPanel({
         <div ref={bottomRef} />
       </div>
       <div className="border-t border-slate-100 p-2">
+        {contextLimit != null ? (
+          <div className="mb-1.5">
+            <div className="mb-0.5 flex items-center justify-between gap-2 text-[10px] text-slate-500">
+              <span className="truncate font-medium text-slate-600">{t("contextUsageMeter")}</span>
+              <span className="shrink-0 tabular-nums">
+                {t("contextUsageFraction", {
+                  used: (contextTokensEst ?? 0).toLocaleString(),
+                  total: contextLimit.toLocaleString(),
+                })}
+              </span>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+              <div
+                className="h-full rounded-full bg-violet-500 transition-[width]"
+                style={{
+                  width: `${Math.min(
+                    100,
+                    contextLimit > 0 ? ((contextTokensEst ?? 0) / contextLimit) * 100 : 0,
+                  )}%`,
+                }}
+              />
+            </div>
+          </div>
+        ) : null}
         <input
           ref={fileInputRef}
           type="file"

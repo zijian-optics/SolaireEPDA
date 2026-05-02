@@ -21,6 +21,8 @@
   "modifyPrompt": "Enter change requests:",
   "title": "Assistant",
   "contextTokensEst": "~{{count}} context (estimated)",
+  "contextUsageMeter": "Context usage (estimated)",
+  "contextUsageFraction": "{{used}} / {{total}}",
   "collapseSidebar": "Collapse sidebar",
   "history": "History",
   "historyDialogTitle": "Past chats",

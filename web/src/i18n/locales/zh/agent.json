@@ -21,6 +21,8 @@
   "modifyPrompt": "请输入修改意见：",
   "title": "智能助手",
   "contextTokensEst": "上下文约 {{count}}（估算）",
+  "contextUsageMeter": "上下文用量（估算）",
+  "contextUsageFraction": "{{used}} / {{total}}",
   "collapseSidebar": "收起侧栏",
   "history": "历史",
   "historyDialogTitle": "历史对话",

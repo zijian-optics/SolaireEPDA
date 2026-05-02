@@ -20,6 +20,7 @@ dependencies = [
     "openai>=1.30",
     "anthropic>=0.40",
     "tiktoken>=0.7",
+    "tokenizers>=0.20.0,<1",
     "pdfplumber>=0.10",
     "Pillow>=10.0",
     "rdkit>=2024.3.1",

@@ -16,7 +16,11 @@ from solaire.agent_layer.compactor import summarize_tool_result
 from solaire.agent_layer.context import ContextManager, tool_result_to_content
 from solaire.agent_layer.guardrails import load_safety_mode, register_approval
 from solaire.agent_layer.llm.adapter import LLMAdapter
-from solaire.agent_layer.llm.router import ModelRouter, load_llm_settings
+from solaire.agent_layer.llm.deepseek_tokenizer import (
+    context_limit_for_provider,
+    estimate_context_prompt_tokens,
+)
+from solaire.agent_layer.llm.router import LLMSettings, ModelRouter, load_llm_settings
 
 from solaire.agent_layer.models import ChatMessage, InvocationContext, SessionState
 from solaire.agent_layer.plan_document import (
@@ -51,6 +55,14 @@ from solaire.agent_layer.task_tracker import build_task_plan_dynamic_block
 logger = logging.getLogger(__name__)
 
 EmitFn = Callable[[str, dict[str, Any]], Awaitable[None]]
+
+
+def _pack_done_event(settings: LLMSettings, usage_acc: dict[str, int], peak_context_est: int, **more: Any) -> dict[str, Any]:
+    data: dict[str, Any] = {"usage": usage_acc, "context_tokens_est": peak_context_est, **more}
+    lim = context_limit_for_provider(settings.provider, settings.base_url)
+    if lim is not None:
+        data["context_limit"] = lim
+    return data
 
 
 def _thinking_for_round(round_idx: int) -> str:
@@ -440,7 +452,7 @@ async def run_agent_turn(
             await emit("error", {"code": "cancelled", "message": "已按您的操作停止。"})
             await emit(
                 "done",
-                {"usage": usage_acc, "cancelled": True, "context_tokens_est": peak_context_est},
+                _pack_done_event(settings, usage_acc, peak_context_est, cancelled=True),
             )
             save_session(project_root, session)
             return
@@ -484,7 +496,8 @@ async def run_agent_turn(
         if api_messages and api_messages[-1].get("role") == "user" and api_messages[-1].get("content") == "":
             api_messages.pop()
 
-        peak_context_est = max(peak_context_est, estimate_messages_tokens(api_messages))
+        prompt_token_est = estimate_context_prompt_tokens(settings.provider, settings.base_url, api_messages)
+        peak_context_est = max(peak_context_est, prompt_token_est)
 
         try:
             full_content, streamed_tools, udelta, round_reasoning, finish_reason = await _llm_round_call(
@@ -498,7 +511,7 @@ async def run_agent_turn(
         except Exception as e:
             await emit("error", {"code": "llm_error", "message": str(e)})
             save_session(project_root, session)
-            await emit("done", {"usage": usage_acc, "context_tokens_est": peak_context_est})
+            await emit("done", _pack_done_event(settings, usage_acc, peak_context_est))
             return
 
         provider_system_shape = "dual_system_messages"
@@ -541,6 +554,11 @@ async def run_agent_turn(
         }
         if instructions_sha12 is not None:
             round_metrics["instructions_sha12"] = instructions_sha12
+
+        round_metrics["context_tokens_est"] = prompt_token_est
+        ctx_lim_round = context_limit_for_provider(settings.provider, settings.base_url)
+        if ctx_lim_round is not None:
+            round_metrics["context_limit"] = ctx_lim_round
 
         for uk in (
             "prompt_cache_hit_tokens",
@@ -667,7 +685,7 @@ async def run_agent_turn(
             session.touch()
         break
 
-    await emit("done", {"usage": usage_acc, "context_tokens_est": peak_context_est})
+    await emit("done", _pack_done_event(settings, usage_acc, peak_context_est))
     save_session(project_root, session)
 
 

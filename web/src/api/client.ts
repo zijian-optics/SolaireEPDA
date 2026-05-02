@@ -793,6 +793,8 @@ export type AgentLlmProvider = "openai" | "anthropic" | "openai_compat" | "deeps
 
 export type AgentConfigProviderOption = { id: AgentLlmProvider };
 
+export type AgentLlmReasoningEffort = "high" | "max";
+
 export type AgentConfig = {
   llm_configured: boolean;
   provider: AgentLlmProvider;
@@ -800,6 +802,7 @@ export type AgentConfig = {
   fast_model: string;
   base_url_set: boolean;
   safety_mode?: string;
+  reasoning_effort?: AgentLlmReasoningEffort;
 };
 
 export async function apiAgentConfig(): Promise<AgentConfig> {
@@ -820,6 +823,7 @@ export type AgentLlmSettingsResponse = {
   has_user_api_key_override?: boolean;
   has_project_api_key_override: boolean;
   max_tokens?: number;
+  reasoning_effort?: AgentLlmReasoningEffort;
 };
 
 export async function apiAgentLlmSettingsGet(): Promise<AgentLlmSettingsResponse> {
@@ -834,6 +838,7 @@ export async function apiAgentLlmSettingsPut(body: {
   api_key?: string | null;
   clear_api_key_override?: boolean;
   max_tokens?: number | null;
+  reasoning_effort?: AgentLlmReasoningEffort | null;
 }): Promise<{ ok: boolean }> {
   return apiPut<{ ok: boolean }>("/api/agent/llm-settings", body);
 }

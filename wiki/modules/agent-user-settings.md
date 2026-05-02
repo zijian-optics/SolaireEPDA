@@ -6,7 +6,7 @@
 2. **本机用户目录**下的 `agent/llm_overrides.json`（未打开项目时在欢迎页/设置中保存）
 3. **当前项目**下 `.solaire/agent/llm_overrides.json`（打开项目后保存；**同名项覆盖本机与环境**）
 
-访问密钥、服务地址、模型服务类型（`provider`）、主/快模型、`max_tokens` 均按上述顺序叠加。
+访问密钥、服务地址、模型服务类型（`provider`）、主/快模型、`max_tokens`、**思考强度**（`reasoning_effort`：`high` / `max`，用于 DeepSeek 兼容网关）均按上述顺序叠加。
 
 ## 模型服务类型（provider）
 
@@ -15,11 +15,11 @@
 | `openai` | 使用 OpenAI **Responses API**（非 Chat Completions） |
 | `anthropic` | 使用 Anthropic **Messages API** |
 | `openai_compat` | 使用 OpenAI SDK 的 **Chat Completions** 兼容路径（默认，与历史版本一致） |
-| `deepseek` | 兼容路径；未指定服务地址时默认 `https://api.deepseek.com` |
+| `deepseek` | 兼容路径；未指定服务地址时默认 `https://api.deepseek.com`；可选 `reasoning_effort`（`high` / `max`） |
 
-欢迎页与设置中的「模型服务」单选列表以 DeepSeek 为第一项；简体中文界面在名称后附「（推荐）」标签（英文为 “Recommended”）。
+欢迎页与设置中的「模型服务」单选列表以 DeepSeek 为第一项；简体中文界面在名称后附「（推荐）」标签（英文为 “Recommended”）。选用 DeepSeek 时可在设置中调整**思考强度**（高 / 最强）。
 
-合并文件中可保存字符串字段 `provider`（与设置页「模型服务」对应）。
+合并文件中可保存字符串字段 `provider`（与设置页「模型服务」对应）；亦可保存 `reasoning_effort`。
 
 环境变量 `SOLAIRE_LLM_PROVIDER` 与密钥变量 `SOLAIRE_LLM_API_KEY`、`ANTHROPIC_API_KEY`、`DEEPSEEK_API_KEY`、`OPENAI_API_KEY` 的优先级见 `docs/api/agent.md`。
 

@@ -634,3 +634,19 @@
 **验证命令**：`cd web; npm test -- AgentModelSettingsForm --run`；`pixi run pytest tests/test_agent_llm_settings_api.py -v`
 
 **结果要点**：Vitest 1 passed；pytest 5 passed。
+
+## [2026-05-02] DeepSeek | 思考强度与侧栏上下文用量
+
+**改动摘要**：`LLMSettings` / `llm_overrides` / `/api/agent/llm-settings` 与 `/config` 增加 `reasoning_effort`（`high`/`max`）；`OpenAICompatAdapter` 按配置写入 DeepSeek `reasoning_effort`；新增 `deepseek_tokenizer` + `tokenizers` 依赖，DeepSeek 兼容模式下估算 `context_tokens_est`，SSE `context_metrics`/`done` 增加 `context_limit`（1,000,000）；设置页 DeepSeek 时可选思考强度；`AgentChatPanel` 底部展示上下文用量条。
+
+**验证命令**：`$env:PYTHONPATH='src'; python -m pytest tests/test_agent_llm_settings_api.py tests/test_agent_layer.py::test_openai_compat_deepseek_adds_thinking_extra_body tests/test_deepseek_tokenizer.py tests/test_user_llm_overrides.py::test_load_llm_settings_reasoning_effort_project_over_user -q`；`cd web; npm test -- AgentModelSettingsForm --run`
+
+**结果要点**：上述 pytest 与 Vitest 均通过（本地需 `PYTHONPATH=src` 指向本仓库）。
+
+## [2026-05-02] 开发环境 | Windows 上 Pixi 更新失败（拒绝访问 `.pyd`）
+
+**改动摘要**：在 `wiki/modules/dev-environment.md` 增加「常见问题」：说明因本仓库 `default` 环境内 `python.exe` 仍运行导致已加载的 `.pyd` 被锁定，Pixi 无法覆盖；建议先结束占用该环境的进程再 `pixi install` / `pixi run dev`。
+
+**验证命令**：`Get-Process python* | ...` 确认存在来自 `.pixi\envs\default\python.exe` 的进程时复现原因。
+
+**结果要点**：与 `yaml/_yaml.cp312-win_amd64.pyd` 删除失败（os error 5）一致；结束对应 Python 后即可重试 Pixi。

@@ -12,15 +12,16 @@
 | `SOLAIRE_LLM_MODEL` | 主模型，默认 `gpt-4o-mini` |
 | `SOLAIRE_LLM_FAST_MODEL` | 可选，快模型（与主模型相同时可省略） |
 | `SOLAIRE_LLM_MAX_TOKENS` | 可选，单次助手生成最大 token；未设置时默认 `4096`（亦可通过本机或项目内覆盖文件覆盖） |
+| `SOLAIRE_LLM_REASONING_EFFORT` | 可选，仅对 DeepSeek 兼容网关有效：`high`（默认）或 `max`，对应思考强度；可被本机或项目内 `llm_overrides.json` 中的 `reasoning_effort` 覆盖 |
 | `SOLAIRE_USER_CONFIG_DIR` | 可选，指定本机用户级配置根目录（默认 Windows `%APPDATA%\SolEdu`，macOS `~/Library/Application Support/SolEdu`，Linux `$XDG_CONFIG_HOME/solaire` 或 `~/.config/solaire`）；其下 `agent/llm_overrides.json` 与 `agent/safety_mode.json` 在未打开项目时由设置页写入 |
 
-当 `provider` 为 `deepseek`，或 `SOLAIRE_LLM_BASE_URL` / `base_url` 指向 `deepseek.com` 时，后端对 OpenAI 兼容 Chat Completions 会自动附加思考模式所需参数（与 [DeepSeek 思考模式 / OpenAI 格式](https://api-docs.deepseek.com/zh-cn/guides/thinking_mode) 一致），并省略部分仅部分网关实现的扩展字段，以降低调用失败概率。**说明**：官方 Python SDK 会裁剪请求里的 `messages` 字段并去掉 `reasoning_content`；在 DeepSeek 模式下会通过 `extra_body` 再次附带完整 `messages`，以满足「含工具调用的助手轮次须回传思维链」的要求。
+当 `provider` 为 `deepseek`，或 `SOLAIRE_LLM_BASE_URL` / `base_url` 指向 `deepseek.com` 时，后端对 OpenAI 兼容 Chat Completions 会自动附加思考模式所需参数（与 [DeepSeek 思考模式 / OpenAI 格式](https://api-docs.deepseek.com/zh-cn/guides/thinking_mode) 一致），并将合并后的 `reasoning_effort`（`high` 或 `max`，默认 `high`）写入请求。并省略部分仅部分网关实现的扩展字段，以降低调用失败概率。**说明**：官方 Python SDK 会裁剪请求里的 `messages` 字段并去掉 `reasoning_content`；在 DeepSeek 模式下会通过 `extra_body` 再次附带完整 `messages`，以满足「含工具调用的助手轮次须回传思维链」的要求。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/config` | 是否已配置密钥、当前 `provider`、模型名等 |
-| GET | `/llm-settings` | 当前生效的模型参数预览（访问密钥脱敏）；合并顺序为环境变量 → 本机用户目录 `agent/llm_overrides.json` → 当前项目 `.solaire/agent/llm_overrides.json`（后者优先）。响应含 `persist_scope`：`global` 表示未打开项目、`project` 表示已打开；`has_user_api_key_override` / `has_project_api_key_override` 标明密钥来源；`provider` 为当前服务类型；`provider_options` 为可选服务类型列表（仅 `id`，界面文案由客户端翻译） |
-| PUT | `/llm-settings` | 未打开项目时写入本机 `agent/llm_overrides.json`；已打开项目时写入项目内同名文件（项目层覆盖本机与环境中的同名项）。可写字段含 `provider`（`openai` / `anthropic` / `openai_compat` / `deepseek`）、`main_model`、`fast_model`、`base_url`、`api_key`、`max_tokens` 等 |
+| GET | `/config` | 是否已配置密钥、当前 `provider`、模型名、`reasoning_effort`（`high` / `max`）等 |
+| GET | `/llm-settings` | 当前生效的模型参数预览（访问密钥脱敏）；合并顺序为环境变量 → 本机用户目录 `agent/llm_overrides.json` → 当前项目 `.solaire/agent/llm_overrides.json`（后者优先）。响应含 `persist_scope`：`global` 表示未打开项目、`project` 表示已打开；`has_user_api_key_override` / `has_project_api_key_override` 标明密钥来源；`provider` 为当前服务类型；`provider_options` 为可选服务类型列表（仅 `id`，界面文案由客户端翻译）；`reasoning_effort` 为 `high` 或 `max`（思考强度，默认 `high`） |
+| PUT | `/llm-settings` | 未打开项目时写入本机 `agent/llm_overrides.json`；已打开项目时写入项目内同名文件（项目层覆盖本机与环境中的同名项）。可写字段含 `provider`（`openai` / `anthropic` / `openai_compat` / `deepseek`）、`main_model`、`fast_model`、`base_url`、`api_key`、`max_tokens`、`reasoning_effort`（`high` / `max`，无效值返回 400）等 |
 | GET | `/safety-mode` | 当前护栏模式与可选列表（`moderato` / `allegro` / `vivace` / `prestissimo`），合并顺序与 `llm_overrides` 类似（本机可被项目覆盖） |
 | PUT | `/safety-mode` | 未打开项目时写入本机；已打开项目时写入项目 `.solaire/agent/safety_mode.json` |
 | GET | `/skills` | 内置快捷协助列表（`id` / `label` / `description` / `suggested_user_input`） |
@@ -75,11 +76,11 @@
 - `confirm_needed`：需教师确认（含 `action_id`）；随后通常会收到 `done`，且数据中带 `awaiting_confirmation: true`，表示本轮已暂停等待确认而非仍在生成  
 - `task_update`：多步任务清单变更，`steps` 为 `{ title, status }[]`（计划落盘或点「执行」时也会推送）  
 - `plan_ready`：计划模式退出后已生成计划文件，含 `plan_file_path` 与正文摘要 `content`  
-- `context_metrics`：**每一次**主模型推理返回后推送（与同轮用量同源），字段含 `round_index`、`stable_sha12`、`cacheable_prefix_sha12`、`tools_block_sha12`、`dynamic_sha12`、`dynamic_sources_sha12`（或分项：`project_ctx_sha12`、`skill_catalog_sha12`、`task_plan_sha12`、`page_context_sha12`、`plan_state_sha12`）、`tool_schema_sha12`、`tool_count`、`history_sha12`、若干 token 体量估算；若后端适配器能提供供应商用量，还带 `prompt_tokens`/`completion_tokens`/`total_tokens` 及缓存相关 `prompt_cache_hit_tokens`/`prompt_cache_miss_tokens`/`prompt_cache_write_tokens`（无则省略）。对接 OpenAI Responses 时另可有 `instructions_sha12`；`provider_system_shape` 标明系统提示出站形态：`dual_system_messages`/`merged_system`(Anthropic)/`responses_instructions`  
+- `context_metrics`：**每一次**主模型推理返回后推送（与同轮用量同源），字段含 `round_index`、`stable_sha12`、`cacheable_prefix_sha12`、`tools_block_sha12`、`dynamic_sha12`、`dynamic_sources_sha12`（或分项：`project_ctx_sha12`、`skill_catalog_sha12`、`task_plan_sha12`、`page_context_sha12`、`plan_state_sha12`）、`tool_schema_sha12`、`tool_count`、`history_sha12`、若干 token 体量估算；**另含** `context_tokens_est`（本向模型发送的完整消息估算规模）与（仅 DeepSeek 兼容网关时）`context_limit`（产品口径下的上下文上限，当前为 1000000）；若后端适配器能提供供应商用量，还带 `prompt_tokens`/`completion_tokens`/`total_tokens` 及缓存相关 `prompt_cache_hit_tokens`/`prompt_cache_miss_tokens`/`prompt_cache_write_tokens`（无则省略）。对接 OpenAI Responses 时另可有 `instructions_sha12`；`provider_system_shape` 标明系统提示出站形态：`dual_system_messages`/`merged_system`(Anthropic)/`responses_instructions`  
 - `subagent_start` / `subagent_done`：子任务深度分析  
 - `memory_updated`：已写入项目内记忆文件（含 `topics_changed` 文件名列表）  
 - `memory_update_failed`：会话末自动写入记忆失败，`message` 为原因（同时会记入 `audit.jsonl`）  
-- `done`：本轮结束，`usage` 为 token 统计（若提供商返回）；可含 `context_tokens_est`（按发往模型的完整消息估算的本轮上下文规模）；若用户停止可带 `cancelled: true`；若在 `confirm_needed` 之后结束等待，可带 `awaiting_confirmation: true`  
+- `done`：本轮结束，`usage` 为 token 统计（若提供商返回）；可含 `context_tokens_est`（按发往模型的完整消息估算的本轮上下文规模峰值）及（DeepSeek 兼容时）`context_limit`；若用户停止可带 `cancelled: true`；若在 `confirm_needed` 之后结束等待，可带 `awaiting_confirmation: true`  
 - `error`：错误信息（含用户停止时 `code: cancelled`）；若模型在多轮中重复发起完全相同的工具调用批次达到阈值则为 `code: repeat_loop`  
 
 ### 子任务（`agent.run_subtask`）与确认
