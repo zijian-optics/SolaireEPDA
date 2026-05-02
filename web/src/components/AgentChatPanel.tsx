@@ -34,6 +34,7 @@ import {
   apiAgentMemoryTopicPut,
   apiAgentSessionCancel,
   apiAgentSessionDelete,
+  apiAgentSessionContextMeter,
   apiAgentSessionGet,
   apiAgentSessionsList,
   apiAgentSkillsList,
@@ -68,6 +69,52 @@ type ChatLine =
   | { kind: "system"; text: string };
 
 type TaskStep = { title: string; status: string };
+
+function AgentContextRing({
+  used,
+  limit,
+  refreshing,
+  title,
+  ariaLabel,
+}: {
+  used: number | null;
+  limit: number | null;
+  refreshing: boolean;
+  title: string;
+  ariaLabel: string;
+}) {
+  const r = 14;
+  const c = 2 * Math.PI * r;
+  const u = used ?? 0;
+  const frac = limit != null && limit > 0 ? Math.min(1, Math.max(0, u / limit)) : 0;
+  const dash = c * frac;
+  return (
+    <div
+      className="relative flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full"
+      title={title}
+      role="img"
+      aria-label={ariaLabel}
+    >
+      <svg className="h-[18px] w-[18px] -rotate-90" viewBox="0 0 36 36" aria-hidden>
+        <circle cx="18" cy="18" r={r} fill="none" stroke="rgb(226 232 240)" strokeWidth={2} />
+        <circle
+          cx="18"
+          cy="18"
+          r={r}
+          fill="none"
+          stroke="rgb(139 92 246)"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeDasharray={`${dash} ${c}`}
+          className="transition-[stroke-dasharray] duration-300"
+        />
+      </svg>
+      {refreshing ? (
+        <Loader2 className="pointer-events-none absolute h-2 w-2 animate-spin text-violet-500" strokeWidth={1.5} aria-hidden />
+      ) : null}
+    </div>
+  );
+}
 
 function formatToolLineLabel(raw: string): string {
   const p = (k: string) => i18n.t(`agent:toolPrefix.${k}`);
@@ -134,6 +181,8 @@ export function AgentChatPanel({
   const [memoryMsg, setMemoryMsg] = useState<string | null>(null);
   const [thinkingText, setThinkingText] = useState<string | null>(null);
   const [contextTokensEst, setContextTokensEst] = useState<number | null>(null);
+  const [contextLimit, setContextLimit] = useState<number | null>(null);
+  const [contextMeterRefreshing, setContextMeterRefreshing] = useState(false);
   const [skills, setSkills] = useState<AgentSkillInfo[]>([]);
   const [activeSkillId, setActiveSkillId] = useState<string | null>(null);
   const [sessionList, setSessionList] = useState<AgentSessionListItem[]>([]);
@@ -145,6 +194,11 @@ export function AgentChatPanel({
   const historyShellRef = useRef<HTMLDivElement>(null);
   const assistantSegmentClosedRef = useRef(false);
   const streamAbortRef = useRef<AbortController | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
 
   useEffect(() => {
     void apiAgentConfig()
@@ -223,10 +277,31 @@ export function AgentChatPanel({
   const ensureSession = useCallback(async () => {
     if (sessionId) return sessionId;
     const { session_id } = await apiAgentCreateSession();
+    sessionIdRef.current = session_id;
     setSessionId(session_id);
     void refreshSessionList();
     return session_id;
   }, [sessionId, refreshSessionList]);
+
+  const refreshContextMeter = useCallback(async (sid: string) => {
+    if (!sid.trim()) return;
+    setContextMeterRefreshing(true);
+    try {
+      const r = await apiAgentSessionContextMeter(sid);
+      if (typeof r.context_tokens_est === "number" && Number.isFinite(r.context_tokens_est)) {
+        setContextTokensEst(Math.round(r.context_tokens_est));
+      }
+      if (typeof r.context_limit === "number" && Number.isFinite(r.context_limit)) {
+        setContextLimit(Math.round(r.context_limit));
+      } else {
+        setContextLimit(null);
+      }
+    } catch {
+      /* 保留侧栏已有估算或 SSE 结果 */
+    } finally {
+      setContextMeterRefreshing(false);
+    }
+  }, []);
 
   const buildChatBody = useCallback(
     (body: Parameters<typeof apiAgentChatStream>[0]): Parameters<typeof apiAgentChatStream>[0] => {
@@ -262,6 +337,7 @@ export function AgentChatPanel({
       try {
         await apiAgentChatStream(payload, (ev, data) => {
           if (ev === "session" && typeof data.session_id === "string") {
+            sessionIdRef.current = data.session_id;
             setSessionId(data.session_id);
           }
           if (ev === "thinking" && typeof data.message === "string") {
@@ -316,6 +392,16 @@ export function AgentChatPanel({
               );
             }
           }
+          if (ev === "context_metrics") {
+            const rawEst = (data as { context_tokens_est?: unknown }).context_tokens_est;
+            const rawLim = (data as { context_limit?: unknown }).context_limit;
+            if (typeof rawEst === "number" && Number.isFinite(rawEst)) {
+              setContextTokensEst(Math.round(rawEst));
+            }
+            if (typeof rawLim === "number" && Number.isFinite(rawLim)) {
+              setContextLimit(Math.round(rawLim));
+            }
+          }
           if (ev === "memory_updated") {
             setLines((prev) => [...prev, { kind: "system", text: i18n.t("agent:memoryUpdatedRound") }]);
             if (!sidebarOpen) {
@@ -348,6 +434,7 @@ export function AgentChatPanel({
           if (ev === "done") {
             setThinkingText(null);
             const rawEst = (data as { context_tokens_est?: unknown }).context_tokens_est;
+            const rawLim = (data as { context_limit?: unknown }).context_limit;
             const usage = (data as { usage?: { total_tokens?: unknown } }).usage;
             if (typeof rawEst === "number" && Number.isFinite(rawEst)) {
               setContextTokensEst(Math.round(rawEst));
@@ -358,7 +445,12 @@ export function AgentChatPanel({
             ) {
               setContextTokensEst(Math.round(usage.total_tokens));
             }
+            if (typeof rawLim === "number" && Number.isFinite(rawLim)) {
+              setContextLimit(Math.round(rawLim));
+            }
             void refreshSessionList();
+            const sidRefresh = sessionIdRef.current;
+            if (sidRefresh) void refreshContextMeter(sidRefresh);
             if (!sidebarOpen) {
               notifyAgentBackground(i18n.t("agent:roundEnd"));
             }
@@ -407,7 +499,7 @@ export function AgentChatPanel({
         setThinkingText(null);
       }
     },
-    [buildChatBody, notifyAgentBackground, refreshSessionList, sidebarOpen],
+    [buildChatBody, notifyAgentBackground, refreshContextMeter, refreshSessionList, sidebarOpen],
   );
 
   const send = useCallback(async () => {
@@ -510,11 +602,14 @@ export function AgentChatPanel({
 
   const newChat = useCallback(() => {
     streamAbortRef.current?.abort();
+    sessionIdRef.current = null;
     setSessionId(null);
     setLines([]);
     setTaskSteps(null);
     setActiveSkillId(null);
     setContextTokensEst(null);
+    setContextLimit(null);
+    setContextMeterRefreshing(false);
   }, []);
 
   const stopStream = useCallback(async () => {
@@ -536,14 +631,16 @@ export function AgentChatPanel({
       try {
         const snap = await apiAgentSessionGet(id);
         const msgs = snap.session?.messages ?? [];
+        sessionIdRef.current = id;
         setSessionId(id);
         setLines(mapSessionMessagesToLines(msgs));
         setTaskSteps(null);
+        void refreshContextMeter(id);
       } catch (e) {
         setMemoryMsg(e instanceof Error ? e.message : t("sessionLoadErr"));
       }
     },
-    [busy, t],
+    [busy, refreshContextMeter, t],
   );
 
   const pickSkill = useCallback((s: AgentSkillInfo) => {
@@ -586,11 +683,6 @@ export function AgentChatPanel({
             <div className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-slate-700">
               <Sparkles className="h-3.5 w-3.5 shrink-0 text-violet-500" />
               <span className="truncate">{t("title")}</span>
-              {contextTokensEst != null ? (
-                <span className="shrink-0 text-[10px] font-normal text-slate-500 tabular-nums">
-                  {t("contextTokensEst", { count: contextTokensEst.toLocaleString() })}
-                </span>
-              ) : null}
             </div>
             <div className="flex min-w-0 shrink items-center justify-end gap-1">
               <div className="shrink-0">
@@ -1010,15 +1102,45 @@ export function AgentChatPanel({
           </div>
         )}
         <div className="flex gap-1">
-          <button
-            type="button"
-            title={t("addAttachment")}
-            aria-label={t("addAttachment")}
-            onClick={() => fileInputRef.current?.click()}
-            className="self-end rounded-md border border-slate-300 bg-white p-2 text-slate-500 hover:bg-slate-50 hover:text-slate-700"
-          >
-            <Paperclip className="h-4 w-4" />
-          </button>
+          <div className="flex shrink-0 flex-col items-center gap-1 self-end">
+            {sessionId != null &&
+            (contextTokensEst != null || contextLimit != null || contextMeterRefreshing) ? (
+              <AgentContextRing
+                used={contextTokensEst}
+                limit={contextLimit}
+                refreshing={contextMeterRefreshing}
+                title={
+                  contextLimit != null
+                    ? t("contextMeterTooltip", {
+                        used: (contextTokensEst ?? 0).toLocaleString(),
+                        cap: contextLimit.toLocaleString(),
+                      })
+                    : t("contextMeterTooltipNoCap", {
+                        used: (contextTokensEst ?? 0).toLocaleString(),
+                      })
+                }
+                ariaLabel={
+                  contextLimit != null
+                    ? t("contextMeterAria", {
+                        used: (contextTokensEst ?? 0).toLocaleString(),
+                        cap: contextLimit.toLocaleString(),
+                      })
+                    : t("contextMeterAriaNoCap", {
+                        used: (contextTokensEst ?? 0).toLocaleString(),
+                      })
+                }
+              />
+            ) : null}
+            <button
+              type="button"
+              title={t("addAttachment")}
+              aria-label={t("addAttachment")}
+              onClick={() => fileInputRef.current?.click()}
+              className="rounded-md border border-slate-300 bg-white p-2 text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+            >
+              <Paperclip className="h-4 w-4" />
+            </button>
+          </div>
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}

@@ -43,6 +43,14 @@ pixi run bootstrap
 | `pixi run test-web` | `web/` 下前端测试（如 Vitest）。 |
 | `pixi run typecheck` | `web/` 下 `tsc --noEmit`。 |
 
+## 常见问题
+
+### Pixi 更新 PyPI 包时报「拒绝访问」、无法删除 `.pyd`
+
+多见于 Windows：本仓库 `default` 环境里的 `python.exe` 仍在运行（例如另一终端里的 `pixi run dev-backend`、pytest、或集成终端里的解释器），已加载的扩展模块（如 `site-packages\yaml\_yaml*.pyd`）会被系统锁定，Pixi 无法覆盖。
+
+**处理**：先结束所有使用该环境的 Python 进程（见上节日常开发，勿在已跑 `dev` 时再开一套占端口）；必要时用任务管理器结束，或仅结束路径包含本仓库 `.pixi\envs\default` 的 `python.exe`，再执行 `pixi install` 或 `pixi run dev`。
+
 ## 相关专题
 
 - 桌面壳与后端握手、超时与环境变量：[桌面启动与握手](desktop-startup.md)

@@ -4,7 +4,7 @@
 
 ## 模型调用适配
 
-- 编排层（`orchestrator`）通过 `ModelRouter` 按 `LLMSettings.provider` 选择实现：`openai` → Responses API；`anthropic` → Messages API；`openai_compat` 与 `deepseek` → OpenAI 兼容 Chat Completions（DeepSeek 未填地址时使用官方默认地址）。**DeepSeek**：按官方说明在请求中附带 `extra_body.thinking` 与 `reasoning_effort`，不向该端点发送 `parallel_tool_calls`，且流式请求不启用 `stream_options`；由于 OpenAI 官方 Python SDK 会裁剪请求体中的 `messages` 并丢弃 `reasoning_content`，DeepSeek 模式下另通过合并 `extra_body.messages`（完整历史副本）发往网关。工具名须符合 `^[a-zA-Z0-9_-]+$`，**所有 `openai_compat` 适配器**（不限 DeepSeek）在出站时将内部的 `前缀.名称` 转为下划线形式（含工具定义、助手 `tool_calls[].function.name` 与工具结果消息的 `name` 字段），入站再还原；反向映射从 `_TOOL_BY_NAME` 实时构建（无缓存），焦点切换后不会失效。
+- 编排层（`orchestrator`）通过 `ModelRouter` 按 `LLMSettings.provider` 选择实现：`openai` → Responses API；`anthropic` → Messages API；`openai_compat` 与 `deepseek` → OpenAI 兼容 Chat Completions（DeepSeek 未填地址时使用官方默认地址）。**DeepSeek**：按官方说明在请求中附带 `extra_body.thinking` 与 `reasoning_effort`（`high` / `max`，默认 `high`，可经环境变量或覆盖文件配置），不向该端点发送 `parallel_tool_calls`，且流式请求不启用 `stream_options`；由于 OpenAI 官方 Python SDK 会裁剪请求体中的 `messages` 并丢弃 `reasoning_content`，DeepSeek 模式下另通过合并 `extra_body.messages`（完整历史副本）发往网关。**上下文用量（侧栏）**：在 DeepSeek 兼容网关下，服务端用仓库内 `deepseek_v3_tokenizer/tokenizer.json`（经 `tokenizers` 库）估算 `context_tokens_est`，SSE `context_metrics` / `done` 可带 `context_limit`（产品口径 **1,000,000**）。工具名须符合 `^[a-zA-Z0-9_-]+$`，**所有 `openai_compat` 适配器**（不限 DeepSeek）在出站时将内部的 `前缀.名称` 转为下划线形式（含工具定义、助手 `tool_calls[].function.name` 与工具结果消息的 `name` 字段），入站再还原；反向映射从 `_TOOL_BY_NAME` 实时构建（无缓存），焦点切换后不会失效。
 - 会话消息在内部仍统一为既有 Chat 形状（含 `tool_calls` / `tool` 角色），由各适配器在出站时转换为厂商协议。
 
 ## 上下文与可观测性
@@ -12,7 +12,7 @@
 - 系统提示分为三层：**稳定层**（角色、任务范围、约束、风险策略、输出规范、决策规则——不含工具表）→ **工具块**（当前聚焦域下的工具描述，焦点与技能不变则 hash 恒定）→ **动态层**（白名单内的项目摘要、聚焦域文案、任务步骤摘要、技能目录、`page_context` 汇总的短「界面速览」等）。其中 **第三条独立 system 已不再使用**：任务步骤摘要并入第二条动态 system。**App 传来的 `page_context`** 仅进入动态摘要，不参与工具筛选与 `tool_schema_sha12`。稳定层 hash 在同一会话内不变，便于对接前缀类上下文缓存。
 - **软预算**（约 96k token）：先保留最近几条完整工具链，将更早链路内 `tool` 输出收窄为占位，并对早于该范围的非工具助手轮清空 `reasoning_content`。若仍超限，再走总预算分支。
 - **总预算**（默认约 200k token）：先将较早的 `tool` 输出折叠为短占位；仍超限则按**整段**丢弃最旧历史（`user` 轮到下一 `user`；含 `tool_calls` 的 `assistant` 与其后连续 `tool` 同删）。任一压缩路径后均需：(1) 剔除孤儿 `tool`；(2) 为每个 `assistant+tool_calls` 补全缺失的 `tool_call_id` 响应，以满足严格网关对工具链顺序的要求。**DeepSeek KV 前缀缓存**：尽量保持第一条 `system`(稳定层+工具块) 字节级稳定；易变业务信息留在第二条动态 `system`，任务步骤不写第三条独立消息。
-- 每轮 **主模型推理完成后**推送 SSE `context_metrics`（与当轮用量、`history_sha12`、分项动态 hash、`provider_system_shape` 对齐），详见 `docs/api/agent.md`。工具集仅在显式切换聚焦域、`plan_mode_active` 变化或技能收窄时重建，不因 `page_context` 变化抖动。
+- 每轮 **主模型推理完成后**推送 SSE `context_metrics`（与当轮用量、`history_sha12`、分项动态 hash、`provider_system_shape` 对齐），详见 `docs/api/agent.md`。在 DeepSeek 兼容模式下另含 `context_tokens_est` 与 `context_limit`（100 万口径），供侧栏进度展示。无 SSE 时（如切换历史会话）可调用 `GET /api/agent/sessions/{id}/context-meter`：由 `context_meter.context_meter_for_session` 复用与编排层相同的 `ContextManager.build_*` + `estimate_context_prompt_tokens`。工具集仅在显式切换聚焦域、`plan_mode_active` 变化或技能收窄时重建，不因 `page_context` 变化抖动。
 
 ## 计划模式与执行审批
 

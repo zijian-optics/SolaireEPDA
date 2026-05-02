@@ -8,6 +8,27 @@ LlmProvider = Literal["openai", "anthropic", "openai_compat", "deepseek"]
 
 VALID_PROVIDERS: tuple[LlmProvider, ...] = ("openai", "anthropic", "openai_compat", "deepseek")
 
+ReasoningEffort = Literal["high", "max"]
+
+
+def normalize_reasoning_effort(raw: str | None) -> ReasoningEffort:
+    """DeepSeek 思考强度：仅 high / max；非法或缺省为 high。"""
+    if raw is None or not str(raw).strip():
+        return "high"
+    v = str(raw).strip().lower()
+    if v == "max":
+        return "max"
+    return "high"
+
+
+def is_deepseek_openai_compat(provider: LlmProvider, base_url: str | None) -> bool:
+    """是否与 DeepSeek 官方 OpenAI 兼容网关同路径（思考模式、消息回传等）。"""
+    if provider == "deepseek":
+        return True
+    if base_url and "deepseek.com" in base_url.lower():
+        return True
+    return False
+
 
 class ProviderOptionDict(TypedDict):
     id: LlmProvider
@@ -39,4 +60,4 @@ def provider_default_models(provider: LlmProvider) -> tuple[str, str]:
 
 
 def list_provider_options_for_api() -> list[ProviderOptionDict]:
-    return [{"id": "openai"}, {"id": "anthropic"}, {"id": "openai_compat"}, {"id": "deepseek"}]
+    return [{"id": "deepseek"}, {"id": "openai"}, {"id": "anthropic"}, {"id": "openai_compat"}]

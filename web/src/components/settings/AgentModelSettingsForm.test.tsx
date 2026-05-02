@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef, useState } from "react";
-import { describe, expect, it, vi, beforeAll } from "vitest";
+import { describe, expect, it, vi, beforeAll, beforeEach } from "vitest";
 
 import { apiAgentLlmSettingsPut, type AgentLlmSettingsResponse } from "../../api/client";
 import { AgentModelSettingsForm, type AgentModelSettingsFormHandle } from "./AgentModelSettingsForm";
@@ -33,6 +33,7 @@ const baseResponse = (): AgentLlmSettingsResponse => ({
   has_user_api_key_override: false,
   has_project_api_key_override: false,
   max_tokens: 4096,
+  reasoning_effort: "high",
 });
 
 function Wrapper({
@@ -70,6 +71,10 @@ describe("AgentModelSettingsForm", () => {
     await setupTestI18n("zh");
   });
 
+  beforeEach(() => {
+    vi.mocked(apiAgentLlmSettingsPut).mockClear();
+  });
+
   it("switching provider updates preset model names and save sends provider", async () => {
     const user = userEvent.setup();
     const put = vi.mocked(apiAgentLlmSettingsPut);
@@ -95,5 +100,21 @@ describe("AgentModelSettingsForm", () => {
     expect(body.provider).toBe("deepseek");
     expect(body.main_model).toBe("deepseek-v4-pro");
     expect(body.fast_model).toBe("deepseek-v4-flash");
+    expect(body.reasoning_effort).toBe("high");
+  });
+
+  it("deepseek shows thinking depth and save sends reasoning_effort", async () => {
+    const user = userEvent.setup();
+    const put = vi.mocked(apiAgentLlmSettingsPut);
+    put.mockResolvedValue({ ok: true });
+
+    render(<Wrapper initial={baseResponse()} />);
+    await user.click(screen.getByRole("radio", { name: /DeepSeek/i }));
+    await user.click(screen.getByTestId("thinking-effort-max"));
+    await user.click(screen.getByTestId("trigger-save"));
+    await waitFor(() => {
+      expect(put).toHaveBeenCalled();
+    });
+    expect(put.mock.calls[0][0].reasoning_effort).toBe("max");
   });
 });

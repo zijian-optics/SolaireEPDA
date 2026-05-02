@@ -16,11 +16,29 @@ def test_llm_settings_get_includes_provider_and_options(web_client: TestClient) 
     data = r.json()
     assert "provider" in data
     assert data["provider"] in {"openai", "anthropic", "openai_compat", "deepseek"}
+    assert data.get("reasoning_effort") in ("high", "max")
     opts = data.get("provider_options")
     assert isinstance(opts, list)
     ids = {o["id"] for o in opts}
     assert ids == {"openai", "anthropic", "openai_compat", "deepseek"}
     assert "api_key" not in data
+
+
+def test_llm_settings_put_reasoning_effort_persists(web_client: TestClient, tmp_path: Path) -> None:
+    r = web_client.put("/api/agent/llm-settings", json={"reasoning_effort": "max"})
+    assert r.status_code == 200
+    path = overrides_file(tmp_path)
+    assert path.is_file()
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert raw["reasoning_effort"] == "max"
+    r2 = web_client.get("/api/agent/llm-settings")
+    assert r2.status_code == 200
+    assert r2.json().get("reasoning_effort") == "max"
+
+
+def test_llm_settings_put_invalid_reasoning_effort_400(web_client: TestClient) -> None:
+    r = web_client.put("/api/agent/llm-settings", json={"reasoning_effort": "bogus"})
+    assert r.status_code == 400
 
 
 def test_llm_settings_put_provider_persists_to_project(web_client: TestClient, tmp_path: Path) -> None:
@@ -61,7 +79,9 @@ def test_llm_settings_put_invalid_provider_400(web_client: TestClient) -> None:
 
 
 def test_agent_config_includes_provider(web_client: TestClient) -> None:
-    web_client.put("/api/agent/llm-settings", json={"provider": "openai"})
+    web_client.put("/api/agent/llm-settings", json={"provider": "openai", "reasoning_effort": "max"})
     r = web_client.get("/api/agent/config")
     assert r.status_code == 200
-    assert r.json().get("provider") == "openai"
+    body = r.json()
+    assert body.get("provider") == "openai"
+    assert body.get("reasoning_effort") == "max"

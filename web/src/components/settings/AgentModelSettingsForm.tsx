@@ -4,6 +4,7 @@ import { Loader2, Save, Trash2 } from "lucide-react";
 import {
   apiAgentLlmSettingsPut,
   type AgentLlmProvider,
+  type AgentLlmReasoningEffort,
   type AgentLlmSettingsResponse,
 } from "../../api/client";
 
@@ -22,7 +23,12 @@ const PRESETS: Record<AgentLlmProvider, { baseUrl: string; main: string; fast: s
   },
 };
 
-const PROVIDER_IDS: AgentLlmProvider[] = ["openai", "anthropic", "openai_compat", "deepseek"];
+const PROVIDER_DISPLAY_ORDER: AgentLlmProvider[] = ["deepseek", "openai", "anthropic", "openai_compat"];
+
+function sortProviderIds(ids: AgentLlmProvider[]): AgentLlmProvider[] {
+  const rank = new Map(PROVIDER_DISPLAY_ORDER.map((id, i) => [id, i]));
+  return [...ids].sort((a, b) => (rank.get(a) ?? 999) - (rank.get(b) ?? 999));
+}
 
 function providerLabelKey(id: AgentLlmProvider): string {
   switch (id) {
@@ -84,6 +90,7 @@ export const AgentModelSettingsForm = forwardRef(function AgentModelSettingsForm
   const [fastModel, setFastModel] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [accessSecret, setAccessSecret] = useState("");
+  const [reasoningEffort, setReasoningEffort] = useState<AgentLlmReasoningEffort>("high");
   const [msg, setMsg] = useState<string | null>(null);
   const [savingLocal, setSavingLocal] = useState(false);
 
@@ -94,7 +101,8 @@ export const AgentModelSettingsForm = forwardRef(function AgentModelSettingsForm
     setFastModel(data.fast_model);
     setBaseUrl(data.base_url);
     setAccessSecret("");
-  }, [data]);
+    setReasoningEffort(data.reasoning_effort === "max" ? "max" : "high");
+  }, [data?.provider, data?.main_model, data?.fast_model, data?.base_url, data?.reasoning_effort]);
 
   const keySourceNote = useMemo(() => {
     if (!data) return "";
@@ -144,10 +152,13 @@ export const AgentModelSettingsForm = forwardRef(function AgentModelSettingsForm
         ? "border-violet-300 bg-violet-50"
         : "border-slate-200 bg-white";
 
-  const ids =
-    data?.provider_options?.length && data.provider_options.length > 0
-      ? data.provider_options.map((o) => o.id)
-      : PROVIDER_IDS;
+  const ids = useMemo(() => {
+    const raw =
+      data?.provider_options?.length && data.provider_options.length > 0
+        ? data.provider_options.map((o) => o.id as AgentLlmProvider)
+        : PROVIDER_DISPLAY_ORDER;
+    return sortProviderIds(raw);
+  }, [data?.provider_options]);
 
   const handleSave = useCallback(async () => {
     if (!data) return;
@@ -161,6 +172,9 @@ export const AgentModelSettingsForm = forwardRef(function AgentModelSettingsForm
         fast_model: fastModel,
         base_url: baseUrl,
       };
+      if (provider === "deepseek") {
+        body.reasoning_effort = reasoningEffort;
+      }
       if (accessSecret.trim()) {
         body.api_key = accessSecret.trim();
       }
@@ -180,6 +194,7 @@ export const AgentModelSettingsForm = forwardRef(function AgentModelSettingsForm
     fastModel,
     baseUrl,
     accessSecret,
+    reasoningEffort,
     onError,
     onReload,
     t,
@@ -260,6 +275,50 @@ export const AgentModelSettingsForm = forwardRef(function AgentModelSettingsForm
             </label>
           ))}
         </div>
+        {provider === "deepseek" ? (
+          <div className="mt-3">
+            <span className={labelCls}>{t("settings:thinkingEffortTitle")}</span>
+            <p className={hintCls}>{t("settings:thinkingEffortHint")}</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                aria-pressed={reasoningEffort === "high"}
+                data-testid="thinking-effort-high"
+                onClick={() => setReasoningEffort("high")}
+                className={
+                  variant === "welcome"
+                    ? reasoningEffort === "high"
+                      ? "rounded-md border border-violet-400/70 bg-violet-950/40 px-3 py-1.5 text-sm text-violet-100"
+                      : "rounded-md border border-slate-600 bg-slate-950/30 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-900/50"
+                    : reasoningEffort === "high"
+                      ? "rounded-md border border-violet-400 bg-violet-50 px-3 py-1.5 text-sm text-violet-900"
+                      : "rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+                }
+              >
+                {t("settings:thinkingEffortHigh")}
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                aria-pressed={reasoningEffort === "max"}
+                data-testid="thinking-effort-max"
+                onClick={() => setReasoningEffort("max")}
+                className={
+                  variant === "welcome"
+                    ? reasoningEffort === "max"
+                      ? "rounded-md border border-violet-400/70 bg-violet-950/40 px-3 py-1.5 text-sm text-violet-100"
+                      : "rounded-md border border-slate-600 bg-slate-950/30 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-900/50"
+                    : reasoningEffort === "max"
+                      ? "rounded-md border border-violet-400 bg-violet-50 px-3 py-1.5 text-sm text-violet-900"
+                      : "rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+                }
+              >
+                {t("settings:thinkingEffortMax")}
+              </button>
+            </div>
+          </div>
+        ) : null}
         <div className="mt-3">
           <button
             type="button"

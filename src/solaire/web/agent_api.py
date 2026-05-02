@@ -25,6 +25,7 @@ from solaire.agent_layer.memory import list_topic_filenames, read_index, read_to
 from solaire.agent_layer.cancel_signal import clear_cancel, request_cancel
 from solaire.agent_layer.orchestrator import iter_agent_turn_sse
 from solaire.agent_layer.skills import list_skills_public
+from solaire.agent_layer.context_meter import context_meter_for_session
 from solaire.agent_layer.session import create_session, delete_session, list_sessions, load_session
 from solaire.knowledge_forge import list_graphs
 from solaire.web import state
@@ -118,6 +119,7 @@ class LLMSettingsPutBody(BaseModel):
     api_key: str | None = None
     clear_api_key_override: bool = False
     max_tokens: int | None = None
+    reasoning_effort: str | None = None
 
 
 class SafetyModePutBody(BaseModel):
@@ -135,6 +137,7 @@ def agent_config() -> dict[str, Any]:
         "fast_model": s.fast_model,
         "base_url_set": bool(s.base_url),
         "safety_mode": load_safety_mode(root),
+        "reasoning_effort": s.reasoning_effort,
     }
 
 
@@ -157,6 +160,7 @@ def agent_llm_settings_get() -> dict[str, Any]:
         "has_user_api_key_override": bool(user_raw.get("api_key")),
         "has_project_api_key_override": bool(proj_raw.get("api_key")),
         "max_tokens": eff.max_tokens,
+        "reasoning_effort": eff.reasoning_effort,
     }
 
 
@@ -196,6 +200,15 @@ def agent_llm_settings_put(body: LLMSettingsPutBody) -> dict[str, Any]:
             current.pop("max_tokens", None)
         else:
             current["max_tokens"] = str(body.max_tokens)
+    if body.reasoning_effort is not None:
+        raw_re = str(body.reasoning_effort).strip()
+        if raw_re == "":
+            current.pop("reasoning_effort", None)
+        else:
+            low = raw_re.lower()
+            if low not in ("high", "max"):
+                raise HTTPException(status_code=400, detail="无效的思考强度")
+            current["reasoning_effort"] = low
     if root is not None:
         save_overrides_raw(root, current)
     else:
@@ -253,6 +266,16 @@ def agent_session_get(session_id: str) -> dict[str, Any]:
     if s is None:
         raise HTTPException(status_code=404, detail="会话不存在")
     return {"session": s.model_dump(mode="json")}
+
+
+@router.get("/sessions/{session_id}/context-meter")
+def agent_session_context_meter(session_id: str) -> dict[str, Any]:
+    """按当前会话与项目上下文估算上下文用量（与 SSE `context_metrics` 同源逻辑）。"""
+    root = _require_root()
+    s = load_session(root, session_id)
+    if s is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return context_meter_for_session(root, s, project_ctx=_project_ctx(root))
 
 
 @router.delete("/sessions/{session_id}")

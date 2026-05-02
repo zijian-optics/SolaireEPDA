@@ -9,6 +9,7 @@ from typing import Any
 from openai import AsyncOpenAI
 
 from solaire.agent_layer.llm.adapter import ChatChunk, ChatResponse
+from solaire.agent_layer.llm.providers import ReasoningEffort
 
 
 def _wire_to_canonical_tool_names() -> dict[str, str]:
@@ -95,9 +96,11 @@ class OpenAICompatAdapter:
         base_url: str | None,
         model: str,
         deepseek_compat: bool = False,
+        reasoning_effort: ReasoningEffort | None = None,
     ) -> None:
         self.model = model
         self._deepseek_compat = deepseek_compat
+        self._reasoning_effort: ReasoningEffort | None = reasoning_effort
         kwargs: dict[str, Any] = {}
         if api_key:
             kwargs["api_key"] = api_key
@@ -122,7 +125,7 @@ class OpenAICompatAdapter:
             eb["thinking"] = {"type": "enabled"}
         eb["messages"] = copy.deepcopy(req.get("messages") or [])
         req["extra_body"] = eb
-        req.setdefault("reasoning_effort", "high")
+        req.setdefault("reasoning_effort", self._reasoning_effort or "high")
 
     async def chat(
         self,
