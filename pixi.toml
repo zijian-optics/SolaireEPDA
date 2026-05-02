@@ -47,3 +47,5 @@ build-desktop = "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/bui
 [pypi-dependencies]
 anyio = ">=4.13.0, <5"
 anthropic = ">=0.97.0, <0.98"
+trafilatura = ">=1.12"
+lxml = ">=5.0"

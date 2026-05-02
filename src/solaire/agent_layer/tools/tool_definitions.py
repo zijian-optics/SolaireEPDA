@@ -749,6 +749,22 @@ _RAW_TOOLS: list[RegisteredTool] = [
         ui_label="正在搜索公开资料…",
     ),
     _fn(
+        "web.fetch",
+        "抓取并提取网页正文纯文本（去除导航/广告/样式/脚本，仅保留可读内容）。"
+        "适用于教师提供网页链接后分析页面内容，不需要配置 API 密钥。",
+        {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "要抓取的网页 URL"},
+            },
+            "required": ["url"],
+            "additionalProperties": False,
+        },
+        web_tools.tool_web_fetch,
+        risk=ToolRisk.READ,
+        ui_label="正在提取网页内容…",
+    ),
+    _fn(
         "agent.run_tool_pipeline",
         "按顺序执行多步工具调用（用于减少往返；若某步需教师确认则会中止并提示分步执行）。",
         {

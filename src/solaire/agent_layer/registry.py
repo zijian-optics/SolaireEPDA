@@ -40,7 +40,7 @@ _ALL_EXAM = _names_starting("exam.")
 _ALL_FILE = _names_starting("file.")
 _ALL_DOC = _names_starting("doc.")
 _ALL_MEMORY = _names_starting("memory.")
-_ALL_WEB = _names_starting("web.")
+_WEB_FETCH: tuple[str, ...] = ("web.fetch",)
 
 _AGENT_CORE: tuple[str, ...] = (
     "agent.switch_focus",
@@ -75,21 +75,22 @@ _BANK_GRAPH: tuple[str, ...] = (
     "graph.search_nodes",
 )
 
-_ANALYSIS_FOCUS = _merge_unique(_AGENT_CORE, _FILE_RO, _SUBTASK_PIPELINE, _ALL_MEMORY, _ALL_WEB, _ALL_ANALYSIS)
-_BANK_FOCUS = _merge_unique(_AGENT_CORE, _FILE_RO, _SUBTASK_PIPELINE, _ALL_BANK, _BANK_GRAPH)
-_GRAPH_FOCUS = _merge_unique(_AGENT_CORE, _FILE_RO, _SUBTASK_PIPELINE, _ALL_GRAPH, _ALL_BANK)
+_ANALYSIS_FOCUS = _merge_unique(_AGENT_CORE, _FILE_RO, _SUBTASK_PIPELINE, _ALL_MEMORY, _WEB_FETCH, _ALL_ANALYSIS)
+_BANK_FOCUS = _merge_unique(_AGENT_CORE, _FILE_RO, _SUBTASK_PIPELINE, _WEB_FETCH, _ALL_BANK, _BANK_GRAPH)
+_GRAPH_FOCUS = _merge_unique(_AGENT_CORE, _FILE_RO, _SUBTASK_PIPELINE, _WEB_FETCH, _ALL_GRAPH, _ALL_BANK)
 _COMPOSE_FOCUS = _merge_unique(
     _AGENT_CORE,
     _FILE_RO,
     _SUBTASK_PIPELINE,
+    _WEB_FETCH,
     _ALL_MEMORY,
     _ALL_EXAM,
     _ALL_BANK,
     _COMPOSE_GRAPH,
     ("file.write", "file.edit"),
 )
-_DOC_FOCUS = _merge_unique(_AGENT_CORE, _FILE_RO, _SUBTASK_PIPELINE, _ALL_FILE, _ALL_DOC)
-_GENERAL_FOCUS = _merge_unique(_AGENT_CORE, _FILE_RO, _GENERAL_DOMAIN)
+_DOC_FOCUS = _merge_unique(_AGENT_CORE, _FILE_RO, _SUBTASK_PIPELINE, _WEB_FETCH, _ALL_FILE, _ALL_DOC)
+_GENERAL_FOCUS = _merge_unique(_AGENT_CORE, _FILE_RO, _WEB_FETCH, _GENERAL_DOMAIN)
 
 
 def get_registered_tool(tool_name: str) -> RegisteredTool | None:

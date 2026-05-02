@@ -389,10 +389,7 @@ async def run_agent_turn(
             return
 
     if user_message is not None and user_message.strip():
-        msg_content = user_message.strip()
-        if page_context_brief and len(session.messages) == 0:
-            msg_content = page_context_brief + "\n\n" + msg_content
-        session.messages.append(ChatMessage(role="user", content=msg_content))
+        session.messages.append(ChatMessage(role="user", content=user_message.strip()))
         session.touch()
         await emit("thinking", {"message": _thinking_for_round(0)})
 
@@ -512,7 +509,7 @@ async def run_agent_turn(
 
         instructions_sha12: str | None = None
         if isinstance(adapter, OpenAIResponsesAdapter):
-            instructions_sha12 = hash_text_sha12(f"{system_prefix}\n\n{system_suffix}")
+            instructions_sha12 = hash_text_sha12(f"{_sys_prefix}\n\n{_sys_suffix}")
 
         task_blk = build_task_plan_dynamic_block(session)
         wh_ctx = whitelist_project_ctx_for_prompt(public_ctx)
@@ -528,15 +525,15 @@ async def run_agent_turn(
         round_metrics: dict[str, Any] = {
             "round_index": loop_round,
             "stable_sha12": hash_text_sha12(stable_txt),
-            "cacheable_prefix_sha12": hash_text_sha12(system_prefix),
+            "cacheable_prefix_sha12": hash_text_sha12(_sys_prefix),
             "tools_block_sha12": hash_text_sha12(tools_block_txt),
-            "dynamic_sha12": hash_text_sha12(system_suffix),
+            "dynamic_sha12": hash_text_sha12(_sys_suffix),
             "tool_schema_sha12": hash_tools_payload_sha12(tools_payload),
             "tool_count": len(tools_payload),
-            "system_chars": len(system_prefix) + len(system_suffix),
-            "cacheable_prefix_chars": len(system_prefix),
+            "system_chars": len(_sys_prefix) + len(_sys_suffix),
+            "cacheable_prefix_chars": len(_sys_prefix),
             "est_prompt_tokens": estimate_messages_tokens(
-                [{"role": "system", "content": system_prefix}, {"role": "system", "content": system_suffix}]
+                [{"role": "system", "content": _sys_prefix}, {"role": "system", "content": _sys_suffix}]
             ),
             "history_sha12": hash_messages_slice_sha12(api_messages, start=2),
             "provider_system_shape": provider_system_shape,
