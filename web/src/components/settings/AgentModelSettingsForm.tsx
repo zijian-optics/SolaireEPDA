@@ -22,7 +22,12 @@ const PRESETS: Record<AgentLlmProvider, { baseUrl: string; main: string; fast: s
   },
 };
 
-const PROVIDER_IDS: AgentLlmProvider[] = ["openai", "anthropic", "openai_compat", "deepseek"];
+const PROVIDER_DISPLAY_ORDER: AgentLlmProvider[] = ["deepseek", "openai", "anthropic", "openai_compat"];
+
+function sortProviderIds(ids: AgentLlmProvider[]): AgentLlmProvider[] {
+  const rank = new Map(PROVIDER_DISPLAY_ORDER.map((id, i) => [id, i]));
+  return [...ids].sort((a, b) => (rank.get(a) ?? 999) - (rank.get(b) ?? 999));
+}
 
 function providerLabelKey(id: AgentLlmProvider): string {
   switch (id) {
@@ -144,10 +149,13 @@ export const AgentModelSettingsForm = forwardRef(function AgentModelSettingsForm
         ? "border-violet-300 bg-violet-50"
         : "border-slate-200 bg-white";
 
-  const ids =
-    data?.provider_options?.length && data.provider_options.length > 0
-      ? data.provider_options.map((o) => o.id)
-      : PROVIDER_IDS;
+  const ids = useMemo(() => {
+    const raw =
+      data?.provider_options?.length && data.provider_options.length > 0
+        ? data.provider_options.map((o) => o.id as AgentLlmProvider)
+        : PROVIDER_DISPLAY_ORDER;
+    return sortProviderIds(raw);
+  }, [data?.provider_options]);
 
   const handleSave = useCallback(async () => {
     if (!data) return;

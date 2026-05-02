@@ -626,3 +626,11 @@
 **验证命令**：`pixi run pytest tests/test_extension_api.py -q`
 
 **结果要点**：10 passed；新仓库 URL 可访问；手动下载按钮将打开正确页面。
+
+## [2026-05-02] 设置 UI | 模型服务选项 DeepSeek 置顶与「推荐」文案
+
+**改动摘要**：`AgentModelSettingsForm` 使用 `PROVIDER_DISPLAY_ORDER` 排序（含 API 返回的 `provider_options`），DeepSeek 始终为首项；`providerDeepseek` 简体中文为「DeepSeek（推荐）」、英文为「DeepSeek (Recommended)」；`list_provider_options_for_api()` 返回顺序与前端一致。
+
+**验证命令**：`cd web; npm test -- AgentModelSettingsForm --run`；`pixi run pytest tests/test_agent_llm_settings_api.py -v`
+
+**结果要点**：Vitest 1 passed；pytest 5 passed。

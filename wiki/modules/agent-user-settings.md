@@ -17,6 +17,8 @@
 | `openai_compat` | 使用 OpenAI SDK 的 **Chat Completions** 兼容路径（默认，与历史版本一致） |
 | `deepseek` | 兼容路径；未指定服务地址时默认 `https://api.deepseek.com` |
 
+欢迎页与设置中的「模型服务」单选列表以 DeepSeek 为第一项；简体中文界面在名称后附「（推荐）」标签（英文为 “Recommended”）。
+
 合并文件中可保存字符串字段 `provider`（与设置页「模型服务」对应）。
 
 环境变量 `SOLAIRE_LLM_PROVIDER` 与密钥变量 `SOLAIRE_LLM_API_KEY`、`ANTHROPIC_API_KEY`、`DEEPSEEK_API_KEY`、`OPENAI_API_KEY` 的优先级见 `docs/api/agent.md`。

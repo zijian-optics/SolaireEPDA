@@ -10,7 +10,7 @@
   "providerOpenai": "OpenAI",
   "providerAnthropic": "Anthropic",
   "providerOpenaiCompat": "通用兼容服务",
-  "providerDeepseek": "DeepSeek",
+  "providerDeepseek": "DeepSeek（推荐）",
   "providerOpenaiDesc": "使用 OpenAI 官方托管模型。",
   "providerAnthropicDesc": "使用 Anthropic 官方托管模型。",
   "providerOpenaiCompatDesc": "与 OpenAI 对话接口兼容的中继或自建服务，需填写完整服务地址。",

@@ -39,4 +39,4 @@ def provider_default_models(provider: LlmProvider) -> tuple[str, str]:
 
 
 def list_provider_options_for_api() -> list[ProviderOptionDict]:
-    return [{"id": "openai"}, {"id": "anthropic"}, {"id": "openai_compat"}, {"id": "deepseek"}]
+    return [{"id": "deepseek"}, {"id": "openai"}, {"id": "anthropic"}, {"id": "openai_compat"}]

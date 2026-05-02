@@ -10,7 +10,7 @@
   "providerOpenai": "OpenAI",
   "providerAnthropic": "Anthropic",
   "providerOpenaiCompat": "Compatible relay",
-  "providerDeepseek": "DeepSeek",
+  "providerDeepseek": "DeepSeek (Recommended)",
   "providerOpenaiDesc": "Hosted models from OpenAI.",
   "providerAnthropicDesc": "Hosted models from Anthropic.",
   "providerOpenaiCompatDesc": "Third-party or self-hosted endpoints that use the same request shape as common OpenAI-style gateways; enter the full service URL.",
