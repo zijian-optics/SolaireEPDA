@@ -25,3 +25,13 @@ def plan_to_prompt_block(session: SessionState) -> str:
     for i, s in enumerate(session.task_plan, start=1):
         lines.append(f"{i}. [{s.get('status', '?')}] {s.get('title', '')}")
     return "\n".join(lines)
+
+
+def build_task_plan_dynamic_block(session: SessionState) -> str:
+    """并入动态系统提示的任务步骤摘要（不写第三条 system）。"""
+    if not session.task_plan:
+        return ""
+    lines = [
+        f"{i}. [{s.get('status', '?')}] {s.get('title', '')}" for i, s in enumerate(session.task_plan, start=1)
+    ]
+    return "## 当前任务进度\n" + "\n".join(lines)

@@ -43,3 +43,9 @@ typecheck = { cmd = "npx tsc --noEmit", cwd = "web" }
 
 # ── 桌面端发布构建 ───────────────────────────────────────
 build-desktop = "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1"
+
+[pypi-dependencies]
+anyio = ">=4.13.0, <5"
+anthropic = ">=0.97.0, <0.98"
+trafilatura = ">=1.12"
+lxml = ">=5.0"

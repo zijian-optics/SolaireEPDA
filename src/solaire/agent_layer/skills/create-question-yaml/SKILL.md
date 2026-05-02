@@ -7,7 +7,7 @@ metadata:
   author: solaire-builtin
   version: "1.1"
   label: 按规范创建题目
-  tool_patterns: "bank.create_item bank.update_item bank.get_item bank.search_items file.read agent.read_skill_reference memory.* agent.*"
+  tool_patterns: "bank.create_item bank.update_item bank.get_item bank.search_items file.read file.list file.search agent.read_skill_reference agent.switch_focus agent.activate_skill agent.enter_plan_mode agent.exit_plan_mode agent.set_task_plan agent.update_task_step agent.run_subtask agent.run_tool_pipeline memory.read_index memory.read_topic memory.search"
   suggested_user_input: 请帮我按题库规范创建一道新题，并确保格式校验通过。
 ---
 

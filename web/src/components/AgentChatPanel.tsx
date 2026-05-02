@@ -133,6 +133,7 @@ export function AgentChatPanel({
   const [memoryBusy, setMemoryBusy] = useState(false);
   const [memoryMsg, setMemoryMsg] = useState<string | null>(null);
   const [thinkingText, setThinkingText] = useState<string | null>(null);
+  const [contextTokensEst, setContextTokensEst] = useState<number | null>(null);
   const [skills, setSkills] = useState<AgentSkillInfo[]>([]);
   const [activeSkillId, setActiveSkillId] = useState<string | null>(null);
   const [sessionList, setSessionList] = useState<AgentSessionListItem[]>([]);
@@ -346,6 +347,17 @@ export function AgentChatPanel({
           }
           if (ev === "done") {
             setThinkingText(null);
+            const rawEst = (data as { context_tokens_est?: unknown }).context_tokens_est;
+            const usage = (data as { usage?: { total_tokens?: unknown } }).usage;
+            if (typeof rawEst === "number" && Number.isFinite(rawEst)) {
+              setContextTokensEst(Math.round(rawEst));
+            } else if (
+              usage &&
+              typeof usage.total_tokens === "number" &&
+              Number.isFinite(usage.total_tokens)
+            ) {
+              setContextTokensEst(Math.round(usage.total_tokens));
+            }
             void refreshSessionList();
             if (!sidebarOpen) {
               notifyAgentBackground(i18n.t("agent:roundEnd"));
@@ -484,6 +496,13 @@ export function AgentChatPanel({
             mode: "execute",
           });
         }
+      } else if (action === "cancel") {
+        await runStream({
+          session_id: sid,
+          message: i18n.t("agent:planCancelMsg"),
+          mode: "execute",
+          clear_pending_plan_path: planPath,
+        });
       }
     },
     [busy, ensureSession, runStream],
@@ -495,6 +514,7 @@ export function AgentChatPanel({
     setLines([]);
     setTaskSteps(null);
     setActiveSkillId(null);
+    setContextTokensEst(null);
   }, []);
 
   const stopStream = useCallback(async () => {
@@ -566,6 +586,11 @@ export function AgentChatPanel({
             <div className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-slate-700">
               <Sparkles className="h-3.5 w-3.5 shrink-0 text-violet-500" />
               <span className="truncate">{t("title")}</span>
+              {contextTokensEst != null ? (
+                <span className="shrink-0 text-[10px] font-normal text-slate-500 tabular-nums">
+                  {t("contextTokensEst", { count: contextTokensEst.toLocaleString() })}
+                </span>
+              ) : null}
             </div>
             <div className="flex min-w-0 shrink items-center justify-end gap-1">
               <div className="shrink-0">

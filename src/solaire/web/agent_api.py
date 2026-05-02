@@ -19,6 +19,7 @@ from solaire.agent_layer.guardrails import (
 )
 from solaire.agent_layer.llm.llm_overrides import load_overrides_raw, mask_api_key, save_overrides_raw
 from solaire.agent_layer.llm.user_llm_overrides import load_user_overrides_raw, save_user_overrides_raw
+from solaire.agent_layer.llm.providers import VALID_PROVIDERS, list_provider_options_for_api
 from solaire.agent_layer.llm.router import load_llm_settings
 from solaire.agent_layer.memory import list_topic_filenames, read_index, read_topic, write_index, write_topic
 from solaire.agent_layer.cancel_signal import clear_cancel, request_cancel
@@ -93,6 +94,14 @@ class AgentChatBody(BaseModel):
         default=None,
         description="教师批准执行的计划文件项目内相对路径（与 exit_plan_mode 一致）",
     )
+    clear_pending_plan_path: str | None = Field(
+        default=None,
+        description="取消待执行计划时传入，与最近生成的计划路径一致则清除服务端待执行状态",
+    )
+    skip_memory_write: bool | None = Field(
+        default=None,
+        description="本轮结束后不写入会话记忆",
+    )
 
 
 class MemoryPutBody(BaseModel):
@@ -102,6 +111,7 @@ class MemoryPutBody(BaseModel):
 class LLMSettingsPutBody(BaseModel):
     """写入项目内覆盖；字段为 None 表示不修改该项。"""
 
+    provider: str | None = None
     main_model: str | None = None
     fast_model: str | None = None
     base_url: str | None = None
@@ -120,6 +130,7 @@ def agent_config() -> dict[str, Any]:
     s = load_llm_settings(root)
     return {
         "llm_configured": bool(s.api_key),
+        "provider": s.provider,
         "main_model": s.main_model,
         "fast_model": s.fast_model,
         "base_url_set": bool(s.base_url),
@@ -136,6 +147,8 @@ def agent_llm_settings_get() -> dict[str, Any]:
     return {
         "persist_available": True,
         "persist_scope": "project" if root is not None else "global",
+        "provider": eff.provider,
+        "provider_options": list_provider_options_for_api(),
         "main_model": eff.main_model,
         "fast_model": eff.fast_model,
         "base_url": eff.base_url or "",
@@ -155,6 +168,14 @@ def agent_llm_settings_put(body: LLMSettingsPutBody) -> dict[str, Any]:
         current.pop("api_key", None)
     if body.api_key is not None and body.api_key.strip():
         current["api_key"] = body.api_key.strip()
+    if body.provider is not None:
+        p = str(body.provider).strip().lower()
+        if p == "":
+            current.pop("provider", None)
+        elif p in VALID_PROVIDERS:
+            current["provider"] = p
+        else:
+            raise HTTPException(status_code=400, detail="无效的模型服务类型")
     if body.main_model is not None:
         if body.main_model.strip() == "":
             current.pop("main_model", None)
@@ -376,6 +397,10 @@ async def agent_chat(body: AgentChatBody) -> StreamingResponse:
         ctx = {**ctx, "_skill_id": str(body.skill_id).strip()}
     if body.execution_plan_path is not None and str(body.execution_plan_path).strip():
         ctx = {**ctx, "_execution_plan_path": str(body.execution_plan_path).strip()}
+    if body.clear_pending_plan_path is not None and str(body.clear_pending_plan_path).strip():
+        ctx = {**ctx, "_clear_pending_plan_path": str(body.clear_pending_plan_path).strip()}
+    if body.skip_memory_write is True:
+        ctx = {**ctx, "_skip_memory_write": True}
 
     user_msg = body.message.strip() if body.message else None
     if body.file_attachments and user_msg:

@@ -9,21 +9,25 @@ from pathlib import Path
 from typing import Any
 
 from solaire.agent_layer.models import InvocationContext, ToolResult
-from solaire.agent_layer.plan_document import PLAN_MD_FRONTMATTER
+from solaire.agent_layer.plan_document import normalize_rel_path, validate_plan_markdown_body
 from solaire.common.security import assert_within_project
 
 # 计划模式：仅允许落盘到该目录（与 Cursor 类 harness 一致）
 _AGENT_PLANS_SEGMENTS = (".solaire", "agent", "plans")
 
 
-def _normalize_rel(rel: str) -> str:
-    return str(rel).replace("\\", "/").strip()
+def _norm(rel: str) -> str:
+    """Normalize and return; falls back to strip-only if normalize_rel_path rejects (e.g. .. segments)."""
+    n = normalize_rel_path(rel)
+    return n if n else str(rel).replace("\\", "/").strip()
 
 
 def _is_under_agent_plans(project_root: Path, rel: str) -> bool:
     """项目内相对路径是否位于 .solaire/agent/plans/ 下（含该目录本身下的文件）。"""
-    raw = _normalize_rel(rel)
-    if not raw or ".." in raw.split("/"):
+    raw = _norm(rel)
+    if ".." in raw.split("/"):
+        return False
+    if not raw:
         return False
     try:
         p = (project_root / raw).resolve()
@@ -40,22 +44,6 @@ def _plan_mode_write_path_ok(ctx: InvocationContext, rel: str) -> bool:
     if ctx.session is None or not ctx.session.plan_mode_active:
         return True
     return _is_under_agent_plans(ctx.project_root, rel)
-
-
-def _validate_plan_markdown_harness(content: str) -> tuple[bool, str]:
-    """计划模式落盘的 *.md：YAML --- 围栏 + name/overview/todos（对齐 Cursor 等 plan 文件形态）。"""
-    text = content.lstrip("\ufeff")
-    m = PLAN_MD_FRONTMATTER.match(text)
-    if not m:
-        return False, "须以 YAML 围栏开头：首行 ---，中间为 YAML，再以独占一行的 --- 结束，随后为正文"
-    fm = m.group("fm")
-    if "name:" not in fm:
-        return False, "YAML 围栏内须包含 name 字段"
-    if "overview:" not in fm:
-        return False, "YAML 围栏内须包含 overview 字段"
-    if "todos" not in fm:
-        return False, "YAML 围栏内须包含 todos 字段（任务列表，含 id/content/status 等）"
-    return True, ""
 
 
 def _resolve(ctx: InvocationContext, rel: str) -> Path:
@@ -103,8 +91,8 @@ def tool_file_write(ctx: InvocationContext, args: dict[str, Any]) -> ToolResult:
             error_message="计划模式下仅允许写入项目内 `.solaire/agent/plans/` 目录下的文件",
         )
     body = str(content)
-    if ctx.session and ctx.session.plan_mode_active and _normalize_rel(rel).lower().endswith(".md"):
-        ok, err = _validate_plan_markdown_harness(body)
+    if ctx.session and ctx.session.plan_mode_active and _norm(rel).lower().endswith(".md"):
+        ok, err = validate_plan_markdown_body(body)
         if not ok:
             return ToolResult(status="failed", error_message=err)
     try:
@@ -155,8 +143,8 @@ def tool_file_edit(ctx: InvocationContext, args: dict[str, Any]) -> ToolResult:
             error_message=f"old_string 在文件中出现 {count} 次，请提供更多上下文使其唯一，或设置 replace_all=true",
         )
     result = text.replace(old_string, new_string) if args.get("replace_all") else text.replace(old_string, new_string, 1)
-    if ctx.session and ctx.session.plan_mode_active and _normalize_rel(rel).lower().endswith(".md"):
-        ok, err = _validate_plan_markdown_harness(result)
+    if ctx.session and ctx.session.plan_mode_active and _norm(rel).lower().endswith(".md"):
+        ok, err = validate_plan_markdown_body(result)
         if not ok:
             return ToolResult(status="failed", error_message=err)
     try:

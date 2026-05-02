@@ -38,5 +38,13 @@ class LLMAdapter(Protocol):
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.3,
         max_tokens: int | None = None,
-        stream: bool = False,
-    ) -> ChatResponse | AsyncIterator[ChatChunk]: ...
+    ) -> ChatResponse: ...
+
+    async def chat_stream(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        tools: list[dict[str, Any]] | None = None,
+        temperature: float = 0.3,
+        max_tokens: int | None = None,
+    ) -> AsyncIterator[ChatChunk]: ...

@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from solaire.agent_layer import registry as tool_registry
+from solaire.agent_layer.llm.adapter import LLMAdapter
 from solaire.agent_layer.models import GuardrailDecision, InvocationContext, SessionState, ToolRisk
 from solaire.agent_layer.user_agent_paths import user_agent_state_dir
 from solaire.common.security import assert_within_project
@@ -128,6 +131,47 @@ def vivace_needs_fast_model_review(tool_name: str) -> bool:
     return bool(rt and rt.vivace_fast_review)
 
 
+_SAFE_TOOL_NAME_RE = re.compile(r"[^\w\s:.\-一-鿿]")
+
+
+def _sanitize_tool_name(name: str) -> str:
+    return _SAFE_TOOL_NAME_RE.sub("", str(name))[:100]
+
+
+async def vivace_fast_review(
+    *,
+    fast_adapter: LLMAdapter,
+    tool_name: str,
+    args: dict[str, Any],
+) -> tuple[bool, str]:
+    """返回 (需要人工确认, 原因摘要)。需要确认时第一个元素为 True。"""
+    try:
+        safe_name = _sanitize_tool_name(tool_name)
+        prompt = (
+            "你是安全复核器。判断下面操作是否可能造成较大风险。\n"
+            "若需要人工确认，只输出 RISKY:原因；否则输出 SAFE:原因。\n\n"
+            "---BEGIN OPERATION---\n"
+            f"Tool: {safe_name}\n"
+            f"Arguments: {json.dumps(args, ensure_ascii=False, default=str)[:1200]}\n"
+            "---END OPERATION---\n\n"
+            "请评估以上操作。"
+        )
+        resp = await fast_adapter.chat(
+            [
+                {"role": "system", "content": "只输出一行，格式必须是 SAFE:... 或 RISKY:..."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.0,
+        )
+        txt = (resp.content or "").strip()
+        upper = txt.upper()
+        if upper.startswith("RISKY:"):
+            return True, (txt.split(":", 1)[1] or "存在潜在风险").strip()
+        return False, (txt.split(":", 1)[1] if ":" in txt else txt or "风险较低，可直接执行").strip()
+    except Exception:
+        return True, "快速复核异常，已转为人工确认以保证安全。"
+
+
 def check_tool_call(
     tool_name: str,
     args: dict,
@@ -177,5 +221,10 @@ def human_confirmation_message(tool_name: str, args: dict) -> str:
     return f"助手请求执行：{label}。请确认是否继续。"
 
 
+_MAX_APPROVED_KEYS = 50
+
+
 def register_approval(session: SessionState, ctx: InvocationContext, tool_name: str, args: dict) -> None:
     session.approved_write_keys.append(ctx.approved_key(tool_name, args))
+    if len(session.approved_write_keys) > _MAX_APPROVED_KEYS:
+        session.approved_write_keys = session.approved_write_keys[-_MAX_APPROVED_KEYS:]

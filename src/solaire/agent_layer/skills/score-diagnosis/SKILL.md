@@ -7,7 +7,7 @@ metadata:
   author: solaire-builtin
   version: "1.1"
   label: 成绩诊断报告
-  tool_patterns: "analysis.* memory.* agent.*"
+  tool_patterns: "analysis.list_datasets analysis.list_builtins analysis.run_builtin analysis.save_script analysis.run_script analysis.get_job agent.switch_focus agent.activate_skill agent.read_skill_reference agent.enter_plan_mode agent.exit_plan_mode agent.set_task_plan agent.update_task_step agent.run_subtask agent.run_tool_pipeline memory.read_index memory.read_topic memory.search file.read file.list file.search"
   suggested_user_input: 请根据当前项目里已有的考试成绩，帮我做一份成绩诊断要点。
 ---
 

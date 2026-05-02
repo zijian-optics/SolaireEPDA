@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -13,24 +15,42 @@ from solaire.agent_layer.cancel_signal import clear_cancel, is_cancelled
 from solaire.agent_layer.compactor import summarize_tool_result
 from solaire.agent_layer.context import ContextManager, tool_result_to_content
 from solaire.agent_layer.guardrails import load_safety_mode, register_approval
+from solaire.agent_layer.llm.adapter import LLMAdapter
 from solaire.agent_layer.llm.router import ModelRouter, load_llm_settings
-from solaire.agent_layer.history_writer import emit_memory_after_assistant_turn
+
 from solaire.agent_layer.models import ChatMessage, InvocationContext, SessionState
-from solaire.agent_layer.plan_document import load_plan_steps_from_rel_path
+from solaire.agent_layer.plan_document import (
+    load_plan_steps_from_rel_path,
+    normalize_rel_path,
+    validate_agent_plan_rel_path,
+)
 from solaire.agent_layer.task_tracker import set_plan
 from solaire.agent_layer.registry import (
     invoke_registered_tool,
     openai_tools_payload,
     select_tools_for_turn,
+    tool_descriptions_for_prompt,
 )
 from solaire.agent_layer.session import save_session
 from solaire.agent_layer.tools import analysis_tools
-from solaire.agent_layer.tool_executor import run_draft_tool_loop
+from solaire.agent_layer.tool_executor import DraftToolContext, run_draft_tool_loop
+from solaire.agent_layer.utils import tool_calls_signature
+from solaire.agent_layer.llm.token_budget import estimate_messages_tokens
+from solaire.agent_layer.llm.anthropic_messages import AnthropicMessagesAdapter
+from solaire.agent_layer.llm.openai_responses import OpenAIResponsesAdapter
+from solaire.agent_layer.llm.prompt_cache import hash_messages_slice_sha12, hash_text_sha12, hash_tools_payload_sha12
+from solaire.agent_layer.prompts import (
+    build_stable_system_prompt,
+    build_tools_system_block,
+    dynamic_source_hashes,
+    format_page_context_brief,
+    whitelist_project_ctx_for_prompt,
+)
+from solaire.agent_layer.task_tracker import build_task_plan_dynamic_block
+
+logger = logging.getLogger(__name__)
 
 EmitFn = Callable[[str, dict[str, Any]], Awaitable[None]]
-
-# 纯文本因 length 截断时的自动续写次数上限（费用/防失控预算，非模型规范值）；应先保证 max_tokens 与流式 finish_reason 兜底
-MAX_AUTO_CONTINUES = 6
 
 
 def _thinking_for_round(round_idx: int) -> str:
@@ -56,7 +76,7 @@ def _tool_calls_arguments_json_ok(tool_calls: list[dict[str, Any]]) -> bool:
 
 
 async def _llm_round_call(
-    adapter: Any,
+    adapter: LLMAdapter,
     api_messages: list[dict[str, Any]],
     tools_payload: list[dict[str, Any]],
     *,
@@ -88,6 +108,7 @@ async def _llm_round_call(
                 tool_calls = list(chunk.raw_tool_calls or [])
                 finish_reason = chunk.finish_reason
     except Exception:
+        logger.warning("LLM streaming failed, falling back to non-streaming chat", exc_info=True)
         resp = await adapter.chat(
             api_messages, tools=tools_payload, temperature=temperature, max_tokens=max_tokens
         )
@@ -125,14 +146,12 @@ async def _llm_round_call(
 
 def _rebuild_tools(
     session: SessionState,
-    current_page: str | None,
     skill_id: str | None,
     include_subtask: bool,
     project_root: Path | None = None,
 ) -> tuple[list[Any], list[dict[str, Any]]]:
-    """Rebuild tool selection (e.g. after focus switch)."""
+    """Rebuild tool selection（仅随显式聚焦域 / 计划模式 / 技能变化，与 App 界面无关）。"""
     tools_selected = select_tools_for_turn(
-        current_page=current_page,
         skill_id=skill_id,
         include_subtask=include_subtask,
         current_focus=session.current_focus or None,
@@ -140,6 +159,148 @@ def _rebuild_tools(
         plan_mode_active=session.plan_mode_active,
     )
     return tools_selected, openai_tools_payload(tools_selected)
+
+
+async def _resolve_plan_and_exec_path(
+    project_root: Path,
+    session: SessionState,
+    project_ctx: dict[str, Any],
+    emit: EmitFn,
+) -> bool:
+    """Resolve plan clear/execution paths from project_ctx. Returns True if should abort turn."""
+    raw_clear = project_ctx.get("_clear_pending_plan_path")
+    if isinstance(raw_clear, str) and raw_clear.strip():
+        cnorm = normalize_rel_path(raw_clear.strip())
+        pend = session.pending_plan_path
+        if pend and normalize_rel_path(pend) == cnorm:
+            session.pending_plan_path = None
+            session.execution_plan_path = None
+            session.touch()
+
+    raw_exec = project_ctx.get("_execution_plan_path")
+    if not (isinstance(raw_exec, str) and raw_exec.strip()):
+        return False
+
+    ep = normalize_rel_path(raw_exec.strip())
+    if not ep:
+        await emit("error", {"code": "invalid_plan", "message": "执行计划路径无效。"})
+        save_session(project_root, session)
+        await emit("done", {"usage": {}})
+        return True
+    ok_plan, plan_err = validate_agent_plan_rel_path(project_root, ep)
+    if not ok_plan:
+        await emit("error", {"code": "invalid_plan", "message": plan_err})
+        save_session(project_root, session)
+        await emit("done", {"usage": {}})
+        return True
+    pend = session.pending_plan_path
+    if pend is None or normalize_rel_path(pend) != ep:
+        await emit(
+            "error",
+            {
+                "code": "plan_not_approved",
+                "message": "请先在对话中生成计划，并在界面点击「执行」后再运行；若计划已变更请重新生成。",
+            },
+        )
+        save_session(project_root, session)
+        await emit("done", {"usage": {}})
+        return True
+    session.execution_plan_path = ep
+    steps = load_plan_steps_from_rel_path(project_root, ep)
+    if steps:
+        set_plan(session, steps)
+        await emit("task_update", {"steps": list(session.task_plan)})
+    session.touch()
+    return False
+
+
+async def _handle_confirmation_resume(
+    *,
+    project_root: Path,
+    session: SessionState,
+    ctx: InvocationContext,
+    confirm_action_id: str,
+    confirm_accepted: bool,
+    emit: EmitFn,
+) -> str | None:
+    """Handle confirmation resume. Returns user_message override (or None on early exit)."""
+    if confirm_accepted is None:
+        confirm_accepted = True
+    pending = session.pending_confirmations.pop(confirm_action_id, None)
+    if pending is None:
+        await emit("error", {"code": "unknown_action", "message": "无效或已过期的确认项"})
+        save_session(project_root, session)
+        await emit("done", {"usage": {}})
+        return None
+    if confirm_accepted is False:
+        await emit("text_delta", {"text": "已取消该操作。"})
+        session.draft_assistant = None
+        session.draft_tool_results = []
+        save_session(project_root, session)
+        await emit("done", {"usage": {}})
+        return None
+    register_approval(session, ctx, pending.tool_name, pending.arguments)
+    ran_ok = True
+    if pending.tool_name == "analysis.save_script" and pending.arguments.get("code"):
+        ok, err = analysis_tools.validate_python_syntax(str(pending.arguments["code"]))
+        if not ok:
+            ran_ok = False
+            session.draft_tool_results.append(
+                {
+                    "tool_call_id": pending.tool_call_id,
+                    "name": pending.tool_name,
+                    "content": json.dumps(
+                        {"tool": pending.tool_name, "error": err},
+                        ensure_ascii=False,
+                    ),
+                }
+            )
+            append_audit(
+                project_root,
+                session_id=session.session_id,
+                tool_name=pending.tool_name,
+                status="failed",
+                detail={"confirmed": True, "syntax": err},
+            )
+            await emit(
+                "tool_result",
+                {
+                    "tool_name": pending.tool_name,
+                    "status": "failed",
+                    "summary": err[:200],
+                },
+            )
+    if ran_ok:
+        tr = invoke_registered_tool(pending.tool_name, pending.arguments, ctx)
+        payload = tr.data if tr.status == "succeeded" else {"error": tr.error_message, "error_code": tr.error_code}
+        session.draft_tool_results.append(
+            {
+                "tool_call_id": pending.tool_call_id,
+                "name": pending.tool_name,
+                "content": tool_result_to_content(pending.tool_name, payload),
+            }
+        )
+        append_audit(
+            project_root,
+            session_id=session.session_id,
+            tool_name=pending.tool_name,
+            status=tr.status,
+            detail={"confirmed": True},
+        )
+        await emit(
+            "tool_result",
+            {
+                "tool_name": pending.tool_name,
+                "status": tr.status,
+                "summary": summarize_tool_result(pending.tool_name, payload),
+            },
+        )
+        if ctx.session and pending.tool_name in (
+            "agent.set_task_plan",
+            "agent.update_task_step",
+        ):
+            await emit("task_update", {"steps": list(ctx.session.task_plan)})
+    return ""
 
 
 async def run_agent_turn(
@@ -178,29 +339,21 @@ async def run_agent_turn(
     else:
         skill_id = None
     pc = project_ctx.get("page_context")
-    current_page: str | None = None
+    page_ctx_dict: dict[str, Any] = {}
     if isinstance(pc, dict):
-        cp = pc.get("current_page")
-        current_page = str(cp) if cp else None
+        page_ctx_dict = {str(k): v for k, v in pc.items() if v is not None}
 
     from solaire.agent_layer import skills as skills_mod
 
     sk = skills_mod.get_skill(skill_id, project_root) if skill_id else None
     skill_guidance = sk.prompt_fragment if sk else None
     skill_catalog = skills_mod.build_skill_catalog(project_root)
+    page_context_brief = format_page_context_brief(page_ctx_dict if page_ctx_dict else None)
 
-    raw_exec = project_ctx.get("_execution_plan_path")
-    if isinstance(raw_exec, str) and raw_exec.strip():
-        ep = raw_exec.strip()
-        session.execution_plan_path = ep
-        steps = load_plan_steps_from_rel_path(project_root, ep)
-        if steps:
-            set_plan(session, steps)
-            await emit("task_update", {"steps": list(session.task_plan)})
-        session.touch()
+    if await _resolve_plan_and_exec_path(project_root, session, project_ctx, emit):
+        return
 
     tools_selected = select_tools_for_turn(
-        current_page=current_page,
         skill_id=skill_id,
         include_subtask=cm.include_subtask_tool,
         current_focus=session.current_focus or None,
@@ -209,96 +362,31 @@ async def run_agent_turn(
     )
     tools_payload = openai_tools_payload(tools_selected)
 
+    dtc = DraftToolContext(
+        project_root=project_root,
+        session=session,
+        ctx=ctx,
+        safety_mode=safety_mode,
+        adapter=adapter,
+        fast_adapter=fast_adapter,
+        emit=emit,
+        tools=tools_selected,
+    )
+
     async def process_draft_loop() -> bool:
-        return await run_draft_tool_loop(
+        return await run_draft_tool_loop(dtc=dtc)
+
+    if confirm_action_id is not None:
+        user_message = await _handle_confirmation_resume(
             project_root=project_root,
             session=session,
             ctx=ctx,
-            safety_mode=safety_mode,
-            adapter=adapter,
-            fast_adapter=fast_adapter,
+            confirm_action_id=confirm_action_id,
+            confirm_accepted=confirm_accepted or True,
             emit=emit,
         )
-
-    # --- confirmation resume ---
-    if confirm_action_id is not None:
-        if confirm_accepted is None:
-            confirm_accepted = True
-        pending = session.pending_confirmations.pop(confirm_action_id, None)
-        if pending is None:
-            await emit("error", {"code": "unknown_action", "message": "无效或已过期的确认项"})
-            save_session(project_root, session)
-            await emit("done", {"usage": {}})
+        if user_message is None:
             return
-        if confirm_accepted is False:
-            await emit("text_delta", {"text": "已取消该操作。"})
-            session.draft_assistant = None
-            session.draft_tool_results = []
-            save_session(project_root, session)
-            await emit("done", {"usage": {}})
-            return
-        register_approval(session, ctx, pending.tool_name, pending.arguments)
-        ran_ok = True
-        if pending.tool_name == "analysis.save_script" and pending.arguments.get("code"):
-            ok, err = analysis_tools.validate_python_syntax(str(pending.arguments["code"]))
-            if not ok:
-                ran_ok = False
-                session.draft_tool_results.append(
-                    {
-                        "tool_call_id": pending.tool_call_id,
-                        "name": pending.tool_name,
-                        "content": json.dumps(
-                            {"tool": pending.tool_name, "error": err},
-                            ensure_ascii=False,
-                        ),
-                    }
-                )
-                append_audit(
-                    project_root,
-                    session_id=session.session_id,
-                    tool_name=pending.tool_name,
-                    status="failed",
-                    detail={"confirmed": True, "syntax": err},
-                )
-                await emit(
-                    "tool_result",
-                    {
-                        "tool_name": pending.tool_name,
-                        "status": "failed",
-                        "summary": err[:200],
-                    },
-                )
-        if ran_ok:
-            tr = invoke_registered_tool(pending.tool_name, pending.arguments, ctx)
-            payload = tr.data if tr.status == "succeeded" else {"error": tr.error_message, "error_code": tr.error_code}
-            session.draft_tool_results.append(
-                {
-                    "tool_call_id": pending.tool_call_id,
-                    "name": pending.tool_name,
-                    "content": tool_result_to_content(pending.tool_name, payload),
-                }
-            )
-            append_audit(
-                project_root,
-                session_id=session.session_id,
-                tool_name=pending.tool_name,
-                status=tr.status,
-                detail={"confirmed": True},
-            )
-            await emit(
-                "tool_result",
-                {
-                    "tool_name": pending.tool_name,
-                    "status": tr.status,
-                    "summary": summarize_tool_result(pending.tool_name, payload),
-                },
-            )
-            if ctx.session and pending.tool_name in (
-                "agent.set_task_plan",
-                "agent.update_task_step",
-            ):
-                await emit("task_update", {"steps": list(ctx.session.task_plan)})
-        user_message = None
 
     if user_message is not None and user_message.strip():
         session.messages.append(ChatMessage(role="user", content=user_message.strip()))
@@ -312,51 +400,192 @@ async def run_agent_turn(
 
     usage_acc: dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     text = ""
-    auto_continue_count = 0
-    for _round in range(max_llm_rounds):
+    repeat_count = 0
+    last_tool_calls_sig = ""
+    peak_context_est = 0
+    loop_round = -1
+    prev_plan_mode_for_tools = session.plan_mode_active
+
+    stable_txt = build_stable_system_prompt()
+    public_ctx = {k: v for k, v in full_ctx.items() if not str(k).startswith("_") and k != "page_context"}
+    # 首次构建（焦点切换后循环内会重建 tools_block_txt / dynamic_txt）
+    _desc = tool_descriptions_for_prompt(tools_selected)
+    tools_block_txt = build_tools_system_block(_desc)
+    _need_rebuild_prompts = False
+
+    # 缓存 system_parts：仅当 tools/focus/plan_mode/task_plan 变化时才重建，
+    # 避免每轮都产生不同的字节序列破坏 DeepSeek KV Cache 前缀匹配。
+    # 聚焦信息仅在首轮注入；此后模型从对话历史即可知悉。
+    _include_focus = len(session.messages) == 0
+    _sys_prefix, _sys_suffix = cm.build_system_parts(
+        full_ctx,
+        session=session,
+        tools=tools_selected,
+        skill_guidance=skill_guidance,
+        current_focus=session.current_focus or None,
+        plan_mode_active=session.plan_mode_active,
+        execution_plan_path=session.execution_plan_path,
+        skill_catalog=skill_catalog,
+        page_context_brief=None,
+        include_focus_info=_include_focus,
+    )
+    _last_tp = hashlib.sha256(
+        json.dumps(session.task_plan, sort_keys=True, ensure_ascii=False).encode()
+    ).hexdigest()
+
+    while True:
+        loop_round += 1
         if is_cancelled(session.session_id):
             clear_cancel(session.session_id)
             await emit("error", {"code": "cancelled", "message": "已按您的操作停止。"})
-            await emit("done", {"usage": usage_acc, "cancelled": True})
+            await emit(
+                "done",
+                {"usage": usage_acc, "cancelled": True, "context_tokens_est": peak_context_est},
+            )
             save_session(project_root, session)
             return
 
-        await emit("thinking", {"message": _thinking_for_round(_round)})
-        system_content = cm.build_system_content(
-            full_ctx,
-            tools=tools_selected,
-            skill_guidance=skill_guidance,
-            current_focus=session.current_focus or None,
-            plan_mode_active=session.plan_mode_active,
-            execution_plan_path=session.execution_plan_path,
-            skill_catalog=skill_catalog,
-        )
+        await emit("thinking", {"message": _thinking_for_round(loop_round)})
+
+        _rebuild = _need_rebuild_prompts
+
+        if _need_rebuild_prompts:
+            _desc = tool_descriptions_for_prompt(tools_selected)
+            tools_block_txt = build_tools_system_block(_desc)
+            _need_rebuild_prompts = False
+
+        _tp_now = hashlib.sha256(
+            json.dumps(session.task_plan, sort_keys=True, ensure_ascii=False).encode()
+        ).hexdigest()
+        if _tp_now != _last_tp:
+            _rebuild = True
+            _last_tp = _tp_now
+
+        if _rebuild:
+            _sys_prefix, _sys_suffix = cm.build_system_parts(
+                full_ctx,
+                session=session,
+                tools=tools_selected,
+                skill_guidance=skill_guidance,
+                current_focus=session.current_focus or None,
+                plan_mode_active=session.plan_mode_active,
+                execution_plan_path=session.execution_plan_path,
+                skill_catalog=skill_catalog,
+                page_context_brief=None,
+                include_focus_info=_include_focus,
+            )
+
         api_messages = cm.build_messages(
-            system_content=system_content,
+            system_prefix=_sys_prefix,
+            system_suffix=_sys_suffix,
             session=session,
             user_message="",
         )
         if api_messages and api_messages[-1].get("role") == "user" and api_messages[-1].get("content") == "":
             api_messages.pop()
 
+        peak_context_est = max(peak_context_est, estimate_messages_tokens(api_messages))
+
         try:
             full_content, streamed_tools, udelta, round_reasoning, finish_reason = await _llm_round_call(
                 adapter,
                 api_messages,
                 tools_payload,
-                temperature=0.3,
+                temperature=settings.temperature,
                 emit=emit,
                 max_tokens=max_tokens,
             )
         except Exception as e:
             await emit("error", {"code": "llm_error", "message": str(e)})
             save_session(project_root, session)
-            await emit("done", {"usage": usage_acc})
+            await emit("done", {"usage": usage_acc, "context_tokens_est": peak_context_est})
             return
+
+        provider_system_shape = "dual_system_messages"
+        if isinstance(adapter, AnthropicMessagesAdapter):
+            provider_system_shape = "merged_system"
+        elif isinstance(adapter, OpenAIResponsesAdapter):
+            provider_system_shape = "responses_instructions"
+
+        instructions_sha12: str | None = None
+        if isinstance(adapter, OpenAIResponsesAdapter):
+            instructions_sha12 = hash_text_sha12(f"{_sys_prefix}\n\n{_sys_suffix}")
+
+        task_blk = build_task_plan_dynamic_block(session)
+        wh_ctx = whitelist_project_ctx_for_prompt(public_ctx)
+        dyn_hs = dynamic_source_hashes(
+            project_ctx=wh_ctx,
+            skill_catalog=skill_catalog,
+            task_plan_block=task_blk,
+            page_context_brief=page_context_brief,
+            plan_mode_active=session.plan_mode_active,
+            execution_plan_path=session.execution_plan_path,
+        )
+
+        round_metrics: dict[str, Any] = {
+            "round_index": loop_round,
+            "stable_sha12": hash_text_sha12(stable_txt),
+            "cacheable_prefix_sha12": hash_text_sha12(_sys_prefix),
+            "tools_block_sha12": hash_text_sha12(tools_block_txt),
+            "dynamic_sha12": hash_text_sha12(_sys_suffix),
+            "tool_schema_sha12": hash_tools_payload_sha12(tools_payload),
+            "tool_count": len(tools_payload),
+            "system_chars": len(_sys_prefix) + len(_sys_suffix),
+            "cacheable_prefix_chars": len(_sys_prefix),
+            "est_prompt_tokens": estimate_messages_tokens(
+                [{"role": "system", "content": _sys_prefix}, {"role": "system", "content": _sys_suffix}]
+            ),
+            "history_sha12": hash_messages_slice_sha12(api_messages, start=2),
+            "provider_system_shape": provider_system_shape,
+            **dyn_hs,
+        }
+        if instructions_sha12 is not None:
+            round_metrics["instructions_sha12"] = instructions_sha12
+
+        for uk in (
+            "prompt_cache_hit_tokens",
+            "prompt_cache_miss_tokens",
+            "prompt_cache_write_tokens",
+            "prompt_tokens",
+            "completion_tokens",
+            "total_tokens",
+        ):
+            if uk in udelta:
+                try:
+                    round_metrics[uk] = int(udelta[uk] or 0)
+                except (TypeError, ValueError):
+                    pass
+
+        await emit("context_metrics", round_metrics)
+
         for kk, vv in udelta.items():
-            usage_acc[kk] = usage_acc.get(kk, 0) + vv
+            try:
+                iv = int(vv)
+            except (TypeError, ValueError):
+                continue
+            usage_acc[kk] = usage_acc.get(kk, 0) + iv
 
         if streamed_tools:
+            sig = tool_calls_signature(streamed_tools)
+            if sig == last_tool_calls_sig:
+                repeat_count += 1
+            else:
+                repeat_count = 0
+                last_tool_calls_sig = sig
+            if repeat_count >= max_llm_rounds:
+                msg = "检测到助手重复发起相同操作，已暂停本轮。"
+                await emit("error", {"code": "repeat_loop", "message": msg})
+                session.messages.append(
+                    ChatMessage(
+                        role="assistant",
+                        content=msg,
+                        reasoning_content=round_reasoning or "",
+                    )
+                )
+                session.touch()
+                text = msg
+                break
+
             # Phase 1: check if switch_focus was called; rebuild tools if so
             focus_switched = False
             for tc in streamed_tools:
@@ -378,11 +607,14 @@ async def run_agent_turn(
             if stopped:
                 return
 
-            # Phase 1: if focus was switched during this round, rebuild tool set
-            if focus_switched or session.current_focus:
+            plan_mode_changed = session.plan_mode_active != prev_plan_mode_for_tools
+            if focus_switched or plan_mode_changed:
                 tools_selected, tools_payload = _rebuild_tools(
-                    session, current_page, skill_id, cm.include_subtask_tool, project_root
+                    session, skill_id, cm.include_subtask_tool, project_root
                 )
+                dtc.tools = tools_selected  # keep dtc in sync for tool validation
+                _need_rebuild_prompts = True
+                prev_plan_mode_for_tools = session.plan_mode_active
                 if focus_switched:
                     await emit("focus_changed", {"focus": session.current_focus})
 
@@ -400,40 +632,43 @@ async def run_agent_turn(
                 if steps:
                     set_plan(session, steps)
                     await emit("task_update", {"steps": list(session.task_plan)})
+                plan_norm = normalize_rel_path(plan_path)
                 await emit("plan_ready", {
-                    "plan_file_path": plan_path,
+                    "plan_file_path": plan_norm,
                     "content": plan_content,
                 })
+                session.pending_plan_path = plan_norm
+                session.execution_plan_path = None
                 session.current_plan_path = None
 
             continue
 
-        # No tool calls: check finish_reason for auto-continuation (Phase 3)
-        if finish_reason == "length" and auto_continue_count < MAX_AUTO_CONTINUES:
-            session.messages.append(ChatMessage(role="assistant", content=full_content or ""))
-            session.messages.append(ChatMessage(role="user", content="请继续上面未完成的内容"))
-            await emit("thinking", {"message": "回复较长，正在继续生成…"})
-            auto_continue_count += 1
+        if finish_reason == "length":
+            session.messages.append(
+                ChatMessage(
+                    role="assistant",
+                    content=full_content or "",
+                    reasoning_content=round_reasoning or "",
+                )
+            )
             session.touch()
-            continue
+            text = (full_content or "").strip()
+            break
 
         text = (full_content or "").strip()
         if text:
-            session.messages.append(ChatMessage(role="assistant", content=text))
+            session.messages.append(
+                ChatMessage(
+                    role="assistant",
+                    content=text,
+                    reasoning_content=round_reasoning or "",
+                )
+            )
             session.touch()
         break
 
-    await emit("done", {"usage": usage_acc})
+    await emit("done", {"usage": usage_acc, "context_tokens_est": peak_context_est})
     save_session(project_root, session)
-
-    if text:
-        await emit_memory_after_assistant_turn(
-            project_root,
-            session,
-            user_message=user_message,
-            assistant_text=text,
-            emit=emit,
-        )
 
 
 async def iter_agent_turn_sse(

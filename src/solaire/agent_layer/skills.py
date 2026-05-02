@@ -102,28 +102,44 @@ def _project_skills_dir(project_root: Path) -> Path:
     return project_root / ".solaire" / "agent" / "skills"
 
 
-_cached_skills: dict[str, SkillDescriptor] = {}
-_cache_stamp: float = 0
+class _SkillCache:
+    def __init__(self):
+        self._skills: dict[str, SkillDescriptor] = {}
+        self._stamp: float = 0
+
+    def get(self, project_root: Path | None = None) -> dict[str, SkillDescriptor]:
+        import time
+
+        now = time.time()
+        if self._skills and (now - self._stamp) < 10:
+            return self._skills
+
+        builtin = _scan_skill_dir(_builtin_skills_dir())
+        result = {s.name: s for s in builtin}
+
+        if project_root is not None:
+            project = _scan_skill_dir(_project_skills_dir(project_root))
+            for s in project:
+                result[s.name] = s
+
+        self._skills = result
+        self._stamp = now
+        return result
+
+    def clear(self) -> None:
+        self._skills = {}
+        self._stamp = 0
+
+
+_skill_cache = _SkillCache()
 
 
 def _ensure_cache(project_root: Path | None = None) -> dict[str, SkillDescriptor]:
-    global _cached_skills, _cache_stamp
-    import time
-    now = time.time()
-    if _cached_skills and (now - _cache_stamp) < 10:
-        return _cached_skills
+    return _skill_cache.get(project_root)
 
-    builtin = _scan_skill_dir(_builtin_skills_dir())
-    result = {s.name: s for s in builtin}
 
-    if project_root is not None:
-        project = _scan_skill_dir(_project_skills_dir(project_root))
-        for s in project:
-            result[s.name] = s
-
-    _cached_skills = result
-    _cache_stamp = now
-    return result
+def clear_skill_cache() -> None:
+    _skill_cache.clear()
 
 
 def get_skill(skill_id: str | None, project_root: Path | None = None) -> SkillDescriptor | None:
@@ -152,7 +168,7 @@ def build_skill_catalog(project_root: Path | None = None) -> str:
     if not cache:
         return ""
     lines: list[str] = []
-    for s in cache.values():
+    for s in sorted(cache.values(), key=lambda x: x.name):
         lines.append(f"- **{s.label or s.name}**（`{s.name}`）：{s.description}")
     return "\n".join(lines)
 

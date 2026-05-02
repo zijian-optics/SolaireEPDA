@@ -7,7 +7,7 @@ metadata:
   author: solaire-builtin
   version: "1.0"
   label: 创建试卷模板
-  tool_patterns: "exam.list_templates exam.get_template_preview file.write file.read file.edit file.list memory.* agent.*"
+  tool_patterns: "exam.list_templates exam.get_template_preview file.write file.read file.edit file.list file.search agent.switch_focus agent.activate_skill agent.read_skill_reference agent.enter_plan_mode agent.exit_plan_mode agent.set_task_plan agent.update_task_step agent.run_subtask agent.run_tool_pipeline memory.read_index memory.read_topic memory.search"
   suggested_user_input: 请帮我新建一份试卷模板，包含选择题与解答题两个考查小节，并写入项目。
 ---
 

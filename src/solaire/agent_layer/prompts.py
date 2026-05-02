@@ -2,8 +2,41 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
+
+# 进入提示词的项目级字段白名单（减小动态层抖动；其它键仅用于 HTTP/观测不下发 LLM）
+PROJECT_CTX_WHITELIST: frozenset[str] = frozenset(
+    {"project_label", "exam_summary", "template_count", "graph_node_count"}
+)
+
+
+def whitelist_project_ctx_for_prompt(project_ctx: dict[str, Any]) -> dict[str, Any]:
+    """只保留白名单字段，键名排序后参与拼装，利于稳定序列化。"""
+    keys = sorted(k for k in project_ctx if k in PROJECT_CTX_WHITELIST and k in project_ctx)
+    return {k: project_ctx[k] for k in keys}
+
+
+def format_page_context_brief(page_context: dict[str, Any] | None) -> str:
+    """短动态块：教师当前界面摘要（不得参与工具集选择）。"""
+    if not page_context:
+        return ""
+    cur = page_context.get("current_page")
+    sel_t = page_context.get("selected_resource_type")
+    sel_id = page_context.get("selected_resource_id")
+    summ = page_context.get("summary")
+    lines: list[str] = ["## 界面速览"]
+    if cur:
+        lines.append(f"- 当前：**{cur}**")
+    else:
+        lines.append("- 当前：未指定")
+    if sel_id or sel_t:
+        st = sel_t or ""
+        lines.append(f"- 选中资源：**{st}** `{sel_id or ''}`".strip())
+    if summ and str(summ).strip():
+        lines.append(f"- 教师备注：**{str(summ).strip()[:500]}**")
+    return "\n".join(lines)
 
 
 def _layer_role() -> str:
@@ -27,19 +60,6 @@ def _layer_goal() -> str:
     )
 
 
-def _ui_module_label(code: str) -> str:
-    return {
-        "compose": "组卷",
-        "bank": "题库",
-        "template": "试卷模板",
-        "graph": "知识图谱",
-        "analysis": "成绩分析",
-        "help": "使用手册",
-        "log": "运行日志",
-        "settings": "设置",
-    }.get(code, code)
-
-
 _FOCUS_LABEL: dict[str, str] = {
     "general": "通用",
     "bank": "题库管理",
@@ -51,28 +71,16 @@ _FOCUS_LABEL: dict[str, str] = {
 
 
 def _layer_context(project_ctx: dict[str, Any]) -> str:
+    # 仅输出白名单内的项目级统计；界面信息放在 format_page_context_brief
+    ctx = whitelist_project_ctx_for_prompt(project_ctx)
     lines = ["## 项目状态"]
-    lines.append(f"- 项目路径：{project_ctx.get('project_label', '当前项目')}")
-    if exams := project_ctx.get("exam_summary"):
+    lines.append(f"- 项目路径：{ctx.get('project_label', '当前项目')}")
+    if exams := ctx.get("exam_summary"):
         lines.append(f"- 考试数据概览：{exams}")
-    if "template_count" in project_ctx:
-        lines.append(f"- 可用试卷模板数量：{project_ctx.get('template_count')}")
-    if "graph_node_count" in project_ctx:
-        lines.append(f"- 知识图谱节点数量：{project_ctx.get('graph_node_count')}")
-    pc = project_ctx.get("page_context")
-    if isinstance(pc, dict) and pc:
-        lines.append("## 教师当前界面")
-        cp = pc.get("current_page")
-        if cp:
-            lines.append(f"- 所在模块：{_ui_module_label(str(cp))}")
-        sm = pc.get("summary")
-        if sm:
-            lines.append(f"- 场景说明：{sm}")
-        rt = pc.get("selected_resource_type")
-        ri = pc.get("selected_resource_id")
-        if rt or ri:
-            lines.append(f"- 当前对象：{rt or '—'} / {ri or '—'}")
-        lines.append("- 宜结合上述场景作答；跨领域能力可通过 `agent.switch_focus` 切换聚焦域获取。")
+    if "template_count" in ctx:
+        lines.append(f"- 可用试卷模板数量：{ctx.get('template_count')}")
+    if "graph_node_count" in ctx:
+        lines.append(f"- 知识图谱节点数量：{ctx.get('graph_node_count')}")
     return "\n".join(lines)
 
 
@@ -149,30 +157,11 @@ def _layer_compose_hints() -> str:
 def _layer_plan_mode() -> str:
     return (
         "## 计划模式（当前激活）\n"
-        "你正处于计划模式（对齐 Cursor 等 harness：先只读探索，再落盘结构化计划文件）。\n"
-        "流程：\n"
-        "1. 仅允许调用只读工具了解当前状况。\n"
-        "2. 禁止执行写入或破坏性操作；**唯一例外**是使用 `file.write` 将计划写入 `.solaire/agent/plans/` 下，"
-        "或使用 `file.edit` 修正该目录下已有计划文件。\n"
-        "3. 计划文件须为 `.md`，且以 **YAML 围栏** 开头：首行 `---`，随后 YAML（须含 `name`、`overview`、`todos`），"
-        "再以独占一行的 `---` 结束围栏；围栏后为正文（任务分解、风险、验收等）。\n"
-        "`todos` 为列表，建议每项含 `id`、`content`、`status`（如 pending）。\n"
-        "4. 落盘后调用 `agent.exit_plan_mode`，参数 `plan_file_path` 为本次写入的**项目内相对路径**（如 `.solaire/agent/plans/xxx.md`）。\n"
-        "\n"
-        "结构示例（占位须替换为真实内容）：\n"
-        "```\n"
-        "---\n"
-        "name: 计划标题\n"
-        "overview: 一句话概述\n"
-        "todos:\n"
-        "  - id: step-1\n"
-        "    content: 第一步要做什么\n"
-        "    status: pending\n"
-        "---\n"
-        "\n"
-        "## 正文\n"
-        "…\n"
-        "```\n"
+        "流程：先只读探索 → 将计划写入 `.solaire/agent/plans/{name}.md` → 调用 `agent.exit_plan_mode`。\n"
+        "- 计划文件须以 YAML 围栏开头（`---`），含 `name`、`overview`、`todos` 字段，再以 `---` 结束。\n"
+        "- todos 为列表，每项含 `id`、`content`、`status`（如 pending）。\n"
+        "- 仅允许只读工具与 `.solaire/agent/plans/` 下的 file.write / file.edit。\n"
+        "- 落盘后调用 `agent.exit_plan_mode`，参数 `plan_file_path` 为写入的项目内相对路径。\n"
     )
 
 
@@ -184,11 +173,6 @@ def _layer_plan_execution(execution_plan_path: str) -> str:
         "- 请严格按下方「当前任务步骤」逐项推进；每完成一步请调用 `agent.update_task_step` 更新序号与状态。\n"
         "- 全部步骤完成后再作总结答复。\n"
     )
-
-
-def _layer_memory(memory_index_excerpt: str) -> str:
-    body = memory_index_excerpt.strip() or "（暂无记忆索引）"
-    return f"## 记忆索引（提示性质，引用前须用工具核对）\n{body}"
 
 
 def _layer_skill_catalog(skill_catalog: str | None) -> str:
@@ -251,10 +235,95 @@ def _apply_overrides(base_prompt: str, overrides: str) -> str:
     return result
 
 
+def build_stable_system_prompt() -> str:
+    """不随焦点/页面/计划状态变化的系统提示核心（利于稳定前缀与缓存）。"""
+    parts = [
+        _layer_role(),
+        _layer_goal(),
+        _layer_constraints(),
+        _layer_risk_policy(),
+        _layer_output_format(),
+        _layer_decision_rules(),
+    ]
+    return "\n\n".join(parts)
+
+
+def build_tools_system_block(tool_descriptions: str) -> str:
+    """工具描述块：随焦点域变化但同一焦点内稳定。"""
+    return _layer_tools(tool_descriptions)
+
+
+def build_dynamic_system_prompt(
+    *,
+    project_ctx: dict[str, Any],
+    skill_guidance: str | None = None,
+    current_focus: str | None = None,
+    plan_mode_active: bool = False,
+    execution_plan_path: str | None = None,
+    skill_catalog: str | None = None,
+    task_plan_block: str | None = None,
+    page_context_brief: str | None = None,
+    include_focus_info: bool = True,
+) -> str:
+    """随项目摘要、计划状态变化的提示层（任务步骤与界面速览为短动态）。"""
+    chunks: list[str] = []
+    if skill_guidance and skill_guidance.strip():
+        chunks.append("## 当前协助重点\n" + skill_guidance.strip())
+    if (current_focus or "").strip() == "compose":
+        chunks.append(_layer_compose_hints())
+    if plan_mode_active:
+        chunks.append(_layer_plan_mode())
+    if execution_plan_path and execution_plan_path.strip():
+        chunks.append(_layer_plan_execution(execution_plan_path))
+    if task_plan_block and task_plan_block.strip():
+        chunks.append(task_plan_block.strip())
+    chunks.append(_layer_context(project_ctx))
+    # 聚焦态仅在首轮告知；此后模型从对话历史与工具集即可知悉
+    if include_focus_info:
+        chunks.append(_layer_focus(current_focus))
+    catalog_section = _layer_skill_catalog(skill_catalog)
+    if catalog_section:
+        chunks.append(catalog_section)
+    if page_context_brief and page_context_brief.strip():
+        chunks.append(page_context_brief.strip())
+    return "\n\n".join(chunks)
+
+
+def dynamic_source_hashes(
+    *,
+    project_ctx: dict[str, Any],
+    skill_catalog: str | None,
+    task_plan_block: str | None,
+    page_context_brief: str | None,
+    plan_mode_active: bool,
+    execution_plan_path: str | None,
+) -> dict[str, str]:
+    """分项 sha12，便于观测是哪块导致动态层变化。"""
+    from solaire.agent_layer.llm.prompt_cache import hash_text_sha12
+
+    w = whitelist_project_ctx_for_prompt(project_ctx)
+    proj_h = hash_text_sha12(json.dumps(w, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str))
+    cat_h = hash_text_sha12(skill_catalog or "")
+    plan_blk_h = hash_text_sha12(task_plan_block or "")
+    page_h = hash_text_sha12(page_context_brief or "")
+    state = {
+        "plan_mode_active": plan_mode_active,
+        "execution_plan_path": (execution_plan_path or "").strip(),
+    }
+    plan_st_h = hash_text_sha12(json.dumps(state, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+    return {
+        "project_ctx_sha12": proj_h,
+        "skill_catalog_sha12": cat_h,
+        "task_plan_sha12": plan_blk_h,
+        "page_context_sha12": page_h,
+        "plan_state_sha12": plan_st_h,
+        "dynamic_sources_sha12": hash_text_sha12(proj_h + "|" + cat_h + "|" + plan_blk_h + "|" + page_h + "|" + plan_st_h),
+    }
+
+
 def build_system_prompt(
     *,
     tool_descriptions: str,
-    memory_index_excerpt: str,
     project_ctx: dict[str, Any],
     skill_guidance: str | None = None,
     current_focus: str | None = None,
@@ -263,35 +332,82 @@ def build_system_prompt(
     skill_catalog: str | None = None,
     project_root: Path | None = None,
 ) -> str:
-    """Assemble full system prompt (protocol stack)."""
-    parts = [
-        _layer_role(),
-        _layer_goal(),
-        _layer_context(project_ctx),
-        _layer_focus(current_focus),
-        _layer_tools(tool_descriptions),
-        _layer_constraints(),
-        _layer_risk_policy(),
-        _layer_output_format(),
-        _layer_decision_rules(),
-        _layer_memory(memory_index_excerpt),
-    ]
-    if skill_guidance and skill_guidance.strip():
-        parts.insert(4, "## 当前协助重点\n" + skill_guidance.strip())
-    if (current_focus or "").strip() == "compose":
-        parts.insert(4, _layer_compose_hints())
-    if plan_mode_active:
-        parts.insert(4, _layer_plan_mode())
-    if execution_plan_path and execution_plan_path.strip():
-        parts.insert(4, _layer_plan_execution(execution_plan_path))
-    catalog_section = _layer_skill_catalog(skill_catalog)
-    if catalog_section:
-        parts.append(catalog_section)
-
-    base = "\n\n".join(parts)
+    """Assemble full system prompt (protocol stack): stable + tools_block + dynamic."""
+    stable = build_stable_system_prompt()
+    tools_block = build_tools_system_block(tool_descriptions)
+    dynamic = build_dynamic_system_prompt(
+        project_ctx=project_ctx,
+        skill_guidance=skill_guidance,
+        current_focus=current_focus,
+        plan_mode_active=plan_mode_active,
+        execution_plan_path=execution_plan_path,
+        skill_catalog=skill_catalog,
+        task_plan_block=None,
+        page_context_brief=None,
+    )
+    base = stable + "\n\n" + tools_block + "\n\n" + dynamic
 
     overrides = _load_prompt_overrides(project_root)
     if overrides:
         base = _apply_overrides(base, overrides)
 
     return base
+
+
+def build_system_prompt_cached(
+    *,
+    tool_descriptions: str,
+    project_ctx: dict[str, Any],
+    skill_guidance: str | None = None,
+    current_focus: str | None = None,
+    plan_mode_active: bool = False,
+    execution_plan_path: str | None = None,
+    skill_catalog: str | None = None,
+    task_plan_block: str | None = None,
+    page_context_brief: str | None = None,
+    project_root: Path | None = None,
+    include_focus_info: bool = True,
+) -> tuple[str, str]:
+    """返回 (cacheable_prefix, dynamic_suffix)。
+
+    DeepSeek KV Cache 按字节前缀匹配消息数组。将稳定部分（角色+约束+工具）
+    与动态部分（项目摘要/界面/计划状态）拆成两条 system 消息后，前缀在多次
+    请求间保持一致，从而命中缓存。
+    """
+    stable = build_stable_system_prompt()
+    tools_block = build_tools_system_block(tool_descriptions)
+    dynamic = build_dynamic_system_prompt(
+        project_ctx=project_ctx,
+        skill_guidance=skill_guidance,
+        current_focus=current_focus,
+        plan_mode_active=plan_mode_active,
+        execution_plan_path=execution_plan_path,
+        skill_catalog=skill_catalog,
+        task_plan_block=task_plan_block,
+        page_context_brief=page_context_brief,
+        include_focus_info=include_focus_info,
+    )
+    prefix = stable + "\n\n" + tools_block
+    overwrites = _load_prompt_overrides(project_root)
+    if overwrites:
+        prefix = _apply_overrides(prefix, overwrites)
+    return prefix, dynamic
+
+
+# Prompt layer versions for observability (incremented on semantic change)
+PROMPT_LAYER_VERSIONS: dict[str, int] = {
+    "role": 1,
+    "goal": 1,
+    "context": 1,
+    "focus": 1,
+    "tools": 1,
+    "constraints": 1,
+    "risk_policy": 1,
+    "output_format": 1,
+    "decision_rules": 1,
+    "compose_hints": 1,
+    "plan_mode": 2,
+    "plan_execution": 1,
+    "skill_catalog": 1,
+    "overrides": 1,
+}

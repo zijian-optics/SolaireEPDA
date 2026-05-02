@@ -1,15 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { FolderInput, Loader2, Save, Trash2 } from "lucide-react";
+import { FolderInput, Loader2 } from "lucide-react";
 import {
   apiAgentLlmSettingsGet,
-  apiAgentLlmSettingsPut,
   apiAgentSafetyModeGet,
   apiAgentSafetyModePut,
   apiPost,
   type AgentLlmSettingsResponse,
   type AgentSafetyModeOption,
 } from "../api/client";
+import {
+  AgentModelSettingsForm,
+  type AgentModelSettingsFormHandle,
+} from "../components/settings/AgentModelSettingsForm";
 import { ExtensionsPanel } from "../components/ExtensionsPanel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { useAgentContext } from "../contexts/AgentContext";
@@ -30,14 +33,11 @@ export function SettingsWorkspace({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [data, setData] = useState<AgentLlmSettingsResponse | null>(null);
-  const [mainModel, setMainModel] = useState("");
-  const [fastModel, setFastModel] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
-  const [accessSecret, setAccessSecret] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [safetyMode, setSafetyMode] = useState("allegro");
   const [safetyOptions, setSafetyOptions] = useState<AgentSafetyModeOption[]>([]);
   const [settingsTab, setSettingsTab] = useState("model");
+  const modelFormRef = useRef<AgentModelSettingsFormHandle>(null);
 
   useEffect(() => {
     setPageContext({
@@ -54,10 +54,6 @@ export function SettingsWorkspace({
     try {
       const [r, safety] = await Promise.all([apiAgentLlmSettingsGet(), apiAgentSafetyModeGet()]);
       setData(r);
-      setMainModel(r.main_model);
-      setFastModel(r.fast_model);
-      setBaseUrl(r.base_url);
-      setAccessSecret("");
       setSafetyMode(safety.mode);
       setSafetyOptions(safety.options ?? []);
     } catch (e) {
@@ -71,73 +67,14 @@ export function SettingsWorkspace({
     void load();
   }, [load]);
 
-  const keySourceNote = useMemo(() => {
-    if (!data) return "";
-    if (data.has_project_api_key_override && data.has_user_api_key_override) {
-      return t("settings:accessKeySourceBoth");
-    }
-    if (data.has_project_api_key_override) return t("settings:accessKeySourceProject");
-    if (data.has_user_api_key_override) return t("settings:accessKeySourceUser");
-    return "";
-  }, [data, t]);
-
-  const handleSaveRef = useRef<() => Promise<void>>(async () => {});
-
-  const handleSave = async () => {
-    if (!data) return;
-    setSaving(true);
-    setMsg(null);
-    onError(null);
-    try {
-      const body: Parameters<typeof apiAgentLlmSettingsPut>[0] = {
-        main_model: mainModel,
-        fast_model: fastModel,
-        base_url: baseUrl,
-      };
-      if (accessSecret.trim()) {
-        body.api_key = accessSecret.trim();
-      }
-      await apiAgentLlmSettingsPut(body);
-      setAccessSecret("");
-      setMsg(data.persist_scope === "project" ? t("settings:savedProject") : t("settings:savedGlobal"));
-      await load();
-    } catch (e) {
-      onError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  handleSaveRef.current = handleSave;
-
   useEffect(() => {
     const onSave = () => {
-      if (settingsTab !== "model" || !data || saving) return;
-      void handleSaveRef.current();
+      if (settingsTab !== "model" || !data || loading) return;
+      void modelFormRef.current?.save();
     };
     window.addEventListener(SOLAIRE_SAVE_EVENT, onSave);
     return () => window.removeEventListener(SOLAIRE_SAVE_EVENT, onSave);
-  }, [settingsTab, data, saving]);
-
-  const handleClearSecret = async () => {
-    if (!data) return;
-    const confirmKey =
-      data.persist_scope === "project" ? "settings:confirmClearKey" : "settings:confirmClearKeyUser";
-    if (!confirm(t(confirmKey))) return;
-    setSaving(true);
-    setMsg(null);
-    onError(null);
-    try {
-      await apiAgentLlmSettingsPut({ clear_api_key_override: true });
-      setAccessSecret("");
-      setMsg(data.persist_scope === "project" ? t("settings:clearedKey") : t("settings:clearedKeyUser"));
-      await load();
-    } catch (e) {
-      onError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  };
+  }, [settingsTab, data, loading]);
 
   const handleSwitchProject = async () => {
     if (!onSwitchProject) return;
@@ -215,164 +152,83 @@ export function SettingsWorkspace({
             </div>
           ) : (
             <div className="space-y-4">
-          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-            <label className="block text-sm font-medium text-slate-700">{t("settings:uiLanguage")}</label>
-            <select
-              className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
-              value={uiLang}
-              onChange={(e) => void changeAppLanguage(e.target.value as AppLang)}
-            >
-              <option value="zh">{t("settings:langZh")}</option>
-              <option value="en">{t("settings:langEn")}</option>
-            </select>
-          </div>
-
-          {data ? (
-            data.persist_scope === "global" ? (
-              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
-                {t("settings:saveScopeGlobalHint")}
-              </div>
-            ) : (
-              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
-                {t("settings:saveScopeProjectHint")}
-              </div>
-            )
-          ) : null}
-
-          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-            <label className="block text-sm font-medium text-slate-700">{t("settings:modelBaseUrl")}</label>
-            <p className="mt-0.5 text-xs text-slate-500">{t("settings:modelBaseUrlHint")}</p>
-            <input
-              type="url"
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-              disabled={loading || !data || saving}
-              placeholder="https://…"
-              className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-50"
-            />
-          </div>
-
-          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-            <label className="block text-sm font-medium text-slate-700">{t("settings:mainModel")}</label>
-            <input
-              type="text"
-              value={mainModel}
-              onChange={(e) => setMainModel(e.target.value)}
-              disabled={loading || !data || saving}
-              className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm disabled:bg-slate-50"
-            />
-          </div>
-
-          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-            <label className="block text-sm font-medium text-slate-700">{t("settings:fastModel")}</label>
-            <p className="mt-0.5 text-xs text-slate-500">{t("settings:fastModelHint")}</p>
-            <input
-              type="text"
-              value={fastModel}
-              onChange={(e) => setFastModel(e.target.value)}
-              disabled={loading || !data || saving}
-              className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm disabled:bg-slate-50"
-            />
-          </div>
-
-          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-            <label className="block text-sm font-medium text-slate-700">{t("settings:accessKey")}</label>
-            <p className="mt-0.5 text-xs text-slate-500">
-              {t("settings:accessKeyHint", {
-                masked: data?.api_key_masked ?? t("settings:notConfigured"),
-              })}
-              {keySourceNote ? ` ${keySourceNote}` : ""}
-            </p>
-            <input
-              type="password"
-              value={accessSecret}
-              onChange={(e) => setAccessSecret(e.target.value)}
-              disabled={loading || !data || saving}
-              placeholder={data ? t("settings:accessKeyPlaceholder") : ""}
-              autoComplete="off"
-              className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-50"
-            />
-          </div>
-
-          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-            <label className="block text-sm font-medium text-slate-700">{t("settings:safetyTitle")}</label>
-            <p className="mt-0.5 text-xs text-slate-500">{t("settings:safetyHint")}</p>
-            <div className="mt-2 space-y-2">
-              {safetyOptions.map((op) => (
-                <label
-                  key={op.id}
-                  className={`block cursor-pointer rounded-md border px-3 py-2 text-sm ${
-                    safetyMode === op.id ? "border-violet-300 bg-violet-50" : "border-slate-200 bg-white"
-                  } ${loading || !data || saving ? "opacity-60" : ""}`}
+              <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                <label className="block text-sm font-medium text-slate-700">{t("settings:uiLanguage")}</label>
+                <select
+                  className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                  value={uiLang}
+                  onChange={(e) => void changeAppLanguage(e.target.value as AppLang)}
                 >
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="radio"
-                      name="agent-safety-mode"
-                      value={op.id}
-                      checked={safetyMode === op.id}
-                      disabled={loading || !data || saving}
-                      onChange={(e) => setSafetyMode(e.target.value)}
-                    />
-                    <span className="font-medium text-slate-800">
-                      {t(`safetyOption.${op.id}.label`, { defaultValue: op.label })}
-                    </span>
+                  <option value="zh">{t("settings:langZh")}</option>
+                  <option value="en">{t("settings:langEn")}</option>
+                </select>
+              </div>
+
+              {data ? (
+                data.persist_scope === "global" ? (
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
+                    {t("settings:saveScopeGlobalHint")}
                   </div>
-                  <div className="mt-1 pl-6 text-xs text-slate-600">
-                    {t(`safetyOption.${op.id}.desc`, { defaultValue: op.description })}
+                ) : (
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
+                    {t("settings:saveScopeProjectHint")}
                   </div>
-                </label>
-              ))}
-            </div>
-            <div className="mt-3">
-              <button
-                type="button"
-                disabled={loading || !data || saving}
-                onClick={() => void handleSaveSafetyMode()}
-                className="inline-flex items-center gap-2 rounded-md border border-violet-300 bg-white px-3 py-1.5 text-sm text-violet-700 hover:bg-violet-50 disabled:opacity-50"
-              >
-                {t("settings:saveSafety")}
-              </button>
-            </div>
-          </div>
+                )
+              ) : null}
 
-          <p className="text-xs text-slate-500">{t("settings:footerNote")}</p>
+              <AgentModelSettingsForm
+                ref={modelFormRef}
+                variant="settings"
+                data={data}
+                loading={false}
+                saving={saving}
+                onError={onError}
+                onReload={load}
+              />
 
-          {msg && <p className="text-sm text-emerald-700">{msg}</p>}
+              <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                <label className="block text-sm font-medium text-slate-700">{t("settings:safetyTitle")}</label>
+                <p className="mt-0.5 text-xs text-slate-500">{t("settings:safetyHint")}</p>
+                <div className="mt-2 space-y-2">
+                  {safetyOptions.map((op) => (
+                    <label
+                      key={op.id}
+                      className={`block cursor-pointer rounded-md border px-3 py-2 text-sm ${
+                        safetyMode === op.id ? "border-violet-300 bg-violet-50" : "border-slate-200 bg-white"
+                      } ${loading || !data || saving ? "opacity-60" : ""}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="agent-safety-mode"
+                          value={op.id}
+                          checked={safetyMode === op.id}
+                          disabled={loading || !data || saving}
+                          onChange={(e) => setSafetyMode(e.target.value)}
+                        />
+                        <span className="font-medium text-slate-800">
+                          {t(`safetyOption.${op.id}.label`, { defaultValue: op.label })}
+                        </span>
+                      </div>
+                      <div className="mt-1 pl-6 text-xs text-slate-600">
+                        {t(`safetyOption.${op.id}.desc`, { defaultValue: op.description })}
+                      </div>
+                    </label>
+                  ))}
+                </div>
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    disabled={loading || !data || saving}
+                    onClick={() => void handleSaveSafetyMode()}
+                    className="inline-flex items-center gap-2 rounded-md border border-violet-300 bg-white px-3 py-1.5 text-sm text-violet-700 hover:bg-violet-50 disabled:opacity-50"
+                  >
+                    {t("settings:saveSafety")}
+                  </button>
+                </div>
+              </div>
 
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={loading || !data || saving}
-              onClick={() => void handleSave()}
-              className="inline-flex items-center gap-2 rounded-md bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700 disabled:opacity-50"
-            >
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              {data?.persist_scope === "project" ? t("settings:saveToProject") : t("settings:saveToProfile")}
-            </button>
-            {data?.persist_scope === "project" && data.has_project_api_key_override && (
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => void handleClearSecret()}
-                className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-              >
-                <Trash2 className="h-4 w-4" />
-                {t("settings:clearProjectKey")}
-              </button>
-            )}
-            {data?.persist_scope === "global" && data.has_user_api_key_override && (
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => void handleClearSecret()}
-                className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-              >
-                <Trash2 className="h-4 w-4" />
-                {t("settings:clearUserKey")}
-              </button>
-            )}
-          </div>
+              {msg ? <p className="text-sm text-emerald-700">{msg}</p> : null}
             </div>
           )}
         </TabsContent>

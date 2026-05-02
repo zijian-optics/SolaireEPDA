@@ -7,7 +7,7 @@ metadata:
   author: solaire-builtin
   version: "1.1"
   label: 题目挂载知识点
-  tool_patterns: "bank.* graph.list_nodes graph.search_nodes graph.bind_question graph.batch_bind_questions graph.batch_create_nodes graph.create_relation graph.batch_create_relations memory.* agent.*"
+  tool_patterns: "bank.search_items bank.get_item bank.update_item bank.create_item graph.list_nodes graph.search_nodes graph.bind_question graph.batch_bind_questions graph.batch_create_nodes graph.create_relation graph.batch_create_relations agent.switch_focus agent.activate_skill agent.read_skill_reference agent.enter_plan_mode agent.exit_plan_mode agent.set_task_plan agent.update_task_step agent.run_subtask agent.run_tool_pipeline memory.read_index memory.read_topic memory.search file.read file.list file.search"
   suggested_user_input: 我想把题库里的题目挂到知识图谱的知识点下，请一步步协助我完成。
 ---
 

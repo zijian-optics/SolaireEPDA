@@ -53,15 +53,6 @@ EXTENSIONS: list[ExtensionDef] = [
         "winget_id": "UB-Mannheim.TesseractOCR",
         "download_url": "https://github.com/UB-Mannheim/tesseract/wiki",
     },
-    {
-        "id": "mmdr",
-        "name": "图表渲染",
-        "description": "将 Mermaid 图表渲染为 SVG 插图",
-        "detect": ["mmdr"],
-        "winget_id": None,
-        "download_url": "https://github.com/niclas-ARC-at/mermaid-rs-renderer",
-        "install_hint": "请按官方说明安装图表渲染组件，并确保系统路径中可找到该程序。",
-    },
 ]
 
 
@@ -73,7 +64,6 @@ _VERSION_PATTERNS: dict[str, re.Pattern[str]] = {
     "xelatex": re.compile(r"XeTeX\s+(\d[\d.]+)", re.IGNORECASE),
     "pandoc": re.compile(r"pandoc\s+(\d[\d.]+)", re.IGNORECASE),
     "tesseract": re.compile(r"tesseract\s+(\d[\d.]+)", re.IGNORECASE),
-    "mmdr": re.compile(r"(\d[\d.]+)"),
 }
 
 

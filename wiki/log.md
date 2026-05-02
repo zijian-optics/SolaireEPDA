@@ -499,6 +499,14 @@
 
 **结果要点**：用户在「设置 → 扩展组件」指定的安装目录/程序文件会在实际导出与工具调用中生效，不再仅依赖系统 PATH。
 
+## [2026-05-01] agent_layer | 计划审批、导出对齐、子任务隔离与记忆策略
+
+**改动摘要**：`exam.export_paper` 对齐组卷页导出（备份/恢复、`mark_exported`、失败草稿、冲突目录需显式允许）；`agent.exit_plan_mode` 强制校验计划文件；`execution_plan_path` 须与会话内 `plan_ready` 待执行路径一致；子任务使用独立会话态并收窄工具集，Vivace 复核下沉至 `guardrails.vivace_fast_review`；`confirm_needed` 后补发 `done(awaiting_confirmation)`；主循环支持 `max_rounds` 与截断续写上限提示；系统提示拆稳定/动态层并推送 `context_metrics`；记忆自动写入加门槛、索引合并默认高阈值、`session_digest`/分析记录超长裁剪；补充 API 文档与 `wiki/modules/agent-layer.md`。
+
+**验证命令**：`pixi run pytest tests/test_agent_layer.py tests/test_agent_plan_and_subagent.py tests/test_agent_exam_export.py tests/test_user_llm_overrides.py -v`
+
+**结果要点**：31+5 项相关 pytest 通过；前端计划「取消」携带 `clear_pending_plan_path`。
+
 ## [2026-04-16] 开发环境 | 恢复 dev-backend 的 `--reload-dir src`
 
 **改动摘要**：当前 `pixi.toml` 中 `dev-backend` 曾回退为仅 `--reload`（监视整个仓库根目录），`tauri dev` 时 `src-tauri/target/.../site-packages` 会再次触发 WatchFiles 误重载；已重新加上 `--reload-dir src`。
@@ -506,3 +514,115 @@
 **验证**：检视 `pixi.toml` 的 `dev-backend` 行。
 
 **结果要点**：热重载仅盯 `src/`，与 `start-web.ps1` / `start-web.sh` 一致；合并分支时注意勿覆盖此行。
+
+## [2026-05-01] agent_layer | 缺口补全（测试、记忆开关、上下文哈希）
+
+**改动摘要**：补充回归测试覆盖 `max_rounds` 耗尽、取消路径、`context_metrics` 工具哈希输出与记忆禁写；`/api/agent/chat` 新增 `skip_memory_write`（本轮不自动写记忆）；`orchestrator` 的 `context_metrics` 增加 `tool_schema_sha12` 与 `tool_count`；`prompt_cache.py` 增加可复用哈希函数（文本与工具 payload）；同步 `docs/api/agent.md` 与 `wiki/modules/agent-layer.md`。
+
+**验证命令**：`pixi run pytest tests/test_agent_layer.py tests/test_agent_plan_and_subagent.py tests/test_agent_exam_export.py tests/test_user_llm_overrides.py -q`
+
+**结果要点**：41 项相关测试通过；SSE 可观测指标可区分稳定前缀变化与工具集变化；可按请求关闭单轮自动记忆写入。
+
+## [2026-05-01] 模型服务切换 | provider、Responses/Messages 适配与欢迎页/设置表单
+
+**改动摘要**：`LLMSettings` 增加 `provider`（`openai` / `anthropic` / `openai_compat` / `deepseek`），合并进本机与项目 `llm_overrides`；`openai` 走 OpenAI Responses API（`openai_responses.py`），`anthropic` 走 Messages API（`anthropic_messages.py`），兼容与 DeepSeek 仍用 Chat Completions；`GET/PUT /api/agent/llm-settings` 增加 `provider` 与 `provider_options`；前端 `AgentModelSettingsForm` 与欢迎页/设置页模型区；`pixi.toml` 增加 `anyio`、`anthropic` pypi 依赖。
+
+**验证命令**：`pixi run pytest tests/test_user_llm_overrides.py tests/test_llm_router.py tests/test_agent_layer.py tests/test_agent_plan_and_subagent.py -v`；`cd web && npm test -- AgentModelSettingsForm --run`
+
+**结果要点**：上述 pytest 与 Vitest 通过；文档已更新 `docs/api/agent.md`、`wiki/modules/agent-user-settings.md`、`wiki/modules/agent-layer.md`。
+
+## [2026-05-01] agent API | /api/agent/llm-settings 契约测试
+
+**改动摘要**：新增 `tests/test_agent_llm_settings_api.py`，覆盖 `provider`/`provider_options` 返回、项目内持久化、访问凭据脱敏、非法服务类型 400、`/api/agent/config` 的 `provider` 字段。
+
+**验证命令**：`pixi run pytest tests/test_agent_llm_settings_api.py -q`
+
+**结果要点**：5 项 pytest 通过。
+
+## [2026-05-01] DeepSeek 兼容 | OpenAI 思考模式请求形状
+
+**改动摘要**：`OpenAICompatAdapter` 在 `provider=deepseek` 或服务地址含 `deepseek.com` 时启用 `deepseek_compat`：请求增加 `extra_body["thinking"]` 与 `reasoning_effort`（与官方 OpenAI 兼容示例一致），有工具时不发 `parallel_tool_calls`，流式不启用 `stream_options`；`TypeError` 时回退去掉 `reasoning_effort`。补充单测与 `ModelRouter` 用例。
+
+**验证命令**：`pixi run pytest tests/test_agent_layer.py::test_openai_compat_deepseek_adds_thinking_extra_body tests/test_agent_layer.py::test_openai_compat_generic_parallel_tool_calls_with_tools tests/test_llm_router.py::test_model_router_adapter_by_provider -q`
+
+**结果要点**：上述用例通过；说明见 [DeepSeek 思考模式](https://api-docs.deepseek.com/zh-cn/guides/thinking_mode)。
+
+## [2026-05-01] DeepSeek | 工具 function.name 含点号被拒（400）
+
+**改动摘要**：DeepSeek 要求 `tools[].function.name` 符合 `^[a-zA-Z0-9_-]+$`。`OpenAICompatAdapter` 在 `deepseek_compat` 下对请求中的工具定义与历史 `assistant.tool_calls` 将 `analysis.foo` 转为 `analysis_foo`，响应再映射回注册表中的 canonical 名以便 `invoke_registered_tool`；已补充单测。
+
+**验证命令**：`pixi run pytest tests/test_agent_layer.py::test_openai_compat_deepseek_rewrites_dotted_tool_names -q`
+
+**结果要点**：1 passed。
+
+## [2026-05-01] DeepSeek | 后续工具轮：tool.name 字符集与空 reasoning
+
+**改动摘要**：出站历史中的 `role=tool` 的 `name` 与 assistant 的 `function.name` 一致改为下划线形式，避免网关对与 `tools[].function.name` 相同的模式校验；流式工具轮若未收到 `delta.reasoning_content`，用已组装的正文 `content` 作为 `accumulated_reasoning` 回退，再否则用 `"."`，避免落库空串导致下一轮思考模式 400；非流式 `chat()` 在带工具且 reasoning 空时同样用 `content` 兜底。补充 `test_prepare_deepseek_wires_tool_message_name`。
+
+**验证命令**：`pixi run pytest tests/test_agent_layer.py::test_prepare_deepseek_wires_tool_message_name tests/test_agent_layer.py::test_openai_compat_deepseek_extra_body_preserves_reasoning_in_messages -q`
+
+**结果要点**：2 passed。
+
+## [2026-05-01] 上下文压缩 | 避免拆散 assistant 与 tool 触发 400
+
+**改动摘要**：`ContextManager._maybe_compact` 原先用 `messages.pop(2)` 单条删除，可能删掉带 `tool_calls` 的 `assistant` 而留下后续 `tool`，严格网关（DeepSeek）报错「tool 必须紧接在带 tool_calls 的 assistant 之后」。改为按段删除：含工具的 `assistant` 与其后连续 `tool` 同删；`user` 则删至下一 `user` 之前的整块；若以孤儿 `tool` 开头则先删连续 `tool`。`build_messages` 在压缩前对前缀后历史做链式校验并去掉孤儿 `tool`。stub 起始下标按 1～2 条 system 前缀自适应。补充 `test_drop_oldest_history_*`、`test_sanitize_tool_chains_*`。
+
+**验证命令**：`pixi run pytest tests/test_agent_layer.py::test_drop_oldest_history_removes_assistant_and_tools_together tests/test_agent_layer.py::test_sanitize_tool_chains_drops_orphan_tool_after_system -q`
+
+**结果要点**：2 passed。
+
+## [2026-05-01] DeepSeek | reasoning_content 被 OpenAI SDK 裁掉致 400
+
+**改动摘要**：官方 `openai` 库在发起 Chat Completions 时按 TypedDict 裁剪 `messages`，导致已持久化的 `reasoning_content` 无法到达 DeepSeek 网关，思考模式 + 工具轮次触发「须回传 reasoning_content」。`deepseek_compat` 下在 `extra_body` 中合并完整 `messages` 深拷贝（SDK 合并 JSON 时 `extra_json` 覆盖同名键），流式与非流式共用；补充单测。
+
+**验证命令**：`pixi run pytest tests/test_agent_layer.py::test_openai_compat_deepseek_extra_body_preserves_reasoning_in_messages -q`
+
+**结果要点**：1 passed。
+
+## [2026-05-02] DeepSeek 兼容 + 缓存 | 多 tool_call 消息链断裂、工具名格式、memory 停用、提示拆层
+
+**改动摘要**：
+
+1. **`_sanitize_tool_chains` 修复**（致命 bug）：旧逻辑仅认前一条 `assistant` 为合法前驱，导致多 tool_call 场景下第 2+ 条 tool 响应被误删→严格网关 400。改为向前回溯到非 tool 锚点判断；新增 Pass 2 补全缺失 tool_call_id 的占位消息。
+2. **工具名 wire 转换扩展至所有 `openai_compat`**：不再限 `deepseek_compat=True`；废弃 `@lru_cache`，反向映射从 `_TOOL_BY_NAME` 实时构建，焦点切换后不会失效。`_prepare_deepseek_request_payload` → `_prepare_compat_request_payload`。
+3. **自动记忆写入禁用**：`emit_memory_after_assistant_turn` 改为空操作；系统提示移除记忆索引注入（`_layer_memory` / `memory_index_excerpt` 参数删除）；orchestrator 循环内不再调用 `read_index`。`memory.*` 只读工具保留。
+4. **系统提示拆三层**：`build_stable_system_prompt()` 不再接受 `tool_descriptions` 参数（纯角色/约束/规范），新增 `build_tools_system_block`；`context_metrics` 增加 `tools_block_sha12`。
+5. **orchestrator 循环缓存**：`stable_txt` 在循环外预构建；`tools_block_txt` 仅焦点切换后重建。
+6. **reasoning_content 兜底清理**：不再用 content 或 `"."` 填充 reasoning；tool_calls 无 reasoning 时设空串。
+7. **死代码清理**：删除 `session_to_api_messages`、`_layer_memory`；`_ensure_assistant_tool_calls_have_reasoning` 提取到 `llm/message_utils.py`；`subagent.py` docstring 补丁残留修复。
+
+**验证命令**：`pixi run pytest tests/test_agent_layer.py tests/test_llm_router.py -v`
+
+**结果要点**：40 passed（新增 7 测试全通过），1 pre-existing failure（`test_guardrail_read_vs_export`，与本次改动无关），llm_router 3 passed。
+
+## [2026-05-02] 编排层 | 重复工具批次熔断、上下文 200k、去除自动续写、侧栏上下文估算
+
+**改动摘要**：主循环改为按「连续完全相同的 tool_calls 批次」计数触发 `repeat_loop`（`max_llm_rounds` 现为该阈值）；移除 length 自动续写与用户「请继续」注入；`ContextManager.TOKEN_BUDGET_TOTAL` 调至 200000；`done` 事件增加 `context_tokens_est`（发往模型的消息估算峰值）；`utils.tool_calls_signature` 统一规范化指纹；子任务循环对齐重复熔断逻辑；侧栏标题展示上下文估算文案；更新 `docs/api/agent.md`、`wiki/modules/agent-layer.md`；测试 `test_run_agent_turn_emits_repeat_loop_when_identical_tool_calls_repeat` 替换原 max_rounds 用例。
+
+**验证命令**：`pixi run pytest tests/test_agent_plan_and_subagent.py tests/test_agent_layer.py -v --tb=short`
+
+**结果要点**：`test_agent_plan_and_subagent` 7 passed；`test_agent_layer` 中 40 passed，1 failed（`test_guardrail_read_vs_export`，与本次改动无关，与 log 既有记录一致）。
+
+## [2026-05-02] 编排层 | 修复无工具调用时丢失 reasoning_content 的问题
+
+**改动摘要**：`orchestrator.py` 在 `run_agent_turn` 中，如果助手回复无工具调用（常见于结束任务或退出 `plan_mode` 时纯文本响应），创建 `ChatMessage` 时漏传了 `reasoning_content`。这导致 `Pydantic` 默认将其置为 `None`，进而序列化为 `null` 并在持久化层和前端交互中丢失了思考过程。本次修复在追加消息时显示传入 `reasoning_content=round_reasoning or ""`，包含自动因为长度或结束而返回的文本节点，以及因为死循环产生的报错节点。
+
+**验证命令**：手动代码走查与确认。
+
+**结果要点**：修复逻辑已在本地写入。
+
+## [2026-05-02] Agent KV 缓存观测与上下文收敛
+
+**改动摘要**：`context_metrics` 移至每轮 `_llm_round_call` **之后**，绑定 `history_sha12`、分项 `dynamic_sources_sha12`/`task_plan_sha12`、`prompt_cache_*`（若适配器返回）及 `provider_system_shape`/`instructions_sha12`（Responses）。任务步骤不再追加第三条 system，并入动态层；项目上下文拼装白名单化；技能目录排序；工具集收窄为显式名列表，`page_context` 不参与聚焦/工具预选；编排层仅在 `switch_focus` 或计划模式开关变化时重建工具；上下文软预算 + 保留最近工具链占位折叠；Responses 适配器解析 `input_tokens_details.cached_tokens`；各内置技能 `tool_patterns` 去通配符；补齐 `history_writer.emit_memory_after_assistant_turn` 空操作占位与相关测试补丁。
+
+**验证命令**：`pixi run pytest tests/test_agent_layer.py tests/test_agent_plan_and_subagent.py tests/test_llm_router.py -q --tb=short`
+
+**结果要点**：56 passed。
+
+## [2026-05-02] 扩展组件 | 修正 mmdr 手动下载链接
+
+**改动摘要**：`extension_registry` 中 `mmdr` 的 `download_url` 原指向 `niclas-ARC-at/mermaid-rs-renderer`（仓库已 404），改为当前有效仓库 `1jehuang/mermaid-rs-renderer`；`install_hint` 补充在说明页无法打开时可通过终端 `cargo install mermaid-rs-renderer` 安装（需 Rust 工具链）。
+
+**验证命令**：`pixi run pytest tests/test_extension_api.py -q`
+
+**结果要点**：10 passed；新仓库 URL 可访问；手动下载按钮将打开正确页面。

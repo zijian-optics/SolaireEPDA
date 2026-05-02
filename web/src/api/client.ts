@@ -789,8 +789,13 @@ export async function apiSystemExtensionManualPathDelete(
 }
 
 // --- Agent (M3) ---
+export type AgentLlmProvider = "openai" | "anthropic" | "openai_compat" | "deepseek";
+
+export type AgentConfigProviderOption = { id: AgentLlmProvider };
+
 export type AgentConfig = {
   llm_configured: boolean;
+  provider: AgentLlmProvider;
   main_model: string;
   fast_model: string;
   base_url_set: boolean;
@@ -805,6 +810,8 @@ export type AgentLlmSettingsResponse = {
   persist_available: boolean;
   /** `global`：未打开项目，写入本机用户目录；`project`：已打开项目，写入项目内文件 */
   persist_scope?: "global" | "project";
+  provider: AgentLlmProvider;
+  provider_options: AgentConfigProviderOption[];
   main_model: string;
   fast_model: string;
   base_url: string;
@@ -812,6 +819,7 @@ export type AgentLlmSettingsResponse = {
   api_key_masked: string | null;
   has_user_api_key_override?: boolean;
   has_project_api_key_override: boolean;
+  max_tokens?: number;
 };
 
 export async function apiAgentLlmSettingsGet(): Promise<AgentLlmSettingsResponse> {
@@ -819,11 +827,13 @@ export async function apiAgentLlmSettingsGet(): Promise<AgentLlmSettingsResponse
 }
 
 export async function apiAgentLlmSettingsPut(body: {
+  provider?: AgentLlmProvider | null;
   main_model?: string | null;
   fast_model?: string | null;
   base_url?: string | null;
   api_key?: string | null;
   clear_api_key_override?: boolean;
+  max_tokens?: number | null;
 }): Promise<{ ok: boolean }> {
   return apiPut<{ ok: boolean }>("/api/agent/llm-settings", body);
 }
@@ -949,6 +959,10 @@ export type AgentChatStreamBody = {
   file_attachments?: AgentFileAttachment[] | null;
   /** 教师批准执行的计划文件项目内相对路径 */
   execution_plan_path?: string | null;
+  /** 取消界面待执行计划时，与计划路径一致则清除服务端状态 */
+  clear_pending_plan_path?: string | null;
+  /** 本轮结束后不写入会话记忆 */
+  skip_memory_write?: boolean | null;
 };
 
 /** Parse SSE lines; invokes onEvent(eventName, dataObj) for each complete event. */
