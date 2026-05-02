@@ -618,3 +618,11 @@
 **验证命令**：`pixi run pytest tests/test_agent_layer.py tests/test_agent_plan_and_subagent.py tests/test_llm_router.py -q --tb=short`
 
 **结果要点**：56 passed。
+
+## [2026-05-02] 扩展组件 | 修正 mmdr 手动下载链接
+
+**改动摘要**：`extension_registry` 中 `mmdr` 的 `download_url` 原指向 `niclas-ARC-at/mermaid-rs-renderer`（仓库已 404），改为当前有效仓库 `1jehuang/mermaid-rs-renderer`；`install_hint` 补充在说明页无法打开时可通过终端 `cargo install mermaid-rs-renderer` 安装（需 Rust 工具链）。
+
+**验证命令**：`pixi run pytest tests/test_extension_api.py -q`
+
+**结果要点**：10 passed；新仓库 URL 可访问；手动下载按钮将打开正确页面。
