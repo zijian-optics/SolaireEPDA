@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -388,7 +389,10 @@ async def run_agent_turn(
             return
 
     if user_message is not None and user_message.strip():
-        session.messages.append(ChatMessage(role="user", content=user_message.strip()))
+        msg_content = user_message.strip()
+        if page_context_brief and len(session.messages) == 0:
+            msg_content = page_context_brief + "\n\n" + msg_content
+        session.messages.append(ChatMessage(role="user", content=msg_content))
         session.touch()
         await emit("thinking", {"message": _thinking_for_round(0)})
 
@@ -412,6 +416,26 @@ async def run_agent_turn(
     tools_block_txt = build_tools_system_block(_desc)
     _need_rebuild_prompts = False
 
+    # 缓存 system_parts：仅当 tools/focus/plan_mode/task_plan 变化时才重建，
+    # 避免每轮都产生不同的字节序列破坏 DeepSeek KV Cache 前缀匹配。
+    # 聚焦信息仅在首轮注入；此后模型从对话历史即可知悉。
+    _include_focus = len(session.messages) == 0
+    _sys_prefix, _sys_suffix = cm.build_system_parts(
+        full_ctx,
+        session=session,
+        tools=tools_selected,
+        skill_guidance=skill_guidance,
+        current_focus=session.current_focus or None,
+        plan_mode_active=session.plan_mode_active,
+        execution_plan_path=session.execution_plan_path,
+        skill_catalog=skill_catalog,
+        page_context_brief=None,
+        include_focus_info=_include_focus,
+    )
+    _last_tp = hashlib.sha256(
+        json.dumps(session.task_plan, sort_keys=True, ensure_ascii=False).encode()
+    ).hexdigest()
+
     while True:
         loop_round += 1
         if is_cancelled(session.session_id):
@@ -426,25 +450,37 @@ async def run_agent_turn(
 
         await emit("thinking", {"message": _thinking_for_round(loop_round)})
 
+        _rebuild = _need_rebuild_prompts
+
         if _need_rebuild_prompts:
             _desc = tool_descriptions_for_prompt(tools_selected)
             tools_block_txt = build_tools_system_block(_desc)
             _need_rebuild_prompts = False
 
-        system_prefix, system_suffix = cm.build_system_parts(
-            full_ctx,
-            session=session,
-            tools=tools_selected,
-            skill_guidance=skill_guidance,
-            current_focus=session.current_focus or None,
-            plan_mode_active=session.plan_mode_active,
-            execution_plan_path=session.execution_plan_path,
-            skill_catalog=skill_catalog,
-            page_context_brief=page_context_brief,
-        )
+        _tp_now = hashlib.sha256(
+            json.dumps(session.task_plan, sort_keys=True, ensure_ascii=False).encode()
+        ).hexdigest()
+        if _tp_now != _last_tp:
+            _rebuild = True
+            _last_tp = _tp_now
+
+        if _rebuild:
+            _sys_prefix, _sys_suffix = cm.build_system_parts(
+                full_ctx,
+                session=session,
+                tools=tools_selected,
+                skill_guidance=skill_guidance,
+                current_focus=session.current_focus or None,
+                plan_mode_active=session.plan_mode_active,
+                execution_plan_path=session.execution_plan_path,
+                skill_catalog=skill_catalog,
+                page_context_brief=None,
+                include_focus_info=_include_focus,
+            )
+
         api_messages = cm.build_messages(
-            system_prefix=system_prefix,
-            system_suffix=system_suffix,
+            system_prefix=_sys_prefix,
+            system_suffix=_sys_suffix,
             session=session,
             user_message="",
         )

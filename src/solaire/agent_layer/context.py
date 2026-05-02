@@ -164,9 +164,11 @@ def _drop_oldest_history_segment(messages: list[dict[str, Any]], *, prefix_len: 
 
 class ContextManager:
     TOKEN_BUDGET_TOTAL = 200000
-    # 早于总预算触发软压缩，减少长尾 miss tokens
-    HISTORY_SOFT_BUDGET_TOKENS = 96000
-    KEEP_RECENT_TOOL_CHAINS_SOFT = 3
+    # 软压缩阈值设为接近模型上下文极限（~160K），避免过早 stub 破坏 KV Cache 前缀匹配。
+    # DeepSeek 的 common prefix detection 需要多次请求才能注册独立前缀单元；
+    # 过早压缩会改变历史消息字节，导致缓存命中率大幅下降。
+    HISTORY_SOFT_BUDGET_TOKENS = 160000
+    KEEP_RECENT_TOOL_CHAINS_SOFT = 6
 
     def __init__(self, *, include_subtask_tool: bool = True) -> None:
         self.include_subtask_tool = include_subtask_tool
@@ -183,6 +185,7 @@ class ContextManager:
         execution_plan_path: str | None = None,
         skill_catalog: str | None = None,
         page_context_brief: str | None = None,
+        include_focus_info: bool = True,
     ) -> tuple[str, str]:
         """Return (cacheable_prefix, dynamic_suffix) for two system messages.
 
@@ -206,8 +209,9 @@ class ContextManager:
             execution_plan_path=execution_plan_path,
             skill_catalog=skill_catalog,
             task_plan_block=task_plan_block or None,
-            page_context_brief=page_context_brief,
+            page_context_brief=None,  # moved to user message prefix for KV cache stability
             project_root=root,
+            include_focus_info=include_focus_info,
         )
 
     def build_system_content(

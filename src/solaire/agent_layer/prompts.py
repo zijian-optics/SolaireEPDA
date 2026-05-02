@@ -263,6 +263,7 @@ def build_dynamic_system_prompt(
     skill_catalog: str | None = None,
     task_plan_block: str | None = None,
     page_context_brief: str | None = None,
+    include_focus_info: bool = True,
 ) -> str:
     """随项目摘要、计划状态变化的提示层（任务步骤与界面速览为短动态）。"""
     chunks: list[str] = []
@@ -277,7 +278,9 @@ def build_dynamic_system_prompt(
     if task_plan_block and task_plan_block.strip():
         chunks.append(task_plan_block.strip())
     chunks.append(_layer_context(project_ctx))
-    chunks.append(_layer_focus(current_focus))
+    # 聚焦态仅在首轮告知；此后模型从对话历史与工具集即可知悉
+    if include_focus_info:
+        chunks.append(_layer_focus(current_focus))
     catalog_section = _layer_skill_catalog(skill_catalog)
     if catalog_section:
         chunks.append(catalog_section)
@@ -363,6 +366,7 @@ def build_system_prompt_cached(
     task_plan_block: str | None = None,
     page_context_brief: str | None = None,
     project_root: Path | None = None,
+    include_focus_info: bool = True,
 ) -> tuple[str, str]:
     """返回 (cacheable_prefix, dynamic_suffix)。
 
@@ -381,6 +385,7 @@ def build_system_prompt_cached(
         skill_catalog=skill_catalog,
         task_plan_block=task_plan_block,
         page_context_brief=page_context_brief,
+        include_focus_info=include_focus_info,
     )
     prefix = stable + "\n\n" + tools_block
     overwrites = _load_prompt_overrides(project_root)
