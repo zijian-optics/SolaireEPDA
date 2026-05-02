@@ -6,17 +6,32 @@ import hashlib
 import json
 import os
 import platform
+import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
-
-from solaire.web.extension_registry import resolve_exe
 
 _MMDR_HINT = (
     "Mermaid 插图需要 mmdr（Rust 渲染器，无 Chromium/Node）。"
     "安装：cargo install mermaid-rs-renderer，并确保可执行文件 mmdr 在 PATH 中。"
     "说明见 docs/user/mermaid.md。"
 )
+
+
+def _find_mmdr() -> str | None:
+    """Resolve mmdr binary: bundled tools dir (desktop app) first, then PATH."""
+    exe_name = "mmdr.exe" if sys.platform == "win32" else "mmdr"
+    # Bundled: runtime/python/ → ../tools/mmdr
+    try:
+        exe = Path(sys.executable).resolve()
+        tools_dir = exe.parent.parent / "tools"
+        bundled = tools_dir / exe_name
+        if bundled.is_file():
+            return str(bundled)
+    except Exception:
+        pass
+    return shutil.which(exe_name)
 
 # mmdr 默认 -w 1200 -H 800，画布过大；略小的画布更适合题库内嵌与 PDF。
 _DEFAULT_MERMAID_WIDTH = 640
@@ -67,7 +82,7 @@ def _mmdr_theme_config_dict() -> dict[str, object]:
 
 def render_mermaid_to_svg_file(mermaid_body: str, svg_path: Path) -> None:
     """Run mmdr to produce SVG at svg_path."""
-    mmdr = resolve_exe("mmdr", "mmdr")
+    mmdr = _find_mmdr()
     if mmdr is None:
         raise RuntimeError(_MMDR_HINT + "（未在 PATH 中找到 mmdr）")
 

@@ -27,7 +27,7 @@ def test_extensions_list_returns_items() -> None:
     assert "extensions" in data
     assert isinstance(data["extensions"], list)
     ids = {e["id"] for e in data["extensions"]}
-    assert ids == {"latex", "pandoc", "tesseract", "mmdr"}
+    assert ids == {"latex", "pandoc", "tesseract"}
     for ext in data["extensions"]:
         assert "name" in ext
         assert "description" in ext
@@ -90,13 +90,6 @@ def test_extension_install_unknown_id() -> None:
     body = r.json()
     assert body.get("ok") is False
 
-
-def test_extension_install_mmdr_no_winget() -> None:
-    client = TestClient(app)
-    r = client.post("/api/system/extensions/mmdr/install")
-    assert r.status_code == 200
-    body = r.json()
-    assert body.get("ok") is False
 
 
 def test_manual_path_latex_dir(tmp_path: Path) -> None:

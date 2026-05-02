@@ -46,6 +46,30 @@ if (-not $SkipRust) {
   } else {
     Write-Host "未安装 maturin，跳过 PyO3 编译" -ForegroundColor Yellow
   }
+
+  $mmdrDir = Join-Path $repoRoot "src-tauri\runtime\tools"
+  $mmdrExe = Join-Path $mmdrDir "mmdr.exe"
+  if (Test-Path $mmdrExe) {
+    Write-Host "==> mmdr 已存在: $mmdrExe" -ForegroundColor Cyan
+  } else {
+    Write-Host "==> Building mmdr (mermaid-rs-renderer)" -ForegroundColor Cyan
+    New-Item -ItemType Directory -Force -Path $mmdrDir | Out-Null
+    $mmdrTmp = Join-Path $repoRoot ".cache\mmdr-build"
+    if (Test-Path $mmdrTmp) { Remove-Item -Recurse -Force $mmdrTmp }
+    try {
+      cargo install --git https://github.com/1jehuang/mermaid-rs-renderer --root $mmdrTmp
+      $built = Join-Path $mmdrTmp "bin\mmdr.exe"
+      if (Test-Path $built) {
+        Copy-Item -Force $built $mmdrExe
+        Write-Host "==> mmdr installed: $mmdrExe" -ForegroundColor Green
+      } else {
+        Write-Host "mmdr 构建成功但未找到二进制: $built" -ForegroundColor Yellow
+      }
+    } catch {
+      Write-Host "mmdr 构建失败（图表渲染将不可用）: $_" -ForegroundColor Yellow
+    }
+    if (Test-Path $mmdrTmp) { Remove-Item -Recurse -Force $mmdrTmp }
+  }
 }
 
 Write-Host "==> 前端 npm ci + build" -ForegroundColor Cyan
