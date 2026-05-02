@@ -303,6 +303,40 @@ def build_system_prompt(
     return base
 
 
+def build_system_prompt_cached(
+    *,
+    tool_descriptions: str,
+    project_ctx: dict[str, Any],
+    skill_guidance: str | None = None,
+    current_focus: str | None = None,
+    plan_mode_active: bool = False,
+    execution_plan_path: str | None = None,
+    skill_catalog: str | None = None,
+    project_root: Path | None = None,
+) -> tuple[str, str]:
+    """返回 (cacheable_prefix, dynamic_suffix)。
+
+    DeepSeek KV Cache 按字节前缀匹配消息数组。将稳定部分（角色+约束+工具）
+    与动态部分（项目摘要/界面/计划状态）拆成两条 system 消息后，前缀在多次
+    请求间保持一致，从而命中缓存。
+    """
+    stable = build_stable_system_prompt()
+    tools_block = build_tools_system_block(tool_descriptions)
+    dynamic = build_dynamic_system_prompt(
+        project_ctx=project_ctx,
+        skill_guidance=skill_guidance,
+        current_focus=current_focus,
+        plan_mode_active=plan_mode_active,
+        execution_plan_path=execution_plan_path,
+        skill_catalog=skill_catalog,
+    )
+    prefix = stable + "\n\n" + tools_block
+    overwrites = _load_prompt_overrides(project_root)
+    if overwrites:
+        prefix = _apply_overrides(prefix, overwrites)
+    return prefix, dynamic
+
+
 # Prompt layer versions for observability (incremented on semantic change)
 PROMPT_LAYER_VERSIONS: dict[str, int] = {
     "role": 1,

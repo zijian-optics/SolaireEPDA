@@ -111,6 +111,9 @@ class OpenAICompatAdapter:
         OpenAI Python SDK 在 `maybe_transform` 中按官方 TypedDict 裁剪 `messages`，会丢弃
         `reasoning_content`；请求体合并时 `extra_body`（extra_json）覆盖同名键，故在此放入
         完整 messages 副本。参见 DeepSeek 思考模式与工具调用说明。
+
+        KV Cache 不影响 reasoning 回传：reasoning 在会话历史中按原样重放，是确定性的
+        （存储时为定值），不破坏前缀匹配。详见 https://api-docs.deepseek.com/guides/kv_cache
         """
         if not self._deepseek_compat:
             return
@@ -177,6 +180,12 @@ class OpenAICompatAdapter:
                 "completion_tokens": resp.usage.completion_tokens or 0,
                 "total_tokens": resp.usage.total_tokens or 0,
             }
+            cache_hit = getattr(resp.usage, "prompt_cache_hit_tokens", None)
+            if cache_hit is not None:
+                usage["prompt_cache_hit_tokens"] = int(cache_hit or 0)
+            cache_miss = getattr(resp.usage, "prompt_cache_miss_tokens", None)
+            if cache_miss is not None:
+                usage["prompt_cache_miss_tokens"] = int(cache_miss or 0)
         reasoning: str | None = None
         if msg is not None:
             raw_r = getattr(msg, "reasoning_content", None)
@@ -268,6 +277,12 @@ class OpenAICompatAdapter:
                     "completion_tokens": getattr(u, "completion_tokens", None) or 0,
                     "total_tokens": getattr(u, "total_tokens", None) or 0,
                 }
+                cache_hit = getattr(u, "prompt_cache_hit_tokens", None)
+                if cache_hit is not None:
+                    usage["prompt_cache_hit_tokens"] = int(cache_hit or 0)
+                cache_miss = getattr(u, "prompt_cache_miss_tokens", None)
+                if cache_miss is not None:
+                    usage["prompt_cache_miss_tokens"] = int(cache_miss or 0)
             if not event.choices:
                 continue
             ch0 = event.choices[0]

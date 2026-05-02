@@ -138,6 +138,12 @@ def _anthropic_response_to_chat(resp: Any) -> ChatResponse:
             "completion_tokens": int(getattr(u, "output_tokens", None) or 0),
             "total_tokens": int(getattr(u, "input_tokens", None) or 0) + int(getattr(u, "output_tokens", None) or 0),
         }
+        cr = getattr(u, "cache_read_input_tokens", None)
+        if cr is not None:
+            usage["prompt_cache_hit_tokens"] = int(cr or 0)
+        cc = getattr(u, "cache_creation_input_tokens", None)
+        if cc is not None:
+            usage["prompt_cache_write_tokens"] = int(cc or 0)
     return ChatResponse(
         content=content,
         reasoning_content=reasoning,

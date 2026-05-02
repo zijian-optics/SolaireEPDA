@@ -8,17 +8,16 @@ from typing import Any
 from solaire.agent_layer.compactor import compact_for_llm
 from solaire.agent_layer.llm.message_utils import ensure_assistant_tool_calls_have_reasoning as _ensure_assistant_tool_calls_have_reasoning
 from solaire.agent_layer.models import ChatMessage, SessionState
-from solaire.agent_layer.prompts import build_system_prompt
+from solaire.agent_layer.prompts import build_system_prompt, build_system_prompt_cached
 from solaire.agent_layer.registry import RegisteredTool, all_registered_tools, tool_descriptions_for_prompt
 from solaire.agent_layer.task_tracker import plan_to_prompt_block
 from solaire.agent_layer.llm.token_budget import estimate_messages_tokens
 
 
 def _history_prefix_len(messages: list[dict[str, Any]]) -> int:
-    """`build_messages` 前 1～2 条为 system（含可选的计划 system），其后才是会话历史。"""
-    if len(messages) >= 2 and messages[1].get("role") == "system":
-        return 2
-    return 1
+    """`build_messages` 前 2～3 条为 system（prefix + suffix + 可选 plan），其后才是会话历史。"""
+    system_count = sum(1 for m in messages if m.get("role") == "system")
+    return system_count
 
 
 def _sanitize_tool_chains(messages: list[dict[str, Any]], *, start: int) -> None:
@@ -99,6 +98,40 @@ class ContextManager:
     def __init__(self, *, include_subtask_tool: bool = True) -> None:
         self.include_subtask_tool = include_subtask_tool
 
+    def build_system_parts(
+        self,
+        project_ctx: dict[str, Any],
+        *,
+        tools: list[RegisteredTool] | None = None,
+        skill_guidance: str | None = None,
+        current_focus: str | None = None,
+        plan_mode_active: bool = False,
+        execution_plan_path: str | None = None,
+        skill_catalog: str | None = None,
+    ) -> tuple[str, str]:
+        """Return (cacheable_prefix, dynamic_suffix) for two system messages.
+
+        Stable prefix (role + constraints + tools) goes in first system message.
+        Dynamic info (context / focus / plan state) goes in second system message.
+        This split keeps the prefix byte-identical across turns for KV Cache hits.
+        """
+        tlist = tools
+        if tlist is None:
+            tlist = all_registered_tools(include_subtask=self.include_subtask_tool)
+        desc = tool_descriptions_for_prompt(tlist)
+        root = project_ctx.get("_project_root")
+        public_ctx = {k: v for k, v in project_ctx.items() if not str(k).startswith("_")}
+        return build_system_prompt_cached(
+            tool_descriptions=desc,
+            project_ctx=public_ctx,
+            skill_guidance=skill_guidance,
+            current_focus=current_focus,
+            plan_mode_active=plan_mode_active,
+            execution_plan_path=execution_plan_path,
+            skill_catalog=skill_catalog,
+            project_root=root,
+        )
+
     def build_system_content(
         self,
         project_ctx: dict[str, Any],
@@ -110,6 +143,7 @@ class ContextManager:
         execution_plan_path: str | None = None,
         skill_catalog: str | None = None,
     ) -> str:
+        """Legacy: return single joined system prompt string."""
         tlist = tools
         if tlist is None:
             tlist = all_registered_tools(include_subtask=self.include_subtask_tool)
@@ -130,11 +164,21 @@ class ContextManager:
     def build_messages(
         self,
         *,
-        system_content: str,
+        system_content: str | None = None,
+        system_prefix: str | None = None,
+        system_suffix: str | None = None,
         session: SessionState,
         user_message: str,
     ) -> list[dict[str, Any]]:
-        msgs: list[dict[str, Any]] = [{"role": "system", "content": system_content}]
+        if system_prefix is not None:
+            msgs: list[dict[str, Any]] = [
+                {"role": "system", "content": system_prefix},
+                {"role": "system", "content": system_suffix or ""},
+            ]
+        elif system_content is not None:
+            msgs = [{"role": "system", "content": system_content}]
+        else:
+            msgs = []
         plan = plan_to_prompt_block(session)
         if plan:
             msgs.append({"role": "system", "content": plan})

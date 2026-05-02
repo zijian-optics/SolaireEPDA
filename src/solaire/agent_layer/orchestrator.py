@@ -419,7 +419,7 @@ async def run_agent_turn(
             tools_block_txt = build_tools_system_block(_desc)
             _need_rebuild_prompts = False
 
-        system_content = cm.build_system_content(
+        system_prefix, system_suffix = cm.build_system_parts(
             full_ctx,
             tools=tools_selected,
             skill_guidance=skill_guidance,
@@ -440,18 +440,21 @@ async def run_agent_turn(
             "context_metrics",
             {
                 "stable_sha12": hash_text_sha12(stable_txt),
+                "cacheable_prefix_sha12": hash_text_sha12(system_prefix),
                 "tools_block_sha12": hash_text_sha12(tools_block_txt),
                 "dynamic_sha12": hash_text_sha12(dynamic_txt),
                 "tool_schema_sha12": hash_tools_payload_sha12(tools_payload),
                 "tool_count": len(tools_payload),
-                "system_chars": len(system_content),
+                "system_chars": len(system_prefix) + len(system_suffix),
+                "cacheable_prefix_chars": len(system_prefix),
                 "est_prompt_tokens": estimate_messages_tokens(
-                    [{"role": "system", "content": system_content}]
+                    [{"role": "system", "content": system_prefix}, {"role": "system", "content": system_suffix}]
                 ),
             },
         )
         api_messages = cm.build_messages(
-            system_content=system_content,
+            system_prefix=system_prefix,
+            system_suffix=system_suffix,
             session=session,
             user_message="",
         )
