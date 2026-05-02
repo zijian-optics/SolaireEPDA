@@ -69,6 +69,7 @@ class LLMSettings:
     main_model: str
     fast_model: str
     max_tokens: int | None = None
+    temperature: float = 0.3
 
 
 def load_llm_settings(project_root: Path | None = None) -> LLMSettings:
@@ -84,6 +85,9 @@ def load_llm_settings(project_root: Path | None = None) -> LLMSettings:
 
     max_tokens_str = os.environ.get("SOLAIRE_LLM_MAX_TOKENS")
     max_tokens: int | None = int(max_tokens_str) if max_tokens_str and max_tokens_str.isdigit() else None
+
+    temperature_str = os.environ.get("SOLAIRE_LLM_TEMPERATURE")
+    temperature: float = float(temperature_str) if temperature_str else 0.3
 
     user_ov = load_user_overrides_raw()
     api_key, base_url, provider, main_model, fast_model, max_tokens = _merge_override_dict(
@@ -120,6 +124,7 @@ def load_llm_settings(project_root: Path | None = None) -> LLMSettings:
         main_model=main_model,
         fast_model=fast_model,
         max_tokens=max_tokens,
+        temperature=temperature,
     )
 
 

@@ -40,6 +40,12 @@
 - 需要教师确认时，在 `confirm_needed` 之后通常会有 `done`，且带 `awaiting_confirmation: true`，表示流已结束、等待用户在侧栏点确认而非仍在生成。
 - 主对话不再按固定「推理轮数」上限截断；仅当模型在多轮中**重复发起完全相同的工具调用批次**（函数名与参数规范化后一致）达到阈值时推送 `error`（`repeat_loop`）并写入一条助手说明终止本轮。纯文本因输出上限被截断时不再自动插入「继续」类用户消息。
 
+## 题库工具与 JSON 中的反斜杠
+
+- `bank.create_item` / `bank.update_item` 的字符串参数由标准 `json.loads` 解析（见 `parse_tool_arguments`），**不会在应用层二次反转义**。
+- `save_question` 使用 `yaml.safe_dump`：若 Python 字符串里已有**两个**字面反斜杠再接到 `\mathrm` 等，落盘会写成 `content: $\\mathrm{...}$`；若只有一个反斜杠，落盘为 `content: $\mathrm{...}$`（与选项行一致）。
+- 题干出现「多一个反斜杠」而解析/选项正常时，优先查**工具调用 JSON 是否被模型双重转义**（在嵌套 JSON 日志里常表现为成倍的 `\`），而非怀疑 `yaml.safe_load` 或 `bank.get_item`。
+
 ## 验证命令（开发者）
 
 ```bash

@@ -86,7 +86,7 @@ async def run_subagent(
                 fn = tc.get("function") or {}
                 name = fn.get("name") or ""
                 raw_args = fn.get("arguments") or "{}"
-                args = parse_tool_arguments(raw_args)
+                args, _ = parse_tool_arguments(raw_args)
                 tid = tc.get("id") or f"sub-{round_i}"
                 if emit:
                     await emit(

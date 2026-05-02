@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 from collections.abc import Iterable
 from typing import Any
 
@@ -14,6 +15,7 @@ from solaire.agent_layer.tools.tool_definitions import (
 )
 
 _TOOL_BY_NAME: dict[str, RegisteredTool] = {t.name: t for t in TOOLS}
+_ALL_TOOL_NAMES: list[str] = sorted(_TOOL_BY_NAME.keys())
 
 
 def _names_starting(prefix: str) -> tuple[str, ...]:
@@ -229,7 +231,12 @@ def tool_descriptions_for_prompt(tools: list[RegisteredTool] | None = None) -> s
     tlist = tools or all_registered_tools()
     lines = []
     for t in tlist:
-        lines.append(f"- `{t.name}`: {t.description}")
+        req = t.parameters_schema.get("required")
+        if isinstance(req, list) and req:
+            req_str = "、".join(req)
+            lines.append(f"- `{t.name}`: {t.description}（必须提供: {req_str}）")
+        else:
+            lines.append(f"- `{t.name}`: {t.description}")
     return "\n".join(lines)
 
 
@@ -238,5 +245,14 @@ def invoke_registered_tool(name: str, args: dict[str, Any], ctx: InvocationConte
         return ToolResult(status="failed", error_code="internal", error_message="subtask not invokable here")
     rt = _TOOL_BY_NAME.get(name)
     if rt is None:
-        return ToolResult(status="failed", error_code="unknown_tool", error_message=f"未知工具: {name}")
+        # Suggest close matches to help the model self-correct
+        close = difflib.get_close_matches(name, _ALL_TOOL_NAMES, n=3, cutoff=0.5)
+        hint = ""
+        if close:
+            hint = f" 您可能想使用: {', '.join(close)}。"
+        return ToolResult(
+            status="failed",
+            error_code="unknown_tool",
+            error_message=f"未知工具: {name}。{hint}请检查工具名拼写（注意使用点号 . 而非下划线 _ 分隔）。",
+        )
     return rt.handler(ctx, args)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -45,6 +46,8 @@ from solaire.agent_layer.prompts import (
     whitelist_project_ctx_for_prompt,
 )
 from solaire.agent_layer.task_tracker import build_task_plan_dynamic_block
+
+logger = logging.getLogger(__name__)
 
 EmitFn = Callable[[str, dict[str, Any]], Awaitable[None]]
 
@@ -104,6 +107,7 @@ async def _llm_round_call(
                 tool_calls = list(chunk.raw_tool_calls or [])
                 finish_reason = chunk.finish_reason
     except Exception:
+        logger.warning("LLM streaming failed, falling back to non-streaming chat", exc_info=True)
         resp = await adapter.chat(
             api_messages, tools=tools_payload, temperature=temperature, max_tokens=max_tokens
         )
@@ -365,6 +369,7 @@ async def run_agent_turn(
         adapter=adapter,
         fast_adapter=fast_adapter,
         emit=emit,
+        tools=tools_selected,
     )
 
     async def process_draft_loop() -> bool:
@@ -453,7 +458,7 @@ async def run_agent_turn(
                 adapter,
                 api_messages,
                 tools_payload,
-                temperature=0.3,
+                temperature=settings.temperature,
                 emit=emit,
                 max_tokens=max_tokens,
             )
@@ -574,6 +579,7 @@ async def run_agent_turn(
                 tools_selected, tools_payload = _rebuild_tools(
                     session, skill_id, cm.include_subtask_tool, project_root
                 )
+                dtc.tools = tools_selected  # keep dtc in sync for tool validation
                 _need_rebuild_prompts = True
                 prev_plan_mode_for_tools = session.plan_mode_active
                 if focus_switched:
