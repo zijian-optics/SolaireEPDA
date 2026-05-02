@@ -11,6 +11,8 @@ pixi run bootstrap
 
 `bootstrap` 会安装 Python 可编辑包、根目录 npm 依赖与 `web/` 下前端依赖（首次可能需数分钟）。
 
+Pixi 默认环境已通过 `[pypi-dependencies]` 安装 **`cairosvg`**（与 `pyproject.toml` 中可选依赖 `primebrush-pdf` 一致），用于教育绘图插图在 LaTeX/PDF 流水线中的 **SVG→PNG**。若仅用系统 Python + `pip install -e .` 而未装可选组，需自行执行 `pip install "solaire-education[primebrush-pdf]"` 或 `pip install cairosvg`。
+
 ## 日常开发
 
 | 命令 | 说明 |

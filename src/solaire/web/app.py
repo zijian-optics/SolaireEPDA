@@ -117,6 +117,7 @@ from solaire.web.exam_workspace_service import (
     list_exam_workspaces,
     load_exam_workspace,
     mark_exported,
+    resolve_template_under_project,
     save_exam_workspace,
     save_exam_workspace_after_export_failure,
 )
@@ -1319,15 +1320,17 @@ def _assert_overwrite_target(
 @app.post("/api/exam/validate")
 def exam_validate(body: ExamDraftBody) -> dict[str, Any]:
     root = _require_root()
-    tpl = (root / body.template_path).resolve()
+    tpl, tpl_rel = resolve_template_under_project(root, body.template_path, body.template_ref)
     assert_within_project(root, tpl)
+    if not tpl.is_file():
+        raise HTTPException(status_code=400, detail=f"Template file not found: {body.template_path}")
     sections = _draft_to_sections(body)
     exam_yaml = write_exam_yaml(
         root,
         yaml_basename=VALIDATE_EXAM_NAME,
         exam_id="validate",
         template_ref=body.template_ref,
-        template_relative=body.template_path,
+        template_relative=tpl_rel,
         metadata={},
         selected_items=sections,
     )
@@ -1367,7 +1370,7 @@ def _exam_export_failure_detail(root: Path, body: ExamExportBody, exc: BaseExcep
 @app.post("/api/exam/export")
 def exam_export(body: ExamExportBody) -> dict[str, Any]:
     root = _require_root()
-    tpl = (root / body.template_path).resolve()
+    tpl, tpl_rel = resolve_template_under_project(root, body.template_path, body.template_ref)
     assert_within_project(root, tpl)
     if not tpl.is_file():
         raise HTTPException(status_code=400, detail=f"Template file not found: {body.template_path}")
@@ -1387,7 +1390,7 @@ def exam_export(body: ExamExportBody) -> dict[str, Any]:
             root,
             exam_id="web_export",
             template_ref=body.template_ref,
-            template_relative=body.template_path,
+            template_relative=tpl_rel,
             metadata=metadata,
             selected_items=sections,
         )
@@ -1502,7 +1505,7 @@ def exam_preview_pdf(body: ExamExportBody) -> dict[str, Any]:
     Build a non-strict preview PDF under .solaire/previews/<id>/ (not under result/).
     """
     root = _require_root()
-    tpl = (root / body.template_path).resolve()
+    tpl, tpl_rel = resolve_template_under_project(root, body.template_path, body.template_ref)
     assert_within_project(root, tpl)
     if not tpl.is_file():
         raise HTTPException(status_code=400, detail=f"Template file not found: {body.template_path}")
@@ -1525,7 +1528,7 @@ def exam_preview_pdf(body: ExamExportBody) -> dict[str, Any]:
             preview_dir,
             exam_id=f"preview_{preview_id}",
             template_ref=body.template_ref,
-            template_relative=body.template_path,
+            template_relative=tpl_rel,
             metadata=metadata,
             selected_items=sections,
         )

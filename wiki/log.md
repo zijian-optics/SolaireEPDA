@@ -658,3 +658,27 @@
 **验证命令**：`pixi run pytest tests/test_agent_context_meter_api.py -q`
 
 **结果要点**：2 passed。
+
+## [2026-05-02] Pixi | 默认环境纳入 cairosvg（PrimeBrush PDF）
+
+**改动摘要**：在 `pixi.toml` 的 `[pypi-dependencies]` 增加 `cairosvg>=2.7`，与 `pyproject.toml` 的 `primebrush-pdf` 可选依赖对齐；`wiki/modules/dev-environment.md` 补充说明。
+
+**验证命令**：`pixi lock` 通过；本机 `pixi install` 因 Windows 下已加载的 `PIL/_imaging*.pyd` 无法覆盖（拒绝访问）未完整写完环境。
+
+**结果要点**：`pixi.toml` / `pixi.lock` 已纳入 `cairosvg`（与 `primebrush-pdf` 一致）。请在结束占用 `.pixi\envs\default` 的 Python 进程后重试 `pixi install`，再执行 `pixi run python -c "import cairosvg; print(cairosvg.__version__)"` 自检。
+
+## [2026-05-02] 样例题库 | gk2024_006 分段函数 cases 缺行分隔
+
+**改动摘要**：`web_sample_project/resource/数学/2024全国高考/gk2024_006.yaml` 中 `\begin{cases}...\end{cases}` 误写为单行且缺少 `\\`，XeLaTeX 报 `Extra alignment tab`；已与 `examples/web_sample_project` 及 `bundled_project_templates` 对齐，在 `x<0,` 后恢复 `\\` 换行。
+
+**验证命令**：人工对照 `student_paper.tex` 中对应 `\item` 的 `cases` 块。
+
+**结果要点**：与 `cairosvg` 无关，属题库 LaTeX 语法错误；重新导出试卷即可。
+
+## [2026-05-02] 组卷预览 | template_path 与 template_ref 不一致时按 ref 回退
+
+**改动摘要**：`exam_workspace_service.resolve_template_under_project`：当 `template_path` 指向的文件不存在时，在 `templates/**/*.yaml` 中按 `template_id == template_ref` 解析；`exam_validate` / `exam_export` / `exam_preview_pdf` 写入临时 `exam.yaml` 时使用解析后的相对路径。前端 `ComposeWorkspace` 在模板列表加载后若 path 无匹配但 ref 有匹配则修正 `templatePath`。修正 `web_sample_project` 中 `exam.yaml` 与 `.solaire/build.yaml` 的 `template_path` 为 `gaokao2024_math.yaml`。
+
+**验证命令**：`pixi run python -c "from pathlib import Path; from solaire.web.exam_workspace_service import resolve_template_under_project; ..."`（旧 path + ref `gaokao2024_math` → `templates/gaokao2024_math.yaml` 且 `is_file()`）。
+
+**结果要点**：预览不再依赖磁盘上已不存在的 `gaokao2024.yaml`；历史草稿无需用户在 UI 重选模板。

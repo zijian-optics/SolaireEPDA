@@ -277,6 +277,29 @@ export function ComposeWorkspace({
     setActiveSection(first.sections[0]?.section_id ?? null);
   }, [templates, currentExamId, templatePath]);
 
+  /**
+   * 已保存的 exam.yaml 可能出现 template_ref 与 template_path 不一致（例如仅重命名了
+   * templates/ 下文件）。列表以 path 为准匹配 selectedTpl；此处按 ref 回退到实际文件路径，
+   * 避免「顶栏显示 — 却仍发出旧 path」或预览 400。
+   */
+  useEffect(() => {
+    if (templates.length === 0 || !templatePath.trim()) {
+      return;
+    }
+    const tp = normTemplatePath(templatePath);
+    if (templates.some((x) => normTemplatePath(x.path) === tp)) {
+      return;
+    }
+    const ref = templateRef.trim();
+    if (!ref) {
+      return;
+    }
+    const byRef = templates.find((x) => x.id === ref);
+    if (byRef && normTemplatePath(byRef.path) !== tp) {
+      setTemplatePath(byRef.path);
+    }
+  }, [templates, templatePath, templateRef]);
+
   useEffect(() => {
     setNamespaceFilter("__all__");
     setTypeFilter("__all__");

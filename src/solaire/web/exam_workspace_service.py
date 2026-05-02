@@ -13,6 +13,7 @@ import yaml
 
 from solaire.common.security import assert_within_project
 from solaire.exam_compiler.facade import SelectedSection
+from solaire.exam_compiler.loaders.template_loader import load_template
 
 from solaire.web.draft_service import (
     _section_dump,
@@ -52,6 +53,41 @@ def _norm_template_path_rel(s: str) -> str:
     while t.startswith("../"):
         t = t[3:]
     return t.lstrip("/")
+
+
+def resolve_template_under_project(
+    project_root: Path, template_path: str, template_ref: str
+) -> tuple[Path, str]:
+    """
+    解析项目根下的版式 YAML 路径。
+
+    先使用 ``template_path``（相对项目根，经 `_norm_template_path_rel`）；若文件不存在且
+    ``template_ref`` 非空，则在 ``templates/**/*.yaml`` 中按 ``template_id`` 匹配回退，
+    避免历史 ``exam.yaml`` 中路径与重命名后的模板文件不一致。
+    """
+    rel0 = _norm_template_path_rel(template_path)
+    cand = (project_root / rel0).resolve()
+    assert_within_project(project_root, cand)
+    if cand.is_file():
+        return cand, rel0
+    ref = (template_ref or "").strip()
+    if not ref:
+        return cand, rel0
+    td = project_root / "templates"
+    if not td.is_dir():
+        return cand, rel0
+    root_res = project_root.resolve()
+    for p in sorted(td.rglob("*.yaml")):
+        try:
+            t = load_template(p)
+        except Exception:
+            continue
+        if t.template_id == ref:
+            pr = p.resolve()
+            assert_within_project(project_root, pr)
+            rel1 = pr.relative_to(root_res).as_posix()
+            return pr, rel1
+    return cand, rel0
 
 
 def label_subject_pair(export_label: str, subject: str) -> tuple[str, str]:

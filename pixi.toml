@@ -50,3 +50,5 @@ anthropic = ">=0.97.0, <0.98"
 trafilatura = ">=1.12"
 lxml = ">=5.0"
 tokenizers = ">=0.20.0, <1"
+# PrimeBrush 插图导出 PDF/LaTeX 时 SVG→PNG（与 pyproject 可选依赖 primebrush-pdf 对齐）
+cairosvg = ">=2.7"
