@@ -35,7 +35,7 @@ from solaire.agent_layer.tool_executor import DraftToolContext, run_draft_tool_l
 from solaire.agent_layer.utils import tool_calls_signature
 from solaire.agent_layer.llm.token_budget import estimate_messages_tokens
 from solaire.agent_layer.llm.prompt_cache import hash_text_sha12, hash_tools_payload_sha12
-from solaire.agent_layer.prompts import build_dynamic_system_prompt, build_stable_system_prompt, build_tools_system_block
+from solaire.agent_layer.prompts import build_stable_system_prompt, build_tools_system_block
 
 EmitFn = Callable[[str, dict[str, Any]], Awaitable[None]]
 
@@ -428,21 +428,13 @@ async def run_agent_turn(
             execution_plan_path=session.execution_plan_path,
             skill_catalog=skill_catalog,
         )
-        dynamic_txt = build_dynamic_system_prompt(
-            project_ctx=public_ctx,
-            skill_guidance=skill_guidance,
-            current_focus=session.current_focus or None,
-            plan_mode_active=session.plan_mode_active,
-            execution_plan_path=session.execution_plan_path,
-            skill_catalog=skill_catalog,
-        )
         await emit(
             "context_metrics",
             {
                 "stable_sha12": hash_text_sha12(stable_txt),
                 "cacheable_prefix_sha12": hash_text_sha12(system_prefix),
                 "tools_block_sha12": hash_text_sha12(tools_block_txt),
-                "dynamic_sha12": hash_text_sha12(dynamic_txt),
+                "dynamic_sha12": hash_text_sha12(system_suffix),
                 "tool_schema_sha12": hash_tools_payload_sha12(tools_payload),
                 "tool_count": len(tools_payload),
                 "system_chars": len(system_prefix) + len(system_suffix),

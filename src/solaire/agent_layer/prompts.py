@@ -27,19 +27,6 @@ def _layer_goal() -> str:
     )
 
 
-def _ui_module_label(code: str) -> str:
-    return {
-        "compose": "组卷",
-        "bank": "题库",
-        "template": "试卷模板",
-        "graph": "知识图谱",
-        "analysis": "成绩分析",
-        "help": "使用手册",
-        "log": "运行日志",
-        "settings": "设置",
-    }.get(code, code)
-
-
 _FOCUS_LABEL: dict[str, str] = {
     "general": "通用",
     "bank": "题库管理",
@@ -51,6 +38,7 @@ _FOCUS_LABEL: dict[str, str] = {
 
 
 def _layer_context(project_ctx: dict[str, Any]) -> str:
+    # 仅输出会话内稳定的项目级统计；页面上下文每轮可能变化，会破坏 KV Cache 前缀匹配
     lines = ["## 项目状态"]
     lines.append(f"- 项目路径：{project_ctx.get('project_label', '当前项目')}")
     if exams := project_ctx.get("exam_summary"):
@@ -59,20 +47,6 @@ def _layer_context(project_ctx: dict[str, Any]) -> str:
         lines.append(f"- 可用试卷模板数量：{project_ctx.get('template_count')}")
     if "graph_node_count" in project_ctx:
         lines.append(f"- 知识图谱节点数量：{project_ctx.get('graph_node_count')}")
-    pc = project_ctx.get("page_context")
-    if isinstance(pc, dict) and pc:
-        lines.append("## 教师当前界面")
-        cp = pc.get("current_page")
-        if cp:
-            lines.append(f"- 所在模块：{_ui_module_label(str(cp))}")
-        sm = pc.get("summary")
-        if sm:
-            lines.append(f"- 场景说明：{sm}")
-        rt = pc.get("selected_resource_type")
-        ri = pc.get("selected_resource_id")
-        if rt or ri:
-            lines.append(f"- 当前对象：{rt or '—'} / {ri or '—'}")
-        lines.append("- 宜结合上述场景作答；跨领域能力可通过 `agent.switch_focus` 切换聚焦域获取。")
     return "\n".join(lines)
 
 
