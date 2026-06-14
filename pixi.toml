@@ -33,11 +33,11 @@ build = { cmd = "npm run build", cwd = "web" }
 
 # ── 开发（一键启动后端 + 前端 + Tauri）───────────────────
 dev = "npm run tauri:dev"
-dev-backend = "python -m uvicorn solaire.web.app:app --app-dir src --host 127.0.0.1 --port 8000 --reload --reload-dir src"
+dev-backend = { cmd = "python -m uvicorn solaire.web.app:app --app-dir src --host 127.0.0.1 --port 8000 --reload --reload-dir src", env = { PYTHONPATH = "src" } }
 dev-frontend = { cmd = "npm run dev -- --host localhost --port 5173 --strictPort", cwd = "web" }
 
 # ── 测试 & 类型检查 ──────────────────────────────────────
-test = "python -m pytest tests"
+test = { cmd = "python -m pytest tests", env = { PYTHONPATH = "src" } }
 test-web = { cmd = "npm test", cwd = "web" }
 typecheck = { cmd = "npx tsc --noEmit", cwd = "web" }
 
@@ -45,6 +45,7 @@ typecheck = { cmd = "npx tsc --noEmit", cwd = "web" }
 build-desktop = "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1"
 
 [pypi-dependencies]
+solaire-education = { path = ".", editable = true, extras = ["dev"] }
 anyio = ">=4.13.0, <5"
 anthropic = ">=0.97.0, <0.98"
 trafilatura = ">=1.12"

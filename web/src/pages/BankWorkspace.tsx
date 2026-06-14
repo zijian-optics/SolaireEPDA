@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, X } from "lucide-react";
 import yaml from "js-yaml";
 import {
   apiDelete,
@@ -69,6 +69,7 @@ type BankListItem = {
   type: string;
   content_preview: string;
   metadata: Record<string, unknown>;
+  storage_path: string;
   storage_kind: string;
   group_id?: string | null;
   group_member_qualified_ids?: string[];
@@ -121,12 +122,13 @@ export function BankWorkspace({
   const [manageDraftSubject, setManageDraftSubject] = useState("");
   const [manageDraftCollection, setManageDraftCollection] = useState("");
   const [newSubject, setNewSubject] = useState(() => i18n.t("bank:defaultSubject"));
-  const [newCollection, setNewCollection] = useState("main");
+  const [newCollection, setNewCollection] = useState("");
   const [newId, setNewId] = useState("new_question_001");
   const [newType, setNewType] = useState("choice");
   /** 新建题组：混编或同型 */
   const [newGroupUnified, setNewGroupUnified] = useState<string>("choice");
   const [newGroupMaterial, setNewGroupMaterial] = useState("");
+  const [pendingDeleteItem, setPendingDeleteItem] = useState<BankListItem | null>(null);
   const [editorTab, setEditorTab] = useState<"form" | "yaml">("form");
   const [rawYaml, setRawYaml] = useState("");
   const [metaRows, setMetaRows] = useState<{ key: string; value: string }[]>([]);
@@ -517,6 +519,28 @@ export function BankWorkspace({
     const fromItems = [...new Set(items.map((i) => i.subject).filter(Boolean) as string[])];
     return [...new Set([...subjects, ...fromItems])].sort((a, b) => localeCompareStrings(a, b));
   }, [subjects, items]);
+
+  const newCollectionList = useMemo(() => {
+    const subject = newSubject.trim();
+    return [
+      ...new Set(
+        collections
+          .filter((c) => !subject || c.subject === subject)
+          .map((c) => c.collection)
+          .filter(Boolean),
+      ),
+    ].sort((a, b) => localeCompareStrings(a, b));
+  }, [collections, newSubject]);
+
+  const newSubjectSelectValue = useMemo(() => {
+    const subject = newSubject.trim();
+    return importSubjectList.includes(subject) ? subject : "__custom__";
+  }, [importSubjectList, newSubject]);
+
+  const newCollectionSelectValue = useMemo(() => {
+    const collection = newCollection.trim();
+    return newCollectionList.includes(collection) ? collection : "__custom__";
+  }, [newCollection, newCollectionList]);
 
   const importSubjectSelectValue = useMemo(() => {
     if (importSubjectList.length === 0) {
@@ -945,6 +969,31 @@ export function BankWorkspace({
     }
   }
 
+  async function removeQuestionFromList(item: BankListItem) {
+    setBusy(true);
+    onError(null);
+    try {
+      const enc = encodeURIComponent(item.qualified_id);
+      const sp = item.storage_path
+        ? `?storage_path=${encodeURIComponent(item.storage_path)}`
+        : "";
+      await apiDelete(`/api/bank/items/${enc}${sp}`);
+      setOpenTabs((prev) => prev.filter((x) => x !== item.qualified_id));
+      delete baselineRef.current[item.qualified_id];
+      if (selectedId === item.qualified_id) {
+        setSelectedId(null);
+        setDetail(null);
+        setEditorModalOpen(false);
+      }
+      await loadList();
+      setPendingDeleteItem(null);
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   /** 已保存题目：服务端展开插图占位符；编辑未保存时回退到表单原文 */
   const previewQ = useMemo(() => {
     if (!detail) return null;
@@ -1145,20 +1194,53 @@ export function BankWorkspace({
               <div className="space-y-2">
                 <label className="block text-[11px] font-medium text-slate-600">
                   {t("newSubject")}
-                  <input
-                    className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1 text-sm"
-                    value={newSubject}
-                    onChange={(e) => setNewSubject(e.target.value)}
-                    placeholder={t("newSubjectPh")}
-                  />
+                  <div className="mt-0.5 space-y-1">
+                    <select
+                      className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm"
+                      value={newSubjectSelectValue}
+                      onChange={(e) => setNewSubject(e.target.value === "__custom__" ? "" : e.target.value)}
+                    >
+                      {importSubjectList.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                      <option value="__custom__">{t("otherSubject")}</option>
+                    </select>
+                    {newSubjectSelectValue === "__custom__" && (
+                      <input
+                        className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                        value={newSubject}
+                        onChange={(e) => setNewSubject(e.target.value)}
+                        placeholder={t("newSubjectPh")}
+                      />
+                    )}
+                  </div>
                 </label>
                 <label className="block text-[11px] font-medium text-slate-600">
                   {t("newCollection")}
-                  <input
-                    className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1 text-sm"
-                    value={newCollection}
-                    onChange={(e) => setNewCollection(e.target.value)}
-                  />
+                  <div className="mt-0.5 space-y-1">
+                    <select
+                      className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm"
+                      value={newCollectionSelectValue}
+                      onChange={(e) => setNewCollection(e.target.value === "__custom__" ? "" : e.target.value)}
+                    >
+                      {newCollectionList.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                      <option value="__custom__">{t("otherCollection")}</option>
+                    </select>
+                    {newCollectionSelectValue === "__custom__" && (
+                      <input
+                        className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                        value={newCollection}
+                        onChange={(e) => setNewCollection(e.target.value)}
+                        placeholder={t("targetCollectionPh")}
+                      />
+                    )}
+                  </div>
                 </label>
                 <label className="block text-[11px] font-medium text-slate-600">
                   {t("newId")}
@@ -1424,6 +1506,9 @@ export function BankWorkspace({
     importSubject,
     importTarget,
     importSubjectList,
+    newCollectionList,
+    newSubjectSelectValue,
+    newCollectionSelectValue,
     importSubjectSelectValue,
     importSummaryHint,
     setToolBar,
@@ -1569,7 +1654,7 @@ export function BankWorkspace({
                 <li
                   key={it.qualified_id}
                   className={cn(
-                    "mb-1 rounded-lg border px-2 py-2 transition-colors",
+                    "relative mb-1 rounded-lg border px-2 py-2 transition-colors",
                     selectedId === it.qualified_id
                       ? "border-slate-900 bg-slate-100"
                       : "border-transparent bg-slate-50 hover:border-slate-200 hover:bg-white",
@@ -1577,7 +1662,7 @@ export function BankWorkspace({
                 >
                   <button
                     type="button"
-                    className="w-full min-w-0 text-left text-sm"
+                    className="w-full min-w-0 pr-5 text-left text-sm"
                     onClick={() => openOrFocusTab(it.qualified_id)}
                   >
                     <div className="flex w-full min-w-0 flex-wrap items-baseline gap-x-1 gap-y-0.5">
@@ -1624,6 +1709,19 @@ export function BankWorkspace({
                       ))}
                     </div>
                   ) : null}
+                  <button
+                    type="button"
+                    className="absolute right-1 top-1 rounded p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
+                    disabled={busy}
+                    aria-label={t("remove")}
+                    title={t("remove")}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPendingDeleteItem(it);
+                    }}
+                  >
+                    <X className="h-3.5 w-3.5" aria-hidden />
+                  </button>
                 </li>
               );
             })
@@ -1897,6 +1995,46 @@ export function BankWorkspace({
                   </li>
                 ))}
             </ul>
+          </div>
+        </div>
+      </div>
+    ) : null}
+    {pendingDeleteItem ? (
+      <div
+        className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/40 p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="bank-delete-question-title"
+        onMouseDown={(e) => {
+          if (e.target === e.currentTarget && !busy) {
+            setPendingDeleteItem(null);
+          }
+        }}
+      >
+        <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-4 shadow-2xl">
+          <h2 id="bank-delete-question-title" className="text-sm font-semibold text-slate-900">
+            {t("deleteQuestionTitle")}
+          </h2>
+          <p className="mt-2 break-all text-sm leading-relaxed text-slate-600">
+            {t("errors.deleteQuestion", { id: pendingDeleteItem.qualified_id })}
+          </p>
+          <div className="mt-4 flex justify-end gap-2">
+            <button
+              type="button"
+              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              disabled={busy}
+              onClick={() => setPendingDeleteItem(null)}
+            >
+              {t("manageCancel")}
+            </button>
+            <button
+              type="button"
+              className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              disabled={busy}
+              onClick={() => void removeQuestionFromList(pendingDeleteItem)}
+            >
+              {t("remove")}
+            </button>
           </div>
         </div>
       </div>
