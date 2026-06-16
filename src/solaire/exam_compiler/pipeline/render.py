@@ -10,6 +10,7 @@ from solaire.exam_compiler.choice_layout import choice_option_pairs, resolve_cho
 from solaire.exam_compiler.latex_jinja_paths import latex_jinja_loader_dirs
 from solaire.exam_compiler.latex_util import build_graphicspath_command, latex_escape_text, latex_safe_label
 from solaire.exam_compiler.loaders.questions import LoadedQuestions
+from solaire.exam_compiler.models import is_choice_type
 from solaire.exam_compiler.pipeline.hydrate import HydratedExam, HydratedQuestion
 from solaire.exam_compiler.pipeline.primebrush_expand import expand_hydrated_for_latex
 
@@ -64,6 +65,7 @@ def _build_section_questions(
                     "answer": q.answer,
                     "analysis": q.analysis,
                     "type": q.type,
+                    "is_choice": is_choice_type(q.type),
                     "group_id": None,
                     "group_material": None,
                     "show_group_material": False,
@@ -115,6 +117,7 @@ def _build_section_questions(
                         "answer": qk.answer,
                         "analysis": qk.analysis,
                         "type": qk.type,
+                        "is_choice": is_choice_type(qk.type),
                         "group_id": q.group_root_id,
                         "group_material": material if k == 0 else None,
                         "show_group_material": False,
@@ -153,6 +156,7 @@ def _build_section_questions(
                     "answer": qk.answer,
                     "analysis": qk.analysis,
                     "type": qk.type,
+                    "is_choice": is_choice_type(qk.type),
                     "group_id": q.group_root_id,
                     "group_material": material if k == 0 else None,
                     "show_group_material": False,

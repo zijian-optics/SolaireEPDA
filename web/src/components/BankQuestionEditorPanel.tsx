@@ -10,7 +10,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { ImagePlus } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
-import { QUESTION_TYPE_OPTIONS } from "../lib/questionTypes";
+import { QUESTION_TYPE_OPTIONS, isChoiceQuestionType } from "../lib/questionTypes";
 import type { EmbedKind } from "../lib/bankEditorEmbedKinds";
 import { ChoiceOptionsFields } from "./ChoiceOptionsFields";
 import { LatexRichTextField } from "./LatexRichTextField";
@@ -173,8 +173,8 @@ export function BankQuestionEditorPanel({
     return m ? parseInt(m[1], 10) - 1 : 0;
   }, [detail.question.id]);
 
-  const unifiedUi = qg ? (qg.unified === false ? "mixed" : String(qg.unified)) : "choice";
-  const innerTypeForItems = unifiedUi === "mixed" ? "choice" : unifiedUi;
+  const unifiedUi = qg ? (qg.unified === false ? "mixed" : String(qg.unified)) : "single_choice";
+  const innerTypeForItems = unifiedUi === "mixed" ? "single_choice" : unifiedUi;
 
   const tabsValue =
     panelMode === "full" ? editorTab : panelMode === "form" ? "form" : "yaml";
@@ -279,7 +279,7 @@ export function BankQuestionEditorPanel({
                     let items = qg.items.map((it) => ({ ...it }));
                     if (u === "mixed") {
                       /* 混编：不批量改各小题 options */
-                    } else if (u === "choice") {
+                    } else if (isChoiceQuestionType(u)) {
                       items = items.map((it) => ({
                         ...it,
                         options:
@@ -300,11 +300,11 @@ export function BankQuestionEditorPanel({
                       question_group: { ...qg, unified: unifiedVal, items },
                       question: {
                         ...detail.question,
-                        type: u === "mixed" ? "choice" : u,
+                        type: u === "mixed" ? "single_choice" : u,
                         options:
                           u === "mixed"
                             ? detail.question.options
-                            : u === "choice"
+                            : isChoiceQuestionType(u)
                               ? detail.question.options ?? { A: "", B: "", C: "", D: "" }
                               : null,
                       },
@@ -383,8 +383,8 @@ export function BankQuestionEditorPanel({
                     const emptyChoiceOpts = { A: "", B: "", C: "", D: "" };
                     const newItem =
                       unifiedUi === "mixed"
-                        ? { type: "choice" as const, content: "", answer: "", analysis: "", metadata: {}, options: emptyChoiceOpts }
-                        : innerTypeForItems === "choice"
+                        ? { type: "single_choice" as const, content: "", answer: "", analysis: "", metadata: {}, options: emptyChoiceOpts }
+                        : isChoiceQuestionType(innerTypeForItems)
                           ? { content: "", answer: "", analysis: "", metadata: {}, options: emptyChoiceOpts }
                           : { content: "", answer: "", analysis: "", metadata: {} };
                     setDetail({
@@ -423,12 +423,12 @@ export function BankQuestionEditorPanel({
                       {t("components:bankEditor.fieldType")}
                       <select
                         className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5"
-                        value={it.type ?? "choice"}
+                        value={it.type ?? "single_choice"}
                         onChange={(e) => {
                           const nt = e.target.value;
                           const items = [...qg.items];
                           const cur = items[i];
-                          if (nt === "choice") {
+                          if (isChoiceQuestionType(nt)) {
                             items[i] = {
                               ...cur,
                               type: nt,
@@ -505,7 +505,7 @@ export function BankQuestionEditorPanel({
                       }}
                     />
                   </div>
-                  {(unifiedUi === "mixed" ? it.type === "choice" : innerTypeForItems === "choice") && (
+                  {(unifiedUi === "mixed" ? isChoiceQuestionType(it.type) : isChoiceQuestionType(innerTypeForItems)) && (
                     <div className="mt-2">
                       <ChoiceOptionsFields
                         options={it.options ?? { A: "", B: "", C: "", D: "" }}
@@ -585,7 +585,7 @@ export function BankQuestionEditorPanel({
                   onChange={(e) => {
                     const nt = e.target.value;
                     const cur = detail.question;
-                    if (nt === "choice") {
+                    if (isChoiceQuestionType(nt)) {
                       setDetail({
                         ...detail,
                         question: {
@@ -619,7 +619,7 @@ export function BankQuestionEditorPanel({
                   busy={busy}
                 />
               </div>
-              {detail.question.type === "choice" && (
+              {isChoiceQuestionType(detail.question.type) && (
                 <div className="mt-2">
                   <ChoiceOptionsFields
                     options={detail.question.options ?? { A: "", B: "", C: "", D: "" }}

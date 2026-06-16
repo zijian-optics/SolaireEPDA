@@ -414,7 +414,7 @@ def import_merged_yaml(
         if not gid:
             raise ValueError("group without group_id")
         inner_type = g.get("type")
-        if inner_type not in ("choice", "fill", "judge", "short_answer", "reasoning", "essay"):
+        if inner_type not in ("choice", "single_choice", "multiple_choice", "fill", "judge", "short_answer", "reasoning", "essay"):
             raise ValueError(f"invalid group inner type: {inner_type!r}")
         items_raw = g.get("items") or []
         rec = QuestionGroupRecord(

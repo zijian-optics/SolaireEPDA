@@ -17,7 +17,7 @@
 | 字段 | 说明 |
 |------|------|
 | `section_id` | 小节 id，组卷选题时引用 |
-| `type` | `text`（说明块） / `group` / `choice` / `fill` / `judge` / `short_answer` / `reasoning` / `essay` |
+| `type` | `text`（说明块） / `group` / `single_choice` / `multiple_choice` / `fill` / `judge` / `short_answer` / `reasoning` / `essay`（旧 `choice` 可读取兼容） |
 | `required_count` | 本小节题目数量下限（整数 ≥0） |
 | `score_per_item` | 每题默认分值（≥0） |
 | `describe` | 可选，小节说明 |
@@ -44,7 +44,7 @@ sections:
     score_per_item: 0
     describe: 考试说明与注意事项
   - section_id: mcq
-    type: choice
+    type: single_choice
     required_count: 10
     score_per_item: 3
     describe: 选择题

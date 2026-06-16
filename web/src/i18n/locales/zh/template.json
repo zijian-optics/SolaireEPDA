@@ -2,7 +2,9 @@
   "sectionKind": {
     "text": "说明性文本（不出题）",
     "group": "混编题组（独立题组文件）",
-    "choice": "选择题（单选 / 多选）",
+    "choice": "选择题（兼容旧模板）",
+    "single_choice": "单选题",
+    "multiple_choice": "多选题",
     "fill": "填空题",
     "judge": "判断题",
     "short_answer": "简答题（按要点给分）",

@@ -2,7 +2,9 @@
   "sectionKind": {
     "text": "Instruction text (no questions)",
     "group": "Mixed question group (standalone group file)",
-    "choice": "Multiple choice",
+    "choice": "Choice (legacy)",
+    "single_choice": "Single choice",
+    "multiple_choice": "Multiple choice",
     "fill": "Fill in the blanks",
     "judge": "True / false",
     "short_answer": "Short answer (point-based)",

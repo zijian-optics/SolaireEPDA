@@ -9,6 +9,7 @@ from solaire.exam_compiler.models import (
     QuestionItem,
     SelectedSection,
     TemplateSection,
+    is_choice_type,
 )
 from solaire.exam_compiler.loaders.questions import LoadedQuestions
 
@@ -20,6 +21,12 @@ def _section_by_id(template: ExamTemplate, section_id: str) -> TemplateSection:
     raise ValueError(
         f"当前模板中不存在小节「{section_id}」（模板：{template.template_id}）。"
     )
+
+
+def _type_matches_section(entry_type: str, section_type: str) -> bool:
+    if section_type == "choice":
+        return is_choice_type(entry_type)
+    return entry_type == section_type
 
 
 def validate_exam(exam: ExamConfig, template: ExamTemplate, loaded: LoadedQuestions) -> None:
@@ -71,12 +78,12 @@ def validate_exam(exam: ExamConfig, template: ExamTemplate, loaded: LoadedQuesti
                     raise ValueError(
                         f"混合题组「{qid}」只能放在模板中题型为「题组」的小节里。"
                     )
-                if entry.unified != sec.type:
+                if not _type_matches_section(str(entry.unified), sec.type):
                     raise ValueError(
                         f"题组「{qid}」的题型为「{entry.unified}」，与小节「{sel.section_id}」要求的「{sec.type}」不一致。"
                     )
             elif isinstance(entry, QuestionItem):
-                if entry.type != sec.type:
+                if not _type_matches_section(entry.type, sec.type):
                     raise ValueError(
                         f"题目「{qid}」的题型为「{entry.type}」，与小节「{sel.section_id}」要求的「{sec.type}」不一致。"
                     )
@@ -196,12 +203,12 @@ def validate_exam_preview(exam: ExamConfig, template: ExamTemplate, loaded: Load
                     raise ValueError(
                         f"混合题组「{qid}」只能放在模板中题型为「题组」的小节里。"
                     )
-                if entry.unified != sec.type:
+                if not _type_matches_section(str(entry.unified), sec.type):
                     raise ValueError(
                         f"题组「{qid}」的题型为「{entry.unified}」，与小节「{sel.section_id}」要求的「{sec.type}」不一致。"
                     )
             elif isinstance(entry, QuestionItem):
-                if entry.type != sec.type:
+                if not _type_matches_section(entry.type, sec.type):
                     raise ValueError(
                         f"题目「{qid}」的题型为「{entry.type}」，与小节「{sel.section_id}」要求的「{sec.type}」不一致。"
                     )

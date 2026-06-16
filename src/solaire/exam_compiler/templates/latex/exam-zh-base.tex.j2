@@ -109,7 +109,7 @@
 [% endif %]
 \item
 [[ q.content|safe ]]
-[% if q.options and (q.type == 'choice' or q.type == 'judge') %]
+[% if q.options and (q.is_choice or q.type == 'judge') %]
 [% if q.choice_layout == 'inline_one_line' %]
 \noindent[%- for letter, opt in q.choice_option_items %]\textbf{[[ letter ]].}\,[[ opt|safe ]][% if not loop.last %]\quad[% endif %][%- endfor %]
 \par\smallskip

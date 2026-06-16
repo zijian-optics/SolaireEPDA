@@ -20,8 +20,8 @@ metadata:
 
 ## 题型与规则（摘要）
 
-- `type`：`choice` / `fill` / `judge` / `short_answer` / `reasoning` / `essay`
-- 仅 `choice` 可有 `options`；`judge` 的 `answer` 仅为 `T` 或 `F`
+- `type`：`single_choice` / `multiple_choice` / `fill` / `judge` / `short_answer` / `reasoning` / `essay`（旧 `choice` 可读取兼容）
+- 仅 `single_choice` / `multiple_choice` 可有 `options`；`judge` 的 `answer` 仅为 `T` 或 `F`
 
 ## 参考文件
 

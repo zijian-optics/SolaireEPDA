@@ -1,6 +1,8 @@
 {
   "questionTypes": {
-    "choice": "Multiple choice",
+    "single_choice": "Single choice",
+    "multiple_choice": "Multiple choice",
+    "choice": "Choice (legacy)",
     "fill": "Fill-in-the-blank",
     "judge": "True/false",
     "short_answer": "Short answer (point-based)",
@@ -9,7 +11,9 @@
     "group": "Question group"
   },
   "groupInnerTypes": {
-    "choice": "Multiple choice",
+    "single_choice": "Single choice",
+    "multiple_choice": "Multiple choice",
+    "choice": "Choice (legacy)",
     "fill": "Fill-in-the-blank",
     "judge": "True/false"
   }

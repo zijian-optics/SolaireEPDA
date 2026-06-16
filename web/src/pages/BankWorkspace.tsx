@@ -32,14 +32,14 @@ import { localeCompareStrings } from "../lib/locale";
 import { SOLAIRE_SAVE_EVENT } from "../lib/saveEvents";
 import { cn } from "../lib/utils";
 import { collapseGroupRowsForList } from "../lib/groupQuestions";
-import { QUESTION_TYPE_OPTIONS } from "../lib/questionTypes";
+import { QUESTION_TYPE_OPTIONS, isChoiceQuestionType } from "../lib/questionTypes";
 
 /** 新建题组时生成一条占位小题（与后端 QuestionGroupRecord 一致） */
 function defaultItemsForNewGroup(unifiedUi: string, subStem: string): QuestionGroupJson["items"] {
   if (unifiedUi === "mixed") {
     return [
       {
-        type: "choice",
+        type: "single_choice",
         content: subStem,
         options: { A: "", B: "", C: "", D: "" },
         answer: "A",
@@ -48,7 +48,7 @@ function defaultItemsForNewGroup(unifiedUi: string, subStem: string): QuestionGr
       },
     ];
   }
-  if (unifiedUi === "choice") {
+  if (isChoiceQuestionType(unifiedUi)) {
     return [{ content: subStem, options: { A: "", B: "", C: "", D: "" }, answer: "A", analysis: "", metadata: {} }];
   }
   if (unifiedUi === "fill") {
@@ -124,9 +124,9 @@ export function BankWorkspace({
   const [newSubject, setNewSubject] = useState(() => i18n.t("bank:defaultSubject"));
   const [newCollection, setNewCollection] = useState("");
   const [newId, setNewId] = useState("new_question_001");
-  const [newType, setNewType] = useState("choice");
+  const [newType, setNewType] = useState("single_choice");
   /** 新建题组：混编或同型 */
-  const [newGroupUnified, setNewGroupUnified] = useState<string>("choice");
+  const [newGroupUnified, setNewGroupUnified] = useState<string>("single_choice");
   const [newGroupMaterial, setNewGroupMaterial] = useState("");
   const [pendingDeleteItem, setPendingDeleteItem] = useState<BankListItem | null>(null);
   const [editorTab, setEditorTab] = useState<"form" | "yaml">("form");
@@ -577,7 +577,7 @@ export function BankWorkspace({
       let detailState: BankDetailState;
       if (!d.question && d.question_group) {
         const ug = d.question_group.unified;
-        const t = ug === false ? "choice" : typeof ug === "string" ? ug : "choice";
+        const t = ug === false ? "single_choice" : typeof ug === "string" ? ug : "single_choice";
         detailState = {
           ...d,
           question: {
@@ -587,7 +587,7 @@ export function BankWorkspace({
             answer: "",
             analysis: "",
             metadata: {},
-            options: t === "choice" ? { A: "", B: "", C: "", D: "" } : null,
+            options: isChoiceQuestionType(t) ? { A: "", B: "", C: "", D: "" } : null,
             group_material: d.question_group.material,
           },
           question_display: undefined,
@@ -648,7 +648,7 @@ export function BankWorkspace({
       }
     }
     q.metadata = meta;
-    if (q.type === "choice") {
+    if (isChoiceQuestionType(q.type)) {
       q.options = { ...(detail.question.options ?? { A: "", B: "", C: "", D: "" }) };
     } else {
       q.options = null;
@@ -665,13 +665,13 @@ export function BankWorkspace({
     const items = g.items.map((it) => {
       let options: Record<string, string> | undefined;
       const itemType =
-        unified === false ? (it.type ?? "choice") : typeof unified === "string" ? unified : "choice";
-      if (itemType === "choice") {
+        unified === false ? (it.type ?? "single_choice") : typeof unified === "string" ? unified : "single_choice";
+      if (isChoiceQuestionType(itemType)) {
         options = { ...(it.options ?? { A: "", B: "", C: "", D: "" }) };
       }
       if (unified === false) {
         return {
-          type: it.type ?? "choice",
+          type: it.type ?? "single_choice",
           content: it.content,
           answer: it.answer,
           analysis: it.analysis ?? "",
@@ -780,7 +780,7 @@ export function BankWorkspace({
             id: qid,
             type: newType,
             content: t("latexStemPh"),
-            options: newType === "choice" ? { A: "", B: "", C: "", D: "" } : null,
+            options: isChoiceQuestionType(newType) ? { A: "", B: "", C: "", D: "" } : null,
             answer: "",
             analysis: "",
             metadata: {},
@@ -1562,8 +1562,8 @@ export function BankWorkspace({
         {previewGroup.items.map((it, i) => {
           const rowIsChoice =
             previewGroup.unified === false
-              ? (it.type ?? "choice") === "choice"
-              : typeof previewGroup.unified === "string" && previewGroup.unified === "choice";
+              ? isChoiceQuestionType(it.type ?? "single_choice")
+              : typeof previewGroup.unified === "string" && isChoiceQuestionType(previewGroup.unified);
           return (
             <div key={i} className="border-t border-slate-100 pt-3">
               <p className="text-[11px] font-medium text-slate-500">{t("subItemIndex", { n: i + 1 })}</p>
@@ -1601,7 +1601,7 @@ export function BankWorkspace({
           <p className="text-[11px] font-medium text-slate-500">{t("stem")}</p>
           <ContentWithPrimeBrush text={previewQ!.content} className="mt-1 text-slate-900" />
         </div>
-        {previewQ!.type === "choice" && previewQ!.options && (
+        {isChoiceQuestionType(previewQ!.type) && previewQ!.options && (
           <div>
             <p className="text-[11px] font-medium text-slate-500">{t("options")}</p>
             <ul className="mt-1 list-inside list-disc text-slate-700">

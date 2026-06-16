@@ -3,7 +3,7 @@ layout: single_column
 latex_base: exam-zh-base.tex.j2
 sections:
   - section_id: "一、选择题"
-    type: choice
+    type: single_choice
     required_count: 12
     score_per_item: 5
   - section_id: "二、填空题"

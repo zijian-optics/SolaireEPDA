@@ -20,7 +20,7 @@ metadata:
 
 ```yaml
 id: your_choice_question_id
-type: choice
+type: single_choice
 content: |-
   在此填写题干。
 options:
@@ -53,7 +53,7 @@ metadata:
 
 ## 注意
 
-- `type` 仅可为：`choice` / `fill` / `judge` / `short_answer` / `reasoning` / `essay`
-- 仅 `choice` 题允许 `options`
+- `type` 仅可为：`single_choice` / `multiple_choice` / `fill` / `judge` / `short_answer` / `reasoning` / `essay`（旧 `choice` 可读取兼容）
+- 仅 `single_choice` / `multiple_choice` 题允许 `options`
 - `judge` 题 `answer` 仅可为 `T` 或 `F`
 - 其余题型不要写 `options`

@@ -365,13 +365,16 @@ function createDefaultDraft(): Draft {
 const SECTION_KIND_VALUES = [
   "text",
   "group",
-  "choice",
+  "single_choice",
+  "multiple_choice",
   "fill",
   "judge",
   "short_answer",
   "reasoning",
   "essay",
 ] as const;
+
+const LEGACY_SECTION_KIND_VALUES = ["choice"] as const;
 
 const FALLBACK_LATEX_BASES: LatexBasesResponse = {
   shipped: ["exam-zh-base.tex.j2"],
@@ -1337,6 +1340,12 @@ export function TemplateWorkspace({ onError }: { onError: (s: string | null) => 
                               });
                             }}
                           >
+                            {s.type === "choice" &&
+                              LEGACY_SECTION_KIND_VALUES.map((kind) => (
+                                <option key={kind} value={kind}>
+                                  {t(`sectionKind.${kind}`)}
+                                </option>
+                              ))}
                             {SECTION_KIND_VALUES.map((kind) => (
                               <option key={kind} value={kind}>
                                 {t(`sectionKind.${kind}`)}

@@ -15,6 +15,8 @@ SectionKind = Literal[
     "text",
     "group",
     "choice",
+    "single_choice",
+    "multiple_choice",
     "fill",
     "judge",
     "short_answer",

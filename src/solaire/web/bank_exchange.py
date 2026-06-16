@@ -15,7 +15,12 @@ from typing import Any
 
 import yaml
 
-from solaire.exam_compiler.facade import iter_question_files
+from solaire.exam_compiler.facade import (
+    iter_question_files,
+    parse_bank_root,
+    question_group_to_author_dict,
+    question_item_to_author_dict,
+)
 
 from solaire.web.bank_service import (
     _ALLOWED_BANK_IMAGE_EXT,
@@ -31,6 +36,30 @@ FORMAT_VERSION = 2
 PROFILE_STRICT = "strict"
 
 _EMBED_IMG_RE = re.compile(r":::EMBED_IMG:([^:]+):::")
+
+
+def _normalize_bank_yaml_text(text: str) -> str:
+    raw = yaml.safe_load(text)
+    if raw is None:
+        return ""
+    if isinstance(raw, list):
+        out = []
+        for item in raw:
+            if not isinstance(item, dict):
+                raise ValueError("Invalid YAML root in bank exchange item")
+            rec = parse_bank_root(item)
+            out.append(_record_to_author_dict(rec))
+        return yaml.safe_dump(out, allow_unicode=True, sort_keys=False)
+    if isinstance(raw, dict):
+        rec = parse_bank_root(raw)
+        return yaml.safe_dump(_record_to_author_dict(rec), allow_unicode=True, sort_keys=False)
+    raise ValueError("Invalid YAML root in bank exchange file")
+
+
+def _record_to_author_dict(rec: Any) -> dict[str, Any]:
+    if getattr(rec, "type", None) == "group":
+        return question_group_to_author_dict(rec)
+    return question_item_to_author_dict(rec)
 
 
 def _utc_now_iso() -> str:
@@ -268,7 +297,7 @@ def import_bank_exchange_zip(
                 dest = target_lib / rel
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 text = _rewrite_yaml_text_for_import(p.read_text(encoding="utf-8"), pkg_to_resource)
-                dest.write_text(text, encoding="utf-8")
+                dest.write_text(_normalize_bank_yaml_text(text), encoding="utf-8")
                 written += 1
             return {
                 "written": written,

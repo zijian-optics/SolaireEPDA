@@ -157,7 +157,7 @@ def tool_bank_create_item(ctx: InvocationContext, args: dict[str, Any]) -> ToolR
             error_code="invalid_args",
             error_message="collection_namespace、question_id、question_type 均为必填",
         )
-    allowed_types = ("choice", "fill", "judge", "short_answer", "reasoning", "essay")
+    allowed_types = ("single_choice", "multiple_choice", "choice", "fill", "judge", "short_answer", "reasoning", "essay")
     if qtype not in allowed_types:
         return ToolResult(
             status="failed",

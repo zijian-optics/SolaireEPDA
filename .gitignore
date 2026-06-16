@@ -61,3 +61,4 @@ src-tauri/runtime/python/*
 /docs/PROJECT_MAP.md
 /.cursor/
 /.claude/
+web_sample_project

@@ -1057,7 +1057,7 @@ def template_create(name: str = Query(..., min_length=1, description="File stem 
             },
             {
                 "section_id": "二、选择题",
-                "type": "choice",
+                "type": "single_choice",
                 "required_count": 1,
                 "score_per_item": 5,
             },
@@ -2151,7 +2151,7 @@ def graph_nodes_questions(node_id: str, graph: str | None = Query(None)) -> dict
         typ: str = "unknown"
         preview: str = ""
         if d.get("question") is not None:
-            typ = d["question"].get("type") or "choice"
+            typ = d["question"].get("type") or "single_choice"
             preview = _preview_text(d.get("question_display", {}).get("content"))
         elif d.get("question_group") is not None:
             typ = "group"

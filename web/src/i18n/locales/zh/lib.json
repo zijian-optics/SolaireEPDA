@@ -1,6 +1,8 @@
 {
   "questionTypes": {
-    "choice": "选择题",
+    "single_choice": "单选题",
+    "multiple_choice": "多选题",
+    "choice": "选择题（兼容）",
     "fill": "填空题",
     "judge": "判断题",
     "short_answer": "简答题（要点给分）",
@@ -9,7 +11,9 @@
     "group": "题组"
   },
   "groupInnerTypes": {
-    "choice": "选择题",
+    "single_choice": "单选题",
+    "multiple_choice": "多选题",
+    "choice": "选择题（兼容）",
     "fill": "填空题",
     "judge": "判断题"
   }

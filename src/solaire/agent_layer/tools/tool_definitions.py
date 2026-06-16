@@ -267,7 +267,7 @@ _RAW_TOOLS: list[RegisteredTool] = [
                 "query": {"type": "string", "description": "关键词，可匹配题干摘要或标识；留空则仅按题型筛选"},
                 "question_type": {
                     "type": "string",
-                    "description": "题型：choice / fill / judge / short_answer / reasoning / essay；可留空",
+                    "description": "题型：single_choice / multiple_choice / fill / judge / short_answer / reasoning / essay；旧 choice 可兼容读取；可留空",
                 },
                 "max_hits": {"type": "integer", "description": "最多返回条数，默认 30，最大 80"},
             },

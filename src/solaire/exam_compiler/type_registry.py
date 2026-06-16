@@ -22,6 +22,8 @@ from __future__ import annotations
 
 # 题库与模板「小题」共用（题组内仅允许其中可组卷的子集）
 QUESTION_TYPES: tuple[str, ...] = (
+    "single_choice",
+    "multiple_choice",
     "choice",
     "fill",
     "judge",

@@ -2,11 +2,47 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal, Self, Union
+import re
+from typing import Annotated, Any, Literal, Union
 
 from pydantic import BaseModel, Field, model_validator
+from typing_extensions import Self
 
-QuestionType = Literal["choice", "fill", "judge", "short_answer", "reasoning", "essay"]
+ChoiceQuestionType = Literal["single_choice", "multiple_choice"]
+LegacyChoiceType = Literal["choice"]
+QuestionType = Literal["single_choice", "multiple_choice", "fill", "judge", "short_answer", "reasoning", "essay"]
+QuestionTypeOrLegacyChoice = QuestionType | LegacyChoiceType
+
+CHOICE_QUESTION_TYPES = frozenset({"single_choice", "multiple_choice"})
+LEGACY_CHOICE_TYPE = "choice"
+_ANSWER_OPTION_RE = re.compile(r"[A-Z]")
+
+
+def infer_choice_type_from_answer(answer: object) -> ChoiceQuestionType:
+    letters = _ANSWER_OPTION_RE.findall(str(answer or "").upper())
+    unique = set(letters)
+    return "multiple_choice" if len(unique) >= 2 else "single_choice"
+
+
+def is_choice_type(qtype: object) -> bool:
+    return qtype in CHOICE_QUESTION_TYPES or qtype == LEGACY_CHOICE_TYPE
+
+
+def normalize_legacy_choice_type(qtype: object, answer: object) -> object:
+    if qtype == LEGACY_CHOICE_TYPE:
+        return infer_choice_type_from_answer(answer)
+    return qtype
+
+
+def infer_unified_choice_type(items: object) -> ChoiceQuestionType:
+    if isinstance(items, list):
+        for it in items:
+            if isinstance(it, dict) and infer_choice_type_from_answer(it.get("answer")) == "multiple_choice":
+                return "multiple_choice"
+            answer = getattr(it, "answer", None)
+            if answer is not None and infer_choice_type_from_answer(answer) == "multiple_choice":
+                return "multiple_choice"
+    return "single_choice"
 
 # --- Unified group bodies (no `type` field; implied by parent.unified) ---
 
@@ -17,6 +53,12 @@ class ChoiceBody(BaseModel):
     answer: str
     analysis: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _choice_opts(self) -> Self:
+        if not self.options:
+            raise ValueError("choice requires non-empty options")
+        return self
 
 
 class FillBody(BaseModel):
@@ -60,12 +102,21 @@ UnifiedBody = Union[ChoiceBody, FillBody, JudgeBody, ShortAnswerBody, ReasoningB
 
 
 class TaggedChoice(BaseModel):
-    type: Literal["choice"] = "choice"
+    type: Literal["single_choice", "multiple_choice", "choice"] = "single_choice"
     content: str
     options: dict[str, str]
     answer: str
     analysis: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_legacy_choice(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            out = dict(data)
+            out["type"] = normalize_legacy_choice_type(out.get("type"), out.get("answer"))
+            return out
+        return data
 
     @model_validator(mode="after")
     def _choice_opts(self) -> Self:
@@ -142,9 +193,18 @@ class QuestionItem(BaseModel):
     group_root_id: str | None = None
     group_member_index: int | None = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_legacy_choice(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            out = dict(data)
+            out["type"] = normalize_legacy_choice_type(out.get("type"), out.get("answer"))
+            return out
+        return data
+
     @model_validator(mode="after")
     def _shape(self) -> Self:
-        if self.type == "choice":
+        if is_choice_type(self.type):
             if not self.options:
                 raise ValueError("choice requires non-empty options")
         else:
@@ -175,7 +235,7 @@ def _tagged_to_question_item(
         "group_member_index": member_index,
     }
     if isinstance(t, TaggedChoice):
-        return QuestionItem(type="choice", options=dict(t.options), **base)
+        return QuestionItem(type=t.type, options=dict(t.options), **base)
     if isinstance(t, TaggedFill):
         return QuestionItem(type="fill", options=None, **base)
     if isinstance(t, TaggedJudge):
@@ -207,9 +267,9 @@ def _unified_body_to_question_item(
         "group_root_id": group_id,
         "group_member_index": member_index,
     }
-    if ut == "choice":
+    if is_choice_type(ut):
         assert isinstance(body, ChoiceBody)
-        return QuestionItem(type="choice", options=dict(body.options), **base)
+        return QuestionItem(type=ut, options=dict(body.options), **base)
     if ut == "fill":
         return QuestionItem(type="fill", options=None, **base)
     if ut == "judge":
@@ -252,10 +312,14 @@ class QuestionGroupRecord(BaseModel):
             object.__setattr__(self, "items", parsed)
             return self
         if isinstance(u, str):
+            if u == LEGACY_CHOICE_TYPE:
+                u = infer_unified_choice_type(self.items)
+                object.__setattr__(self, "unified", u)
             if u == "group":
                 raise ValueError("unified cannot be 'group'")
             if u not in (
-                "choice",
+                "single_choice",
+                "multiple_choice",
                 "fill",
                 "judge",
                 "short_answer",
@@ -265,7 +329,8 @@ class QuestionGroupRecord(BaseModel):
                 raise ValueError(f"invalid unified type: {u!r}")
             ut: QuestionType = u  # type: ignore[assignment]
             model = {
-                "choice": ChoiceBody,
+                "single_choice": ChoiceBody,
+                "multiple_choice": ChoiceBody,
                 "fill": FillBody,
                 "judge": JudgeBody,
                 "short_answer": ShortAnswerBody,
@@ -279,7 +344,7 @@ class QuestionGroupRecord(BaseModel):
                 body = model.model_validate(it)
                 if ut == "judge" and body.answer not in ("T", "F"):
                     raise ValueError("judge answer must be T or F")
-                if ut == "choice" and isinstance(body, ChoiceBody) and not body.options:
+                if is_choice_type(ut) and isinstance(body, ChoiceBody) and not body.options:
                     raise ValueError("choice requires non-empty options")
                 out.append(body)  # type: ignore[arg-type]
             object.__setattr__(self, "items", out)
@@ -331,6 +396,8 @@ def parse_bank_root(data: dict[str, Any]) -> BankRecord:
         return QuestionGroupRecord.model_validate(data)
     if t in (
         "choice",
+        "single_choice",
+        "multiple_choice",
         "fill",
         "judge",
         "short_answer",
@@ -357,7 +424,7 @@ def question_item_to_author_dict(item: QuestionItem) -> dict[str, Any]:
     """Serialize standalone question for YAML (no hydrate fields, no options for non-choice)."""
     q = strip_hydrate_fields(item)
     d = q.model_dump(mode="json", exclude_none=True)
-    if q.type != "choice" and "options" in d:
+    if not is_choice_type(q.type) and "options" in d:
         del d["options"]
     return d
 

@@ -22,7 +22,7 @@ import {
   type SectionSlot,
 } from "../lib/groupQuestions";
 import { dispatchExamsChanged, SOLAIRE_EXAMS_CHANGED_EVENT, type ExamsChangedDetail } from "../lib/examEvents";
-import { QUESTION_TYPE_OPTIONS } from "../lib/questionTypes";
+import { QUESTION_TYPE_OPTIONS, isChoiceQuestionType, normalizeQuestionTypeForFilter } from "../lib/questionTypes";
 import { cn } from "../lib/utils";
 import { isTauriShell } from "../lib/tauriEnv";
 import type { ExamDoc, ExamWorkspaceSummary, QuestionRow, RightSelection, TemplateRow } from "../types/compose";
@@ -36,6 +36,21 @@ function normTemplatePath(p: string): string {
     s = s.slice(3);
   }
   return s.replace(/^\/+/, "");
+}
+
+function questionTypeMatchesSection(questionType: string, sectionType: string, answer?: string | null) {
+  const normalizedType = normalizeQuestionTypeForFilter(questionType, answer);
+  if (sectionType === "choice") {
+    return isChoiceQuestionType(questionType) || isChoiceQuestionType(normalizedType);
+  }
+  return normalizedType === sectionType;
+}
+
+function sectionTypeToFilter(section: { section_id: string; type: string }) {
+  if (section.type !== "choice") {
+    return section.type;
+  }
+  return /多选|多项|multiple/i.test(section.section_id) ? "multiple_choice" : "single_choice";
 }
 
 export function ComposeWorkspace({
@@ -193,7 +208,7 @@ export function ComposeWorkspace({
       if (ns && coll !== ns) {
         return false;
       }
-      if (typeFilter !== "__all__" && q.type !== typeFilter) {
+      if (typeFilter !== "__all__" && !questionTypeMatchesSection(q.type, typeFilter, q.answer)) {
         return false;
       }
       if (!qlow) {
@@ -205,7 +220,7 @@ export function ComposeWorkspace({
         q.id.toLowerCase().includes(qlow) ||
         q.qualified_id.toLowerCase().includes(qlow) ||
         q.content_preview.toLowerCase().includes(qlow) ||
-        q.type.toLowerCase().includes(qlow) ||
+        normalizeQuestionTypeForFilter(q.type, q.answer).toLowerCase().includes(qlow) ||
         (gid && gid.includes(qlow)) ||
         (gmat && gmat.includes(qlow))
       );
@@ -657,12 +672,17 @@ export function ComposeWorkspace({
     }
     const compatible = selectedLeftIds.filter((qid) => {
       const row = questionMap.get(qid);
-      return row && row.type === sec.type;
+      return row && questionTypeMatchesSection(row.type, sec.type, row.answer);
     });
     const skippedType = selectedLeftIds.length - compatible.length;
     if (compatible.length === 0) {
       const first = questionMap.get(selectedLeftIds[0]);
-      onError(t("compose:errors.typeMismatch", { need: sec.type, got: first?.type ?? "?" }));
+      onError(
+        t("compose:errors.typeMismatch", {
+          need: sectionTypeToFilter(sec),
+          got: first ? normalizeQuestionTypeForFilter(first.type, first.answer) : "?",
+        }),
+      );
       return;
     }
     const cur = bySection[activeSection] ?? [];
@@ -1694,7 +1714,7 @@ export function ComposeWorkspace({
                     if (s.type === "text") {
                       setTypeFilter("__all__");
                     } else {
-                      setTypeFilter(s.type);
+                      setTypeFilter(sectionTypeToFilter(s));
                     }
                   }}
                   onKeyDown={(e) => {
@@ -1704,7 +1724,7 @@ export function ComposeWorkspace({
                       if (s.type === "text") {
                         setTypeFilter("__all__");
                       } else {
-                        setTypeFilter(s.type);
+                        setTypeFilter(sectionTypeToFilter(s));
                       }
                     }
                   }}

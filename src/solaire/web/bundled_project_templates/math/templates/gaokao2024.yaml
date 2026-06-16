@@ -3,12 +3,12 @@ layout: single_column
 latex_base: GeneralMath.tex.j2
 sections:
   - section_id: 一、选择题
-    type: choice
+    type: single_choice
     required_count: 8
     score_per_item: 5
     describe: 本题共8小题，每小题5分，共40分。在每小题给出的四个选项中，只有一项是符合题目要求的。
   - section_id: 二、选择题
-    type: choice
+    type: multiple_choice
     required_count: 3
     score_per_item: 6
     describe: 本题共3小题，每小题6分，共18分。在每小题给出的选项中，有多项符合题目要求。全部选对的得6分，部分选对的得部分分，有选错的得0分。
