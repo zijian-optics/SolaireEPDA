@@ -11,7 +11,7 @@
 | `SOLAIRE_LLM_BASE_URL` 或 `OPENAI_BASE_URL` | 可选，兼容 OpenAI 的网关地址 |
 | `SOLAIRE_LLM_MODEL` | 主模型，默认 `gpt-4o-mini` |
 | `SOLAIRE_LLM_FAST_MODEL` | 可选，快模型（与主模型相同时可省略） |
-| `SOLAIRE_LLM_MAX_TOKENS` | 可选，单次助手生成最大 token；未设置时默认 `4096`（亦可通过本机或项目内覆盖文件覆盖） |
+| `SOLAIRE_LLM_MAX_TOKENS` | 可选，单次助手生成最大 token；未设置时不主动下发该限制（Anthropic Messages API 因接口要求会在适配器内使用供应商级默认值）；亦可通过本机或项目内覆盖文件覆盖 |
 | `SOLAIRE_LLM_REASONING_EFFORT` | 可选，仅对 DeepSeek 兼容网关有效：`high`（默认）或 `max`，对应思考强度；可被本机或项目内 `llm_overrides.json` 中的 `reasoning_effort` 覆盖 |
 | `SOLAIRE_USER_CONFIG_DIR` | 可选，指定本机用户级配置根目录（默认 Windows `%APPDATA%\SolEdu`，macOS `~/Library/Application Support/SolEdu`，Linux `$XDG_CONFIG_HOME/solaire` 或 `~/.config/solaire`）；其下 `agent/llm_overrides.json` 与 `agent/safety_mode.json` 在未打开项目时由设置页写入 |
 

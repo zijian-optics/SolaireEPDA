@@ -31,6 +31,24 @@ def test_load_llm_settings_deepseek_fills_default_base(monkeypatch: pytest.Monke
     assert s.base_url == "https://api.deepseek.com"
 
 
+def test_load_llm_settings_leaves_max_tokens_unset_by_default(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("SOLAIRE_LLM_MAX_TOKENS", raising=False)
+    monkeypatch.setenv("SOLAIRE_USER_CONFIG_DIR", str(tmp_path / "u"))
+    s = load_llm_settings(tmp_path)
+    assert s.max_tokens is None
+
+
+def test_load_llm_settings_max_tokens_override_still_applies(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("SOLAIRE_LLM_MAX_TOKENS", "12345")
+    monkeypatch.setenv("SOLAIRE_USER_CONFIG_DIR", str(tmp_path / "u"))
+    s = load_llm_settings(tmp_path)
+    assert s.max_tokens == 12345
+
+
 def test_openai_responses_parse_usage_cached_tokens() -> None:
     """Responses API：解析 input_tokens_details.cached_tokens。"""
     u = types.SimpleNamespace(

@@ -125,9 +125,6 @@ def load_llm_settings(project_root: Path | None = None) -> LLMSettings:
     if provider == "deepseek" and not base_url:
         base_url = provider_default_base_url("deepseek")
 
-    if max_tokens is None:
-        max_tokens = 4096
-
     return LLMSettings(
         api_key=api_key,
         base_url=base_url,

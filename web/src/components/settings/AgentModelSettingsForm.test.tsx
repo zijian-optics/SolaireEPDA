@@ -32,7 +32,7 @@ const baseResponse = (): AgentLlmSettingsResponse => ({
   api_key_masked: null,
   has_user_api_key_override: false,
   has_project_api_key_override: false,
-  max_tokens: 4096,
+  max_tokens: null,
   reasoning_effort: "high",
 });
 

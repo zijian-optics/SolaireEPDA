@@ -914,7 +914,7 @@ export type AgentLlmSettingsResponse = {
   api_key_masked: string | null;
   has_user_api_key_override?: boolean;
   has_project_api_key_override: boolean;
-  max_tokens?: number;
+  max_tokens?: number | null;
   reasoning_effort?: AgentLlmReasoningEffort;
 };
 

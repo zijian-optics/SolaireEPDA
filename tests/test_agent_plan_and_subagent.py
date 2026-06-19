@@ -270,3 +270,112 @@ def test_run_agent_turn_emits_tool_schema_hash_in_context_metrics(
     assert isinstance(latest.get("tool_schema_sha12"), str)
     assert len(latest["tool_schema_sha12"]) == 12
     assert isinstance(latest.get("tool_count"), int)
+
+
+def test_run_agent_turn_auto_continues_after_length_finish(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """回复触达单轮 max_tokens 时应自动续写，而不是直接结束本轮。"""
+    session = SessionState(session_id="sid6")
+    events: list[tuple[str, dict]] = []
+    calls: list[list[dict]] = []
+
+    async def emit(ev: str, data: dict) -> None:
+        events.append((ev, data))
+
+    from solaire.agent_layer import orchestrator as orch_mod
+
+    async def fake_llm_round_call(*args, **kwargs):
+        api_messages = args[1]
+        calls.append(api_messages)
+        if len(calls) == 1:
+            return (
+                "第一段",
+                [],
+                {"prompt_tokens": 0, "completion_tokens": 4096, "total_tokens": 4096},
+                "",
+                "length",
+            )
+        return (
+            "第二段",
+            [],
+            {"prompt_tokens": 0, "completion_tokens": 10, "total_tokens": 10},
+            "",
+            "stop",
+        )
+
+    monkeypatch.setattr(orch_mod, "_llm_round_call", fake_llm_round_call)
+
+    router = MagicMock()
+    adapter = MagicMock()
+    router.main.return_value = adapter
+    router.fast.return_value = adapter
+
+    async def _run() -> None:
+        await run_agent_turn(
+            tmp_path,
+            session,
+            user_message="请完成一个长任务",
+            project_ctx={},
+            router=router,
+            emit=emit,
+        )
+
+    asyncio.run(_run())
+
+    assert len(calls) == 2
+    assert calls[1][-1]["role"] == "user"
+    assert "截断" in calls[1][-1]["content"]
+    assert [m.role for m in session.messages] == ["user", "assistant"]
+    assert session.messages[-1].content == "第一段第二段"
+    assert any(e[0] == "done" for e in events)
+
+
+def test_run_agent_turn_stops_repeating_length_continuation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """自动续写没有固定次数上限，但连续重复时要熔断。"""
+    session = SessionState(session_id="sid7")
+    events: list[tuple[str, dict]] = []
+    calls = 0
+
+    async def emit(ev: str, data: dict) -> None:
+        events.append((ev, data))
+
+    from solaire.agent_layer import orchestrator as orch_mod
+
+    async def fake_llm_round_call(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return (
+            "重复段落" * 80,
+            [],
+            {"prompt_tokens": 0, "completion_tokens": 4096, "total_tokens": 4096},
+            "",
+            "length",
+        )
+
+    monkeypatch.setattr(orch_mod, "_llm_round_call", fake_llm_round_call)
+
+    router = MagicMock()
+    adapter = MagicMock()
+    router.main.return_value = adapter
+    router.fast.return_value = adapter
+
+    async def _run() -> None:
+        await run_agent_turn(
+            tmp_path,
+            session,
+            user_message="请完成一个长任务",
+            project_ctx={},
+            router=router,
+            emit=emit,
+        )
+
+    asyncio.run(_run())
+
+    assert calls == 4
+    assert any(e[0] == "error" and e[1].get("code") == "repeat_loop" for e in events)
+    assert any(e[0] == "done" for e in events)
+    assert [m.role for m in session.messages] == ["user", "assistant"]
+    assert session.messages[-1].content == "重复段落" * 80

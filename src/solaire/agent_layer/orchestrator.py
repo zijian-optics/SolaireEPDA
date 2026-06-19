@@ -56,6 +56,16 @@ logger = logging.getLogger(__name__)
 
 EmitFn = Callable[[str, dict[str, Any]], Awaitable[None]]
 
+_LENGTH_CONTINUE_PROMPT = (
+    "上一条回复因单次输出长度限制被截断。请从截断处无缝继续完成原任务；"
+    "不要重复已经输出的内容。如仍需使用工具，可继续调用工具；全部完成后再给出最终结论。"
+)
+_LENGTH_REPEAT_CONTINUE_PROMPT = (
+    "刚才的续写没有产生新的有效内容，或与已经生成的内容重复。"
+    "请跳过重复部分，直接从尚未完成的位置继续；不要复述已有内容。"
+)
+_LENGTH_REPEAT_LIMIT = 3
+
 
 def _pack_done_event(settings: LLMSettings, usage_acc: dict[str, int], peak_context_est: int, **more: Any) -> dict[str, Any]:
     data: dict[str, Any] = {"usage": usage_acc, "context_tokens_est": peak_context_est, **more}
@@ -85,6 +95,62 @@ def _tool_calls_arguments_json_ok(tool_calls: list[dict[str, Any]]) -> bool:
         except json.JSONDecodeError:
             return False
     return True
+
+
+def _append_or_merge_assistant_text(
+    session: SessionState,
+    *,
+    content: str,
+    reasoning_content: str,
+    merge_index: int | None,
+) -> int | None:
+    """Store assistant text, merging auto-continuation chunks while they are adjacent."""
+    if not content and not reasoning_content:
+        return merge_index
+    if merge_index is not None and merge_index == len(session.messages) - 1:
+        msg = session.messages[merge_index]
+        if msg.role == "assistant" and not msg.tool_calls:
+            if content:
+                msg.content = (msg.content or "") + content
+            if reasoning_content:
+                msg.reasoning_content = (msg.reasoning_content or "") + reasoning_content
+            session.touch()
+            return merge_index
+    session.messages.append(
+        ChatMessage(
+            role="assistant",
+            content=content,
+            reasoning_content=reasoning_content or "",
+        )
+    )
+    session.touch()
+    return len(session.messages) - 1
+
+
+def _length_chunk_fingerprint(content: str, reasoning_content: str) -> str:
+    normalized = " ".join(f"{content}\n{reasoning_content}".split())
+    if not normalized:
+        return ""
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _length_chunk_repeats_existing_tail(
+    session: SessionState,
+    *,
+    partial_index: int | None,
+    content: str,
+) -> bool:
+    """Detect a continuation that restarts a large already-saved text span."""
+    if partial_index is None or partial_index < 0 or partial_index >= len(session.messages):
+        return False
+    chunk = " ".join(content.split())
+    if len(chunk) < 240:
+        return False
+    existing = session.messages[partial_index]
+    if existing.role != "assistant":
+        return False
+    tail = " ".join((existing.content or "")[-12000:].split())
+    return chunk in tail
 
 
 async def _llm_round_call(
@@ -416,6 +482,10 @@ async def run_agent_turn(
     last_tool_calls_sig = ""
     peak_context_est = 0
     loop_round = -1
+    length_partial_index: int | None = None
+    length_last_fingerprint = ""
+    length_repeat_count = 0
+    continuation_prompt: str | None = None
     prev_plan_mode_for_tools = session.plan_mode_active
 
     stable_txt = build_stable_system_prompt()
@@ -491,10 +561,11 @@ async def run_agent_turn(
             system_prefix=_sys_prefix,
             system_suffix=_sys_suffix,
             session=session,
-            user_message="",
+            user_message=continuation_prompt or "",
         )
         if api_messages and api_messages[-1].get("role") == "user" and api_messages[-1].get("content") == "":
             api_messages.pop()
+        continuation_prompt = None
 
         prompt_token_est = estimate_context_prompt_tokens(settings.provider, settings.base_url, api_messages)
         peak_context_est = max(peak_context_est, prompt_token_est)
@@ -624,6 +695,9 @@ async def run_agent_turn(
             stopped = await process_draft_loop()
             if stopped:
                 return
+            length_partial_index = None
+            length_last_fingerprint = ""
+            length_repeat_count = 0
 
             plan_mode_changed = session.plan_mode_active != prev_plan_mode_for_tools
             if focus_switched or plan_mode_changed:
@@ -662,27 +736,62 @@ async def run_agent_turn(
             continue
 
         if finish_reason == "length":
-            session.messages.append(
-                ChatMessage(
-                    role="assistant",
-                    content=full_content or "",
-                    reasoning_content=round_reasoning or "",
+            chunk_text = full_content or ""
+            chunk_reasoning = round_reasoning or ""
+            chunk_fingerprint = _length_chunk_fingerprint(chunk_text, chunk_reasoning)
+            repeated_chunk = (
+                not chunk_fingerprint
+                or chunk_fingerprint == length_last_fingerprint
+                or _length_chunk_repeats_existing_tail(
+                    session,
+                    partial_index=length_partial_index,
+                    content=chunk_text,
                 )
             )
-            session.touch()
-            text = (full_content or "").strip()
-            break
+            if repeated_chunk:
+                length_repeat_count += 1
+                if length_repeat_count >= _LENGTH_REPEAT_LIMIT:
+                    msg = (
+                        "检测到助手续写内容连续重复或没有新增内容，已暂停本轮以避免无限重复。"
+                        "当前已生成的内容已保留。"
+                    )
+                    await emit("error", {"code": "repeat_loop", "message": msg})
+                    text = (chunk_text or "").strip()
+                    break
+                save_session(project_root, session)
+                continuation_prompt = _LENGTH_REPEAT_CONTINUE_PROMPT
+                continue
+
+            length_repeat_count = 0
+            length_last_fingerprint = chunk_fingerprint
+            length_partial_index = _append_or_merge_assistant_text(
+                session,
+                content=chunk_text,
+                reasoning_content=chunk_reasoning,
+                merge_index=length_partial_index,
+            )
+            save_session(project_root, session)
+            continuation_prompt = _LENGTH_CONTINUE_PROMPT
+            continue
 
         text = (full_content or "").strip()
         if text:
-            session.messages.append(
-                ChatMessage(
-                    role="assistant",
-                    content=text,
+            if length_partial_index is not None:
+                _append_or_merge_assistant_text(
+                    session,
+                    content=full_content or "",
                     reasoning_content=round_reasoning or "",
+                    merge_index=length_partial_index,
                 )
-            )
-            session.touch()
+            else:
+                session.messages.append(
+                    ChatMessage(
+                        role="assistant",
+                        content=text,
+                        reasoning_content=round_reasoning or "",
+                    )
+                )
+                session.touch()
         break
 
     await emit("done", _pack_done_event(settings, usage_acc, peak_context_est))
