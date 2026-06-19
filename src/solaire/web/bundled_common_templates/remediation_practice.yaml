@@ -1,0 +1,18 @@
+template_id: remediation_practice
+layout: single_column
+latex_base: exam-zh-base.tex.j2
+sections:
+  - section_id: 练习题
+    type: practice
+    required_count: 0
+    score_per_item: 5
+metadata_defaults:
+  body_font_size_pt: 11
+  show_binding_line: false
+  show_name_column: false
+  show_page_number_footer: false
+  show_student_sidebar: false
+  preamble_notices: ""
+  title_block_style: default
+  section_heading_style: section_star
+  include_common_math_macros: true

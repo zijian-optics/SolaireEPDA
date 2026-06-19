@@ -659,10 +659,73 @@ export type AnalysisRemediationDraftResponse = {
     mastery_fuzzy?: number | null;
     selected_question_ids: string[];
   }>;
+  nodes?: AnalysisRemediationPreviewNode[];
+  low_count?: boolean;
+  low_count_threshold?: number;
+  ai_assist_payload?: AnalysisRemediationAiAssistPayload;
   warnings: string[];
   source_exam_id: string;
   batch_id: string;
 };
+
+export type AnalysisRemediationPreviewNode = {
+  node_id?: string | null;
+  canonical_name?: string | null;
+  suggested_count?: number;
+  selected_question_ids: string[];
+  excluded_source_question_ids?: string[];
+  missing_question_ids?: string[];
+  gap_reason?: string | null;
+  error_rate?: number | null;
+  mastery_fuzzy?: number | null;
+};
+
+export type AnalysisRemediationAiAssistPayload = {
+  exam_id: string;
+  batch_id: string;
+  selected_count: number;
+  low_count_threshold: number;
+  nodes: AnalysisRemediationPreviewNode[];
+  prompt: string;
+};
+
+export type AnalysisRemediationDraftPreviewResponse = {
+  exam_id: string;
+  batch_id: string;
+  selected_count: number;
+  selected_question_ids: string[];
+  nodes: AnalysisRemediationPreviewNode[];
+  weak_nodes: Array<{
+    node_id?: string | null;
+    canonical_name?: string | null;
+    error_rate?: number | null;
+    mastery_fuzzy?: number | null;
+    selected_question_ids: string[];
+  }>;
+  low_count: boolean;
+  low_count_threshold: number;
+  warnings: string[];
+  exclude_source_exam_questions: boolean;
+  ai_assist_payload: AnalysisRemediationAiAssistPayload;
+};
+
+export async function apiAnalysisRemediationDraftPreview(
+  examId: string,
+  batchId: string,
+  opts: {
+    weak_limit?: number;
+    practice_per_node?: number;
+    exclude_source_exam_questions?: boolean;
+  } = {},
+): Promise<AnalysisRemediationDraftPreviewResponse> {
+  const q = new URLSearchParams({ exam_id: examId, batch_id: batchId });
+  if (opts.weak_limit != null) q.set("weak_limit", String(opts.weak_limit));
+  if (opts.practice_per_node != null) q.set("practice_per_node", String(opts.practice_per_node));
+  if (opts.exclude_source_exam_questions != null) {
+    q.set("exclude_source_exam_questions", String(opts.exclude_source_exam_questions));
+  }
+  return apiGet<AnalysisRemediationDraftPreviewResponse>(`/api/analysis/remediation-draft-preview?${q}`);
+}
 
 export async function apiAnalysisCreateRemediationDraft(payload: {
   exam_id: string;

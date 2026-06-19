@@ -108,6 +108,22 @@ def test_create_remediation_draft_excludes_source_exam_questions(web_client, tmp
     r_recompute = web_client.post(f"/api/exams/{exam_id}/scores/{batch_id}/recompute", json={})
     assert r_recompute.status_code == 200, r_recompute.text
 
+    r_preview = web_client.get(
+        "/api/analysis/remediation-draft-preview",
+        params={
+            "exam_id": exam_id,
+            "batch_id": batch_id,
+            "weak_limit": 3,
+            "practice_per_node": 5,
+            "exclude_source_exam_questions": True,
+        },
+    )
+    assert r_preview.status_code == 200, r_preview.text
+    preview = r_preview.json()
+    assert preview["selected_count"] == 2
+    assert source_qid not in preview["selected_question_ids"]
+    assert set(preview["selected_question_ids"]) == {q1, q2}
+
     r = web_client.post(
         "/api/analysis/remediation-drafts",
         json={
@@ -131,6 +147,9 @@ def test_create_remediation_draft_excludes_source_exam_questions(web_client, tmp
     assert r_get.status_code == 200, r_get.text
     doc = r_get.json()
     assert doc["source_exam_id"] == exam_id
+    assert doc["template_ref"] == "remediation_practice"
+    assert doc["template_path"] == ".solaire/internal_templates/remediation_practice.yaml"
+    assert doc["selected_items"][0]["section_id"] == "练习题"
     assert doc["selected_items"][0]["question_ids"] == [q1, q2]
 
 
@@ -179,7 +198,9 @@ def test_create_remediation_draft_falls_back_to_template_ref_when_path_is_stale(
         },
     )
     assert r.status_code == 200, r.text
+    assert r.json()["selected_count"] == 1
+    assert r.json()["low_count"] is True
 
     r_get = web_client.get(f"/api/exams/{r.json()['exam_id']}")
     assert r_get.status_code == 200, r_get.text
-    assert r_get.json()["template_path"] == "templates/actual-template.yaml"
+    assert r_get.json()["template_path"] == ".solaire/internal_templates/remediation_practice.yaml"

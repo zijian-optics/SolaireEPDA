@@ -146,7 +146,7 @@ from solaire.web.security import (
 )
 from solaire.web.result_service import ResultServiceAdapter
 from solaire.edu_analysis.ports import configure as _configure_edu_analysis
-from solaire.web.remediation_service import create_remediation_draft
+from solaire.web.remediation_service import create_remediation_draft, plan_remediation_draft
 
 # 在模块加载时注入 edu_analysis 所需的数据访问实现，解除 edu_analysis 对 web 层的反向依赖
 _configure_edu_analysis(result_port=ResultServiceAdapter())
@@ -2336,6 +2336,30 @@ def analysis_diagnosis_suggestions(
     root = _require_root()
     try:
         return teaching_suggestions_v1(root, exam_id, batch_id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.get("/api/analysis/remediation-draft-preview")
+def analysis_remediation_draft_preview(
+    exam_id: str = Query(..., min_length=1),
+    batch_id: str = Query(..., min_length=1),
+    weak_limit: int = Query(default=5, ge=1, le=20),
+    practice_per_node: int = Query(default=4, ge=1, le=50),
+    exclude_source_exam_questions: bool = Query(default=True),
+) -> dict[str, Any]:
+    root = _require_root()
+    try:
+        return plan_remediation_draft(
+            root,
+            exam_id=exam_id,
+            batch_id=batch_id,
+            weak_limit=weak_limit,
+            practice_per_node=practice_per_node,
+            exclude_source_exam_questions=exclude_source_exam_questions,
+        )
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except ValueError as e:

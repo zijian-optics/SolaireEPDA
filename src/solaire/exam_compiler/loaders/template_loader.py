@@ -11,6 +11,34 @@ from solaire.exam_compiler.models import ExamConfig, ExamTemplate
 from solaire.exam_compiler.latex_jinja_paths import latex_jinja_loader_dirs
 
 
+def _normalize_remediation_practice_template(data: dict) -> None:
+    if data.get("template_id") != "remediation_practice":
+        return
+    sections = data.get("sections")
+    if isinstance(sections, list):
+        for sec in sections:
+            if not isinstance(sec, dict):
+                continue
+            if sec.get("type") == "practice":
+                sec.pop("describe", None)
+                if sec.get("score_per_item") in (None, 0, 0.0):
+                    sec["score_per_item"] = 5
+    md = data.setdefault("metadata_defaults", {})
+    if isinstance(md, dict):
+        md.update(
+            {
+                "show_binding_line": False,
+                "show_name_column": False,
+                "show_page_number_footer": False,
+                "show_student_sidebar": False,
+                "preamble_notices": "",
+                "title_block_style": "default",
+                "section_heading_style": "section_star",
+                "include_common_math_macros": True,
+            }
+        )
+
+
 def resolve_template_yaml_path(exam_yaml: Path, exam: ExamConfig) -> Path:
     exam_dir = exam_yaml.resolve().parent
     if exam.template_path:
@@ -46,6 +74,7 @@ def load_template(path: Path) -> ExamTemplate:
             inner = pkg.get("metadata_defaults")
             base = inner if isinstance(inner, dict) else pkg
             data["metadata_defaults"] = deep_merge(dict(base), dict(data.get("metadata_defaults") or {}))
+    _normalize_remediation_practice_template(data)
     t = ExamTemplate.model_validate(data)
     latex_jinja_loader_dirs(path.parent, t.latex_base)
     return t

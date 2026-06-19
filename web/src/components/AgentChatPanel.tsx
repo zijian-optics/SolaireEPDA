@@ -164,7 +164,7 @@ export function AgentChatPanel({
   onRequestCollapse?: () => void;
 } = {}) {
   const { t } = useTranslation("agent");
-  const { pageContext, sidebarOpen, notifyAgentBackground } = useAgentContext();
+  const { pageContext, sidebarOpen, prefillRequest, notifyAgentBackground } = useAgentContext();
   const [config, setConfig] = useState<AgentConfig | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [lines, setLines] = useState<ChatLine[]>([]);
@@ -611,6 +611,14 @@ export function AgentChatPanel({
     setContextLimit(null);
     setContextMeterRefreshing(false);
   }, []);
+
+  useEffect(() => {
+    if (!prefillRequest) return;
+    if (prefillRequest.newChat ?? true) {
+      newChat();
+    }
+    setInput(prefillRequest.message);
+  }, [newChat, prefillRequest]);
 
   const stopStream = useCallback(async () => {
     const sid = sessionId;

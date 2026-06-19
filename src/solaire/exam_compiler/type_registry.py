@@ -35,4 +35,4 @@ QUESTION_TYPES: tuple[str, ...] = (
 GROUP_MEMBER_TYPES: tuple[str, ...] = tuple(QUESTION_TYPES)
 
 # 模板 sections：含非考查的 text 块 + 混编题组节
-SECTION_TYPES: tuple[str, ...] = ("text", "group", *QUESTION_TYPES)
+SECTION_TYPES: tuple[str, ...] = ("text", "practice", "group", *QUESTION_TYPES)

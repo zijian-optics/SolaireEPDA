@@ -24,6 +24,8 @@ def _section_by_id(template: ExamTemplate, section_id: str) -> TemplateSection:
 
 
 def _type_matches_section(entry_type: str, section_type: str) -> bool:
+    if section_type == "practice":
+        return True
     if section_type == "choice":
         return is_choice_type(entry_type)
     return entry_type == section_type
@@ -55,7 +57,7 @@ def validate_exam(exam: ExamConfig, template: ExamTemplate, loaded: LoadedQuesti
                     f"小节「{sel.section_id}」为卷面说明，不需要挂载题目，请移除本题小节下的选题。"
                 )
             continue
-        if len(sel.question_ids) != sec.required_count:
+        if sec.type != "practice" and len(sel.question_ids) != sec.required_count:
             raise ValueError(
                 f"小节「{sel.section_id}」需要 {sec.required_count} 道题，当前已选 {len(sel.question_ids)} 道。"
             )
@@ -63,6 +65,8 @@ def validate_exam(exam: ExamConfig, template: ExamTemplate, loaded: LoadedQuesti
             entry = loaded.by_qualified.get(qid)
             if entry is None:
                 raise ValueError(f"题库中未找到题目「{qid}」，请检查是否已加载或题目是否已被删除。")
+            if sec.type == "practice":
+                continue
             if sec.type == "group":
                 if not isinstance(entry, QuestionGroupRecord):
                     raise ValueError(
@@ -130,6 +134,17 @@ def normalize_exam_for_preview(exam: ExamConfig, template: ExamTemplate) -> tupl
             )
             continue
 
+        if sec.type == "practice":
+            new_items.append(
+                SelectedSection(
+                    section_id=sec.section_id,
+                    question_ids=qids,
+                    score_per_item=spo,
+                    score_overrides=sov,
+                )
+            )
+            continue
+
         if len(qids) > sec.required_count:
             warnings.append(
                 f"小节「{sec.section_id}」最多需要 {sec.required_count} 道题，预览中已截断多余选题。"
@@ -188,6 +203,8 @@ def validate_exam_preview(exam: ExamConfig, template: ExamTemplate, loaded: Load
             entry = loaded.by_qualified.get(qid)
             if entry is None:
                 raise ValueError(f"题库中未找到题目「{qid}」，请检查是否已加载或题目是否已被删除。")
+            if sec.type == "practice":
+                continue
             if sec.type == "group":
                 if not isinstance(entry, QuestionGroupRecord):
                     raise ValueError(

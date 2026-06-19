@@ -13,6 +13,7 @@ Layout = Literal["double_column", "single_column"]
 # 模板小节：非考查 text + group（混编题组）+ 各题型
 SectionKind = Literal[
     "text",
+    "practice",
     "group",
     "choice",
     "single_choice",

@@ -39,6 +39,9 @@ function normTemplatePath(p: string): string {
 }
 
 function questionTypeMatchesSection(questionType: string, sectionType: string, answer?: string | null) {
+  if (sectionType === "practice") {
+    return true;
+  }
   const normalizedType = normalizeQuestionTypeForFilter(questionType, answer);
   if (sectionType === "choice") {
     return isChoiceQuestionType(questionType) || isChoiceQuestionType(normalizedType);
@@ -47,6 +50,9 @@ function questionTypeMatchesSection(questionType: string, sectionType: string, a
 }
 
 function sectionTypeToFilter(section: { section_id: string; type: string }) {
+  if (section.type === "practice") {
+    return "__all__";
+  }
   if (section.type !== "choice") {
     return section.type;
   }
@@ -153,8 +159,36 @@ export function ComposeWorkspace({
     if (!tp) {
       return undefined;
     }
-    return templates.find((t) => normTemplatePath(t.path) === tp);
-  }, [templates, templatePath]);
+    const found = templates.find((t) => normTemplatePath(t.path) === tp);
+    if (found) {
+      return found;
+    }
+    if (templateRef === "remediation_practice") {
+      const sectionIds = Object.keys(bySection);
+      const sectionId = sectionIds[0] ?? "练习题";
+      return {
+        id: "remediation_practice",
+        path: templatePath,
+        layout: "single_column",
+        sections: [
+          {
+            section_id: sectionId,
+            type: "practice",
+            required_count: bySection[sectionId]?.length ?? 0,
+            score_per_item: scoreBySection[sectionId] ?? 5,
+          },
+        ],
+      } satisfies TemplateRow;
+    }
+    return undefined;
+  }, [bySection, scoreBySection, templates, templatePath, templateRef]);
+
+  const refreshTemplates = useCallback(async () => {
+    const r = await apiGet<{ templates: TemplateRow[] }>("/api/templates");
+    const next = r.templates ?? [];
+    setTemplates(next);
+    return next;
+  }, []);
 
   useEffect(() => {
     const parts: string[] = [];
@@ -243,7 +277,7 @@ export function ComposeWorkspace({
     let cancelled = false;
     onError(null);
     void Promise.all([
-      apiGet<{ templates: TemplateRow[] }>("/api/templates"),
+      refreshTemplates().then((templates) => ({ templates })),
       apiGet<{ questions: QuestionRow[] }>("/api/questions"),
       apiGet<{ subjects: string[] }>("/api/bank/subjects"),
     ])
@@ -270,7 +304,7 @@ export function ComposeWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [onError]);
+  }, [onError, refreshTemplates]);
 
   /** 首屏默认模板：仅在尚未关联考试且未选模板时写入，避免与 loadExamById / applyExamDocument 竞态 */
   useEffect(() => {
@@ -453,6 +487,9 @@ export function ComposeWorkspace({
     return selectedTpl.sections.every((s) => {
       if (s.type === "text") {
         return true;
+      }
+      if (s.type === "practice") {
+        return (bySection[s.section_id]?.length ?? 0) > 0;
       }
       return (bySection[s.section_id]?.length ?? 0) === s.required_count;
     });
@@ -695,7 +732,7 @@ export function ComposeWorkspace({
     if (newIds.length === 0) {
       return;
     }
-    if (cur.length + newIds.length > sec.required_count) {
+    if (sec.type !== "practice" && cur.length + newIds.length > sec.required_count) {
       onError(t("compose:errors.sectionFull"));
       return;
     }
@@ -1075,6 +1112,7 @@ export function ComposeWorkspace({
     setBusy(true);
     try {
       const r = await apiGet<{ exam: ExamDoc }>(`/api/exams/${encodeURIComponent(examId)}`);
+      await refreshTemplates();
       applyExamDocument(r.exam);
       setNamespaceFilter("__all__");
       setTypeFilter("__all__");
@@ -1704,6 +1742,8 @@ export function ComposeWorkspace({
                     {s.section_id}
                     {s.type === "text"
                       ? t("compose:sectionOptionText")
+                      : s.type === "practice"
+                        ? t("compose:sectionOptionPractice")
                       : t("compose:sectionOptionNeed", { n: s.required_count })}
                   </option>
                 ))}
@@ -1714,7 +1754,8 @@ export function ComposeWorkspace({
             {selectedTpl?.sections.map((s) => {
               const n = bySection[s.section_id]?.length ?? 0;
               const isText = s.type === "text";
-              const ok = isText || n === s.required_count;
+              const isPractice = s.type === "practice";
+              const ok = isText || (isPractice ? n > 0 : n === s.required_count);
               const sectionBaseScore = scoreBySection[s.section_id] ?? s.score_per_item;
               const slots = clusterAdjacentGroupSlots(bySection[s.section_id] ?? [], questionMap);
               return (
@@ -1755,6 +1796,11 @@ export function ComposeWorkspace({
                           <>
                             {t("compose:textSectionLine")}
                             {ok && <span className="ml-2 text-emerald-600">{t("compose:configured")}</span>}
+                          </>
+                        ) : isPractice ? (
+                          <>
+                            {t("compose:practicePickedCount", { n })}
+                            {ok && <span className="ml-2 text-emerald-600">{t("compose:satisfied")}</span>}
                           </>
                         ) : (
                           <>

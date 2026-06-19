@@ -26,6 +26,12 @@ export type AgentPageContextPayload = {
   summary?: string | null;
 };
 
+export type AgentPrefillRequest = {
+  id: number;
+  message: string;
+  newChat?: boolean;
+};
+
 type AgentToast = {
   id: number;
   message: string;
@@ -38,6 +44,8 @@ export type AgentContextValue = {
   toggleSidebar: () => void;
   pageContext: AgentPageContextPayload | null;
   setPageContext: (p: AgentPageContextPayload | null) => void;
+  prefillRequest: AgentPrefillRequest | null;
+  requestAgentPrefill: (message: string, opts?: { newChat?: boolean }) => void;
   notifyAgentBackground: (message: string, variant?: AgentToast["variant"]) => void;
 };
 
@@ -100,8 +108,10 @@ function AgentToastLayer({
 export function AgentProvider({ children }: { children: ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [pageContext, setPageContext] = useState<AgentPageContextPayload | null>(null);
+  const [prefillRequest, setPrefillRequest] = useState<AgentPrefillRequest | null>(null);
   const [toasts, setToasts] = useState<AgentToast[]>([]);
   const toastSeq = useRef(0);
+  const prefillSeq = useRef(0);
 
   const dismissToast = useCallback((id: number) => {
     setToasts((t) => t.filter((x) => x.id !== id));
@@ -119,6 +129,14 @@ export function AgentProvider({ children }: { children: ReactNode }) {
   );
 
   const toggleSidebar = useCallback(() => setSidebarOpen((o) => !o), []);
+  const requestAgentPrefill = useCallback((message: string, opts: { newChat?: boolean } = {}) => {
+    setSidebarOpen(true);
+    setPrefillRequest({
+      id: ++prefillSeq.current,
+      message,
+      newChat: opts.newChat ?? true,
+    });
+  }, []);
 
   const value = useMemo(
     () => ({
@@ -127,9 +145,11 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       toggleSidebar,
       pageContext,
       setPageContext,
+      prefillRequest,
+      requestAgentPrefill,
       notifyAgentBackground,
     }),
-    [sidebarOpen, toggleSidebar, pageContext, notifyAgentBackground],
+    [sidebarOpen, toggleSidebar, pageContext, prefillRequest, requestAgentPrefill, notifyAgentBackground],
   );
 
   return (

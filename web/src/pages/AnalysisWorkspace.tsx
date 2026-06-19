@@ -6,6 +6,7 @@ import {
   apiAnalysisDiagnosisStudent,
   apiAnalysisDiagnosisSuggestions,
   apiAnalysisCreateRemediationDraft,
+  apiAnalysisRemediationDraftPreview,
   apiAnalysisListJobs,
   apiAnalysisListFolderScripts,
   apiAnalysisListTools,
@@ -18,6 +19,7 @@ import {
   resolveApiUrl,
   type AnalysisFolderScript,
   type AnalysisJob,
+  type AnalysisRemediationDraftPreviewResponse,
   type AnalysisRemediationDraftResponse,
 } from "../api/client";
 import { useAgentContext } from "../contexts/AgentContext";
@@ -32,6 +34,7 @@ import {
   Download,
   FileSpreadsheet,
   RefreshCw,
+  Sparkles,
   TrendingUp,
   Trash2,
   Upload,
@@ -239,6 +242,7 @@ export function AnalysisWorkspace({
   const [diagStudents, setDiagStudents] = useState<any[]>([]);
   const [diagStudentPick, setDiagStudentPick] = useState<string>("");
   const [remediationBusy, setRemediationBusy] = useState(false);
+  const [remediationPreview, setRemediationPreview] = useState<AnalysisRemediationDraftPreviewResponse | null>(null);
   const [remediationResult, setRemediationResult] = useState<AnalysisRemediationDraftResponse | null>(null);
   const [folderScripts, setFolderScripts] = useState<AnalysisFolderScript[]>([]);
   const [jobs, setJobs] = useState<AnalysisJob[]>([]);
@@ -249,7 +253,7 @@ export function AnalysisWorkspace({
   const [leftWidth, setLeftWidth] = useState<56 | 64 | 72>(56);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const rightChartRef = useRef<HTMLDivElement>(null);
-  const { setPageContext } = useAgentContext();
+  const { setPageContext, requestAgentPrefill } = useAgentContext();
 
   useEffect(() => {
     if (selectedExamId && examSummary) {
@@ -350,17 +354,24 @@ export function AnalysisWorkspace({
     setDiagHeat(null);
     setDiagSug(null);
     setDiagStudents([]);
+    setRemediationPreview(null);
     setRemediationResult(null);
     try {
-      const [kd, hm, sg, st] = await Promise.all([
+      const [kd, hm, sg, st, rp] = await Promise.all([
         apiAnalysisDiagnosisKnowledge(examId, batchId),
         apiAnalysisDiagnosisHeatmap(examId, batchId),
         apiAnalysisDiagnosisSuggestions(examId, batchId),
         apiAnalysisDiagnosisStudent(examId, batchId),
+        apiAnalysisRemediationDraftPreview(examId, batchId, {
+          weak_limit: 5,
+          practice_per_node: 4,
+          exclude_source_exam_questions: true,
+        }),
       ]);
       setDiagKd(kd);
       setDiagHeat(hm);
       setDiagSug(sg);
+      setRemediationPreview(rp);
       const studs = st.students ?? [];
       setDiagStudents(studs);
       setDiagStudentPick((prev) => {
@@ -399,6 +410,12 @@ export function AnalysisWorkspace({
       setRemediationBusy(false);
     }
   }, [selectedExamId, selectedBatchId, loadExams, onOpenExamInCompose]);
+
+  const handleAiAssistRemediation = useCallback(() => {
+    const prompt = remediationPreview?.ai_assist_payload?.prompt;
+    if (!prompt) return;
+    requestAgentPrefill(prompt, { newChat: true });
+  }, [remediationPreview, requestAgentPrefill]);
 
   useEffect(() => {
     if (tab !== "diagnosis" || !selectedExamId || !selectedBatchId) {
@@ -1199,25 +1216,50 @@ export function AnalysisWorkspace({
                           </div>
                         ) : null}
 
-                        {diagSug?.practice_drafts?.length ? (
+                        {remediationPreview?.nodes?.length ? (
                           <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-4">
                             <h4 className="mb-2 text-sm font-semibold text-emerald-900">{t("practiceDraftTitle")}</h4>
                             <ul className="space-y-3 text-sm text-emerald-950">
-                              {(diagSug.practice_drafts as any[]).map((d) => (
+                              {remediationPreview.nodes.map((d) => (
                                 <li key={d.node_id}>
                                   <div className="font-medium">{d.canonical_name}</div>
                                   <div className="mt-1 font-mono text-xs text-emerald-800">
-                                    {(d.suggested_question_ids as string[]).join(" · ") || t("noLinkedQuestions")}
+                                    {(d.selected_question_ids ?? []).join(" · ") || t("noLinkedQuestions")}
                                   </div>
+                                  {(d.excluded_source_question_ids?.length ?? 0) > 0 ? (
+                                    <div className="mt-1 text-[11px] text-emerald-700">
+                                      {t("excludedSourceQuestions", {
+                                        count: d.excluded_source_question_ids?.length ?? 0,
+                                      })}
+                                    </div>
+                                  ) : null}
                                 </li>
                               ))}
                             </ul>
+                            {remediationPreview.low_count ? (
+                              <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                                <div className="font-medium">
+                                  {t("remediationLowCount", {
+                                    count: remediationPreview.selected_count,
+                                    threshold: remediationPreview.low_count_threshold,
+                                  })}
+                                </div>
+                                <button
+                                  type="button"
+                                  className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-white px-2.5 py-1 text-xs font-medium text-amber-900 hover:bg-amber-100"
+                                  onClick={handleAiAssistRemediation}
+                                >
+                                  <Sparkles className="h-3.5 w-3.5" />
+                                  {t("aiAssistRemediation")}
+                                </button>
+                              </div>
+                            ) : null}
                             <p className="mt-2 text-[11px] text-emerald-800">{t("practiceHint")}</p>
                             <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-emerald-200/70 pt-3">
                               <button
                                 type="button"
                                 className="inline-flex items-center gap-1.5 rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
-                                disabled={remediationBusy || !selectedBatchId}
+                                disabled={remediationBusy || !selectedBatchId || remediationPreview.selected_count <= 0}
                                 onClick={() => void handleCreateRemediationDraft()}
                               >
                                 {remediationBusy ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <FileSpreadsheet className="h-3.5 w-3.5" />}

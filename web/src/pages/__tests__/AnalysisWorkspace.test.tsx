@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   apiAnalysisDiagnosisStudent: vi.fn(),
   apiAnalysisDiagnosisHeatmap: vi.fn(),
   apiAnalysisDiagnosisSuggestions: vi.fn(),
+  apiAnalysisRemediationDraftPreview: vi.fn(),
   apiAnalysisCreateRemediationDraft: vi.fn(),
 }));
 
@@ -38,6 +39,7 @@ vi.mock("../../api/client", () => ({
   apiAnalysisDiagnosisStudent: mocks.apiAnalysisDiagnosisStudent,
   apiAnalysisDiagnosisHeatmap: mocks.apiAnalysisDiagnosisHeatmap,
   apiAnalysisDiagnosisSuggestions: mocks.apiAnalysisDiagnosisSuggestions,
+  apiAnalysisRemediationDraftPreview: mocks.apiAnalysisRemediationDraftPreview,
   apiAnalysisCreateRemediationDraft: mocks.apiAnalysisCreateRemediationDraft,
   ensureApiBase: vi.fn().mockResolvedValue(undefined),
   resolveApiUrl: async (path: string) => path,
@@ -114,6 +116,26 @@ function primeDefaultApi() {
   mocks.apiAnalysisDiagnosisStudent.mockResolvedValue({ students: [] });
   mocks.apiAnalysisDiagnosisHeatmap.mockResolvedValue({ rows: [], columns: [], matrix: [] });
   mocks.apiAnalysisDiagnosisSuggestions.mockResolvedValue({ retell_priority: [], practice_drafts: [] });
+  mocks.apiAnalysisRemediationDraftPreview.mockResolvedValue({
+    exam_id: "e1",
+    batch_id: "b1",
+    selected_count: 0,
+    selected_question_ids: [],
+    nodes: [],
+    weak_nodes: [],
+    low_count: true,
+    low_count_threshold: 3,
+    warnings: [],
+    exclude_source_exam_questions: true,
+    ai_assist_payload: {
+      exam_id: "e1",
+      batch_id: "b1",
+      selected_count: 0,
+      low_count_threshold: 3,
+      nodes: [],
+      prompt: "请协助补题",
+    },
+  });
   mocks.apiAnalysisCreateRemediationDraft.mockResolvedValue({
     exam_id: "补练/数学",
     selected_count: 0,
