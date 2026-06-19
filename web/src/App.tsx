@@ -49,6 +49,7 @@ function AppShell() {
   const [info, setInfo] = useState<ProjectInfo | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [graphFocusNodeId, setGraphFocusNodeId] = useState<string | null>(null);
+  const [composeOpenExamId, setComposeOpenExamId] = useState<string | null>(null);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [assistantOverlayHost, setAssistantOverlayHost] = useState<HTMLDivElement | null>(null);
 
@@ -302,6 +303,8 @@ function AppShell() {
                         onRefreshInfo={refreshInfo}
                         onError={setErr}
                         toolBarActive={page === "compose"}
+                        openExamId={composeOpenExamId}
+                        onOpenExamConsumed={() => setComposeOpenExamId(null)}
                       />
                     </div>
                   )}
@@ -336,7 +339,14 @@ function AppShell() {
                     />
                   )}
                   {page === "help" && <HelpWorkspace onError={setErr} />}
-                  {page === "analysis" && <AnalysisWorkspace />}
+                  {page === "analysis" && (
+                    <AnalysisWorkspace
+                      onOpenExamInCompose={(examId) => {
+                        setComposeOpenExamId(examId);
+                        setPage("compose");
+                      }}
+                    />
+                  )}
                   {page === "log" && <LogWorkspace />}
                 </main>
                 <AgentSidebar projectBound mode="overlay" overlayHost={assistantOverlayHost} />

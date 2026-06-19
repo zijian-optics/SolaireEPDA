@@ -648,6 +648,35 @@ export async function apiAnalysisDiagnosisSuggestions(examId: string, batchId: s
   return apiGet(`/api/analysis/diagnosis/suggestions?${q}`);
 }
 
+export type AnalysisRemediationDraftResponse = {
+  exam_id: string;
+  name?: string | null;
+  selected_count: number;
+  weak_nodes: Array<{
+    node_id?: string | null;
+    canonical_name?: string | null;
+    error_rate?: number | null;
+    mastery_fuzzy?: number | null;
+    selected_question_ids: string[];
+  }>;
+  warnings: string[];
+  source_exam_id: string;
+  batch_id: string;
+};
+
+export async function apiAnalysisCreateRemediationDraft(payload: {
+  exam_id: string;
+  batch_id: string;
+  weak_limit?: number;
+  practice_per_node?: number;
+  exclude_source_exam_questions?: boolean;
+  template_ref?: string | null;
+  template_path?: string | null;
+  export_label?: string | null;
+}): Promise<AnalysisRemediationDraftResponse> {
+  return apiPost<AnalysisRemediationDraftResponse>("/api/analysis/remediation-drafts", payload);
+}
+
 export async function apiAnalysisInvokeTool(toolName: string, argumentsBody: Record<string, unknown>): Promise<any> {
   return apiPost(`/api/analysis/tools/${encodeURIComponent(toolName)}`, { arguments: argumentsBody });
 }

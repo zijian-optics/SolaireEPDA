@@ -13,12 +13,16 @@ export function ComposeRoute({
   onRefreshInfo,
   onError,
   toolBarActive = true,
+  openExamId = null,
+  onOpenExamConsumed,
 }: {
   info: ProjectInfo | null;
   onRefreshInfo: () => Promise<void>;
   onError: (s: string | null) => void;
   /** 为 false 时不向顶栏注册工具栏（例如组卷页被隐藏但仍挂载时，避免覆盖其它页） */
   toolBarActive?: boolean;
+  openExamId?: string | null;
+  onOpenExamConsumed?: () => void;
 }) {
   const { t } = useTranslation("app");
   const { setPageContext } = useAgentContext();
@@ -37,7 +41,14 @@ export function ComposeRoute({
       </div>
     );
   }
-  return <ComposeWorkspace onError={onError} toolBarActive={toolBarActive} />;
+  return (
+    <ComposeWorkspace
+      onError={onError}
+      toolBarActive={toolBarActive}
+      openExamId={openExamId}
+      onOpenExamConsumed={onOpenExamConsumed}
+    />
+  );
 }
 
 export function BankRoute({

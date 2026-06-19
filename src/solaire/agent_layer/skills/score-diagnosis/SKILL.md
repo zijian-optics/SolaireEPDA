@@ -7,7 +7,7 @@ metadata:
   author: solaire-builtin
   version: "1.1"
   label: 成绩诊断报告
-  tool_patterns: "analysis.list_datasets analysis.list_builtins analysis.run_builtin analysis.save_script analysis.run_script analysis.get_job agent.switch_focus agent.activate_skill agent.read_skill_reference agent.enter_plan_mode agent.exit_plan_mode agent.set_task_plan agent.update_task_step agent.run_subtask agent.run_tool_pipeline memory.read_index memory.read_topic memory.search file.read file.list file.search"
+  tool_patterns: "analysis.list_datasets analysis.list_builtins analysis.run_builtin analysis.save_script analysis.run_script analysis.get_job analysis.create_remediation_draft agent.switch_focus agent.activate_skill agent.read_skill_reference agent.enter_plan_mode agent.exit_plan_mode agent.set_task_plan agent.update_task_step agent.run_subtask agent.run_tool_pipeline memory.read_index memory.read_topic memory.search file.read file.list file.search"
   suggested_user_input: 请根据当前项目里已有的考试成绩，帮我做一份成绩诊断要点。
 ---
 
@@ -17,6 +17,7 @@ metadata:
 2. `analysis.list_builtins` → 选择合适内置任务
 3. `analysis.run_builtin` 提交作业，再用 `analysis.get_job` 轮询至结束
 4. 将输出中的指标与图表要点转写为教师可执行的建议（注明考试 id、批次、样本量）
+5. 若教师希望继续落地练习材料，可用 `analysis.create_remediation_draft` 基于薄弱点生成补练卷草稿
 
 ## 与 `weak_points` 的分工
 

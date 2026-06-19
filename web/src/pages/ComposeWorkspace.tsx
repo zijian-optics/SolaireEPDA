@@ -56,10 +56,15 @@ function sectionTypeToFilter(section: { section_id: string; type: string }) {
 export function ComposeWorkspace({
   onError,
   toolBarActive = true,
+  openExamId = null,
+  onOpenExamConsumed,
 }: {
   onError: (s: string | null) => void;
   /** 为 false 时不占用顶栏工具栏（父级隐藏组卷视图时使用） */
   toolBarActive?: boolean;
+  /** 外部页面请求打开某个考试工作区（如分析页生成补练卷后跳转）。 */
+  openExamId?: string | null;
+  onOpenExamConsumed?: () => void;
 }) {
   const { t } = useTranslation(["compose", "common", "lib"]);
   const { setPageContext } = useAgentContext();
@@ -1090,6 +1095,15 @@ export function ComposeWorkspace({
       setBusy(false);
     }
   }
+
+  useEffect(() => {
+    const eid = (openExamId ?? "").trim();
+    if (!eid) return;
+    void loadExamById(eid, null).finally(() => onOpenExamConsumed?.());
+    // loadExamById intentionally stays a local workflow function; this effect only reacts
+    // to explicit one-shot open requests from sibling pages.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openExamId]);
 
   useEffect(() => {
     if (!toolBarActive) {

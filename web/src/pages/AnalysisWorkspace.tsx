@@ -5,6 +5,7 @@ import {
   apiAnalysisDiagnosisKnowledge,
   apiAnalysisDiagnosisStudent,
   apiAnalysisDiagnosisSuggestions,
+  apiAnalysisCreateRemediationDraft,
   apiAnalysisListJobs,
   apiAnalysisListFolderScripts,
   apiAnalysisListTools,
@@ -17,6 +18,7 @@ import {
   resolveApiUrl,
   type AnalysisFolderScript,
   type AnalysisJob,
+  type AnalysisRemediationDraftResponse,
 } from "../api/client";
 import { useAgentContext } from "../contexts/AgentContext";
 import { dispatchExamsChanged } from "../lib/examEvents";
@@ -212,7 +214,11 @@ function SvgBarChart({
 // Main component
 // ---------------------------------------------------------------------------
 
-export function AnalysisWorkspace() {
+export function AnalysisWorkspace({
+  onOpenExamInCompose,
+}: {
+  onOpenExamInCompose?: (examId: string) => void;
+} = {}) {
   const { t } = useTranslation("analysis");
   const [exams, setExams] = useState<ExamResult[]>([]);
   const [selectedExamId, setSelectedExamId] = useState<string | null>(null);
@@ -232,6 +238,8 @@ export function AnalysisWorkspace() {
   const [diagSug, setDiagSug] = useState<any | null>(null);
   const [diagStudents, setDiagStudents] = useState<any[]>([]);
   const [diagStudentPick, setDiagStudentPick] = useState<string>("");
+  const [remediationBusy, setRemediationBusy] = useState(false);
+  const [remediationResult, setRemediationResult] = useState<AnalysisRemediationDraftResponse | null>(null);
   const [folderScripts, setFolderScripts] = useState<AnalysisFolderScript[]>([]);
   const [jobs, setJobs] = useState<AnalysisJob[]>([]);
   const [tools, setTools] = useState<ToolSpec[]>([]);
@@ -342,6 +350,7 @@ export function AnalysisWorkspace() {
     setDiagHeat(null);
     setDiagSug(null);
     setDiagStudents([]);
+    setRemediationResult(null);
     try {
       const [kd, hm, sg, st] = await Promise.all([
         apiAnalysisDiagnosisKnowledge(examId, batchId),
@@ -366,6 +375,30 @@ export function AnalysisWorkspace() {
       setDiagLoading(false);
     }
   }, []);
+
+  const handleCreateRemediationDraft = useCallback(async () => {
+    if (!selectedExamId || !selectedBatchId) return;
+    setRemediationBusy(true);
+    setImportError(null);
+    setRemediationResult(null);
+    try {
+      const res = await apiAnalysisCreateRemediationDraft({
+        exam_id: selectedExamId,
+        batch_id: selectedBatchId,
+        weak_limit: 5,
+        practice_per_node: 4,
+        exclude_source_exam_questions: true,
+      });
+      setRemediationResult(res);
+      await loadExams();
+      dispatchExamsChanged({ examId: res.exam_id });
+      onOpenExamInCompose?.(res.exam_id);
+    } catch (e) {
+      setImportError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRemediationBusy(false);
+    }
+  }, [selectedExamId, selectedBatchId, loadExams, onOpenExamInCompose]);
 
   useEffect(() => {
     if (tab !== "diagnosis" || !selectedExamId || !selectedBatchId) {
@@ -1180,6 +1213,35 @@ export function AnalysisWorkspace() {
                               ))}
                             </ul>
                             <p className="mt-2 text-[11px] text-emerald-800">{t("practiceHint")}</p>
+                            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-emerald-200/70 pt-3">
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-1.5 rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
+                                disabled={remediationBusy || !selectedBatchId}
+                                onClick={() => void handleCreateRemediationDraft()}
+                              >
+                                {remediationBusy ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <FileSpreadsheet className="h-3.5 w-3.5" />}
+                                {remediationBusy ? t("creatingRemediation") : t("createRemediationDraft")}
+                              </button>
+                              <span className="text-[11px] text-emerald-800">{t("createRemediationHint")}</span>
+                            </div>
+                            {remediationResult ? (
+                              <div className="mt-3 rounded-md border border-emerald-200 bg-white px-3 py-2 text-xs text-emerald-900">
+                                <div className="font-medium">
+                                  {t("remediationCreated", {
+                                    examId: remediationResult.exam_id,
+                                    count: remediationResult.selected_count,
+                                  })}
+                                </div>
+                                {remediationResult.warnings.length > 0 ? (
+                                  <ul className="mt-1 list-disc space-y-0.5 pl-4 text-amber-700">
+                                    {remediationResult.warnings.map((w) => (
+                                      <li key={w}>{w}</li>
+                                    ))}
+                                  </ul>
+                                ) : null}
+                              </div>
+                            ) : null}
                           </div>
                         ) : null}
                       </>

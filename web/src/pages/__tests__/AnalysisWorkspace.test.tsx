@@ -16,6 +16,11 @@ const mocks = vi.hoisted(() => ({
   apiAnalysisListTools: vi.fn(),
   apiAnalysisRunFolderScript: vi.fn(),
   apiAnalysisRunBuiltin: vi.fn(),
+  apiAnalysisDiagnosisKnowledge: vi.fn(),
+  apiAnalysisDiagnosisStudent: vi.fn(),
+  apiAnalysisDiagnosisHeatmap: vi.fn(),
+  apiAnalysisDiagnosisSuggestions: vi.fn(),
+  apiAnalysisCreateRemediationDraft: vi.fn(),
 }));
 
 vi.mock("../../api/client", () => ({
@@ -29,6 +34,11 @@ vi.mock("../../api/client", () => ({
   apiAnalysisListTools: mocks.apiAnalysisListTools,
   apiAnalysisRunFolderScript: mocks.apiAnalysisRunFolderScript,
   apiAnalysisRunBuiltin: mocks.apiAnalysisRunBuiltin,
+  apiAnalysisDiagnosisKnowledge: mocks.apiAnalysisDiagnosisKnowledge,
+  apiAnalysisDiagnosisStudent: mocks.apiAnalysisDiagnosisStudent,
+  apiAnalysisDiagnosisHeatmap: mocks.apiAnalysisDiagnosisHeatmap,
+  apiAnalysisDiagnosisSuggestions: mocks.apiAnalysisDiagnosisSuggestions,
+  apiAnalysisCreateRemediationDraft: mocks.apiAnalysisCreateRemediationDraft,
   ensureApiBase: vi.fn().mockResolvedValue(undefined),
   resolveApiUrl: async (path: string) => path,
 }));
@@ -100,6 +110,18 @@ function primeDefaultApi() {
   mocks.apiAnalysisListTools.mockResolvedValue({ tools: [{ name: "analysis.run_builtin" }] });
   mocks.apiAnalysisRunBuiltin.mockResolvedValue({ job_id: "j1", status: "succeeded", output: { ok: true } });
   mocks.apiAnalysisRunFolderScript.mockResolvedValue({ job_id: "j2", status: "succeeded", output: { ok: false } });
+  mocks.apiAnalysisDiagnosisKnowledge.mockResolvedValue({ nodes: [] });
+  mocks.apiAnalysisDiagnosisStudent.mockResolvedValue({ students: [] });
+  mocks.apiAnalysisDiagnosisHeatmap.mockResolvedValue({ rows: [], columns: [], matrix: [] });
+  mocks.apiAnalysisDiagnosisSuggestions.mockResolvedValue({ retell_priority: [], practice_drafts: [] });
+  mocks.apiAnalysisCreateRemediationDraft.mockResolvedValue({
+    exam_id: "补练/数学",
+    selected_count: 0,
+    weak_nodes: [],
+    warnings: [],
+    source_exam_id: "e1",
+    batch_id: "b1",
+  });
   mocks.apiPost.mockResolvedValue({});
   mocks.apiPostFormData.mockResolvedValue({});
   mocks.apiDelete.mockResolvedValue({ ok: true });

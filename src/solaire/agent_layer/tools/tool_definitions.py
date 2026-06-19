@@ -167,6 +167,30 @@ _RAW_TOOLS: list[RegisteredTool] = [
         ui_label="正在查询分析进度…",
     ),
     _fn(
+        "analysis.create_remediation_draft",
+        "根据某次考试成绩批次的学情诊断结果，生成一份可编辑的补练卷组卷草稿。",
+        {
+            "type": "object",
+            "properties": {
+                "exam_id": {"type": "string", "description": "源考试标识，如 期中/数学"},
+                "batch_id": {"type": "string", "description": "成绩批次 id"},
+                "weak_limit": {"type": "integer", "description": "最多参考的薄弱知识点数量，默认 5"},
+                "practice_per_node": {"type": "integer", "description": "每个知识点最多取题数，默认 4"},
+                "exclude_source_exam_questions": {
+                    "type": "boolean",
+                    "description": "是否排除原考试已用题，默认 true",
+                },
+                "template_ref": {"type": "string", "description": "可选，覆盖源考试模板 id"},
+                "template_path": {"type": "string", "description": "可选，覆盖源考试模板路径"},
+                "export_label": {"type": "string", "description": "可选，新草稿试卷说明"},
+            },
+            "required": ["exam_id", "batch_id"],
+            "additionalProperties": False,
+        },
+        analysis_tools.tool_create_remediation_draft,
+        ui_label="正在生成补练卷草稿…",
+    ),
+    _fn(
         "exam.list_templates",
         "列出项目内试卷模板（路径、小节与版式信息）。",
         {"type": "object", "properties": {}, "additionalProperties": False},
@@ -1019,6 +1043,7 @@ _CONFIRM_LABELS: dict[str, str] = {
     "analysis.save_script": "保存分析脚本",
     "analysis.run_script": "运行分析脚本",
     "analysis.run_builtin": "运行内置学情分析",
+    "analysis.create_remediation_draft": "生成补练卷草稿",
     "agent.run_subtask": "分步深入分析子任务",
     "agent.run_tool_pipeline": "按序执行多步工具",
     "file.write": "写入项目文件",

@@ -7,7 +7,7 @@ metadata:
   author: solaire-builtin
   version: "1.1"
   label: 薄弱项分析
-  tool_patterns: "analysis.list_datasets analysis.list_builtins analysis.run_builtin analysis.save_script analysis.run_script analysis.get_job graph.list_nodes graph.list_relations graph.search_nodes agent.switch_focus agent.activate_skill agent.read_skill_reference agent.enter_plan_mode agent.exit_plan_mode agent.set_task_plan agent.update_task_step agent.run_subtask agent.run_tool_pipeline memory.read_index memory.read_topic memory.search file.read file.list file.search"
+  tool_patterns: "analysis.list_datasets analysis.list_builtins analysis.run_builtin analysis.save_script analysis.run_script analysis.get_job analysis.create_remediation_draft graph.list_nodes graph.list_relations graph.search_nodes agent.switch_focus agent.activate_skill agent.read_skill_reference agent.enter_plan_mode agent.exit_plan_mode agent.set_task_plan agent.update_task_step agent.run_subtask agent.run_tool_pipeline memory.read_index memory.read_topic memory.search file.read file.list file.search"
   suggested_user_input: 请根据已有成绩数据，帮我分析班级薄弱知识点并对应到图谱。
 ---
 
@@ -21,6 +21,7 @@ metadata:
 1. 若尚无分析结果，可先按 `score_diagnosis` 的路径跑内置分析，或直接使用已有输出
 2. 用 `graph.search_nodes` / `graph.list_relations` 将结论中的知识点与图中节点对齐
 3. 向教师说明时写明**考试标识、成绩批次、样本量**
+4. 若教师要直接安排练习，可用 `analysis.create_remediation_draft` 生成可编辑的补练卷草稿
 
 ## 注意事项
 
