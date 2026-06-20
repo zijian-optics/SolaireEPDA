@@ -1,7 +1,7 @@
 [package]
 name = "solaire-desktop"
-version = "0.2.2"
-description = "SolEdu 桌面壳"
+version = "0.2.3"
+description = "SolEdu UI"
 authors = ["SolEdu"]
 edition = "2021"
 license = "AGPL-3.0-or-later"
