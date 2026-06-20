@@ -26,6 +26,7 @@
     "previewPdfReady": "Preview generated. Check the right panel.",
     "previewPdfReadyWithWarnings": "Preview generated ({{n}} notice(s); preview still available).",
     "exportOk": "Exported: {{student}}, {{teacher}} (folder {{dir}})",
+    "exportWordOk": "Exported Word: {{student}}, {{teacher}} (folder {{dir}})",
     "draftRemovedAfterExport": "; draft removed from the draft box",
     "draftUpdated": "Draft updated",
     "draftSaved": "Draft saved",
@@ -61,7 +62,7 @@
   "addToSection": "Add to current section",
   "removeFromPaper": "Remove selected item",
   "overwriteTitle": "Overwrite existing export?",
-  "overwriteBody": "An export with the same label and subject exists. Overwriting replaces student and teacher PDFs in that folder.",
+  "overwriteBody": "An export with the same label and subject exists. Overwriting replaces the matching student and teacher files in that folder.",
   "overwriteExport": "Overwrite and export",
   "examLabel": "Exam label",
   "subjectPdf": "Subject (PDF)",
@@ -69,6 +70,7 @@
   "totalScoreLabel": "Total score",
   "validate": "Validate",
   "exportPdf": "Export PDF",
+  "exportWord": "Export Word",
   "draftName": "Draft name",
   "draftNamePlaceholder": "Recognizable name",
   "updateDraft": "Update draft",
@@ -146,5 +148,6 @@
   "pdfVariantStudent": "Student",
   "pdfVariantTeacher": "Teacher",
   "openPdfExternal": "Open with system viewer",
+  "openWordExternal": "Open Word",
   "examPreviewEmpty": "Pick an exported paper on the left, or export one first."
 }

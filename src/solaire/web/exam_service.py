@@ -16,9 +16,12 @@ from solaire.exam_compiler.facade import (
     QuestionLibraryRef,
     SelectedSection,
     analyze_math_static_for_loaded,
+    build_exam_docx,
     build_exam_pdfs,
     format_latexmk_failure_message,
+    format_pandoc_failure_message,
     load_all_questions,
+    PandocError,
     load_template,
     precheck_exam_latex_build,
     resolve_template_yaml_path,
@@ -362,6 +365,68 @@ def export_pdfs(
     shutil.move(str(teacher_pdf), t_new)
 
     # 保存 exam.yaml 副本，注入 score_per_item 供成绩分析使用
+    if exam_yaml.is_file():
+        with exam_yaml.open(encoding="utf-8") as f:
+            raw = yaml.safe_load(f)
+        exam_data = ExamConfig.model_validate(raw)
+        if template is not None:
+            sec_score_map = {s.section_id: s.score_per_item for s in template.sections}
+            for sel in exam_data.selected_items:
+                if sel.section_id in sec_score_map and sel.score_per_item is None:
+                    sel.score_per_item = sec_score_map[sel.section_id]
+        with (dest / "exam.yaml").open("w", encoding="utf-8") as f:
+            yaml.safe_dump(exam_data.model_dump(mode="json"), f, allow_unicode=True, sort_keys=False)
+
+    return dest, s_name, t_name
+
+
+
+def export_docx(
+    project_root: Path,
+    *,
+    exam_yaml: Path,
+    export_label: str,
+    subject: str,
+    template: ExamTemplate | None = None,
+    dest_dir: Path,
+) -> tuple[Path, str, str]:
+    """
+    Generate student and teacher DOCX files under ``exams/<label>/<subject>/``.
+
+    Keeps existing PDFs and score data. Only stale DOCX files from previous Word exports are replaced.
+    Returns (exam_dir, student_docx_name, teacher_docx_name).
+    """
+    assert_within_project(project_root, exam_yaml)
+    dest = dest_dir.resolve()
+    assert_within_project(project_root, dest)
+    exams_root = (project_root / "exams").resolve()
+    try:
+        dest.relative_to(exams_root)
+    except ValueError as e:
+        raise ValueError("导出目录必须位于 exams/ 下") from e
+    dest.mkdir(parents=True, exist_ok=True)
+
+    try:
+        student_docx, teacher_docx = build_exam_docx(exam_yaml, out_dir=dest)
+    except PandocError as e:
+        raise RuntimeError(format_pandoc_failure_message(e)) from e
+
+    for p in dest.glob("*.docx"):
+        if p.resolve() in {student_docx.resolve(), teacher_docx.resolve()}:
+            continue
+        try:
+            p.unlink()
+        except OSError:
+            pass
+
+    stem = f"{safe_filename_component(export_label)}-{safe_filename_component(subject)}"
+    s_name = f"{stem}-学生版.docx"
+    t_name = f"{stem}-教师版.docx"
+    s_new = dest / s_name
+    t_new = dest / t_name
+    shutil.move(str(student_docx), s_new)
+    shutil.move(str(teacher_docx), t_new)
+
     if exam_yaml.is_file():
         with exam_yaml.open(encoding="utf-8") as f:
             raw = yaml.safe_load(f)

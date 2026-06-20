@@ -338,6 +338,8 @@ def list_exam_workspaces(project_root: Path) -> list[dict[str, Any]]:
                             "template_ref": None,
                             "template_path": None,
                             "updated_at": updated,
+                            "has_pdf": any(subj_dir.glob("*.pdf")),
+                            "has_docx": any(subj_dir.glob("*.docx")),
                             "status": status if status in ("draft", "exported") else "draft",
                         },
                     ),

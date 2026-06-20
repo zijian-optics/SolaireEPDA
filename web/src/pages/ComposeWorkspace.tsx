@@ -111,9 +111,12 @@ export function ComposeWorkspace({
   const [draftName, setDraftName] = useState("");
   const [examSummaries, setExamSummaries] = useState<ExamWorkspaceSummary[]>([]);
   const [conflictTargetId, setConflictTargetId] = useState<string | null>(null);
+  const [conflictExportKind, setConflictExportKind] = useState<"pdf" | "word" | null>(null);
   /** 最近一次导出成功后的考试目录标识（用于在未打开侧栏项时仍可从右侧打开 PDF） */
   const [lastExportedExamId, setLastExportedExamId] = useState<string | null>(null);
   const [viewPdfBusy, setViewPdfBusy] = useState(false);
+  const [viewWordBusy, setViewWordBusy] = useState(false);
+  const [wordExamId, setWordExamId] = useState<string | null>(null);
   /** 校验生成的临时预览会话 id（不入历史试卷） */
   const [previewPdfId, setPreviewPdfId] = useState<string | null>(null);
   const [previewWarnings, setPreviewWarnings] = useState<string[]>([]);
@@ -154,6 +157,33 @@ export function ComposeWorkspace({
     }
   }, [pdfExamId, lastExportedExamId, pdfVariant]);
 
+
+  const openViewWordExternally = useCallback(async () => {
+    const summaryId = wordExamId ?? pdfExamId;
+    const summaryHasDocx = summaryId
+      ? examSummaries.find((ex) => ex.exam_id === summaryId)?.has_docx === true
+      : false;
+    const id = wordExamId ?? (summaryHasDocx ? summaryId : null);
+    if (!id) {
+      return;
+    }
+    if (isTauriShell()) {
+      setViewWordBusy(true);
+      try {
+        await apiPost<{ ok?: boolean }>(`/api/exams/${encodeURIComponent(id)}/open-docx`, {
+          variant: pdfVariant,
+        });
+      } catch (e) {
+        const errMsg = e instanceof Error ? e.message : String(e);
+        window.alert(errMsg);
+      } finally {
+        setViewWordBusy(false);
+      }
+    } else {
+      const url = `${window.location.origin}/api/exams/${encodeURIComponent(id)}/docx-file?variant=${pdfVariant}`;
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+  }, [examSummaries, pdfExamId, pdfVariant, wordExamId]);
   const selectedTpl = useMemo(() => {
     const tp = normTemplatePath(templatePath);
     if (!tp) {
@@ -442,9 +472,11 @@ export function ComposeWorkspace({
       }
       setLastExportedExamId((prev) => (prev === examId ? null : prev));
       setPdfExamId((prev) => (prev === examId ? null : prev));
+      setWordExamId((prev) => (prev === examId ? null : prev));
       setDlgHistorySourceExamId((prev) => (prev === examId ? "" : prev));
       setExportFailureExamIds((prev) => prev.filter((x) => x !== examId));
       setConflictTargetId((prev) => (prev === examId ? null : prev));
+      setConflictExportKind(null);
       onError(null);
     };
     window.addEventListener(SOLAIRE_EXAMS_CHANGED_EVENT, onExamsChanged);
@@ -948,6 +980,65 @@ export function ComposeWorkspace({
     void refreshExamSummaries();
   }
 
+
+  async function runWordExport(
+    overwriteExisting: string | null,
+    examIdToDeleteAfterSuccess: string | null,
+    failureExamIdsToDeleteAfterSuccess: string[],
+    examWorkspaceIdForExport: string | null,
+  ) {
+    if (!selectedTpl) {
+      return;
+    }
+    const selected_items = buildSelectedItemsForApi();
+    const idsToDelete = [
+      ...new Set(
+        [
+          ...(examIdToDeleteAfterSuccess ? [examIdToDeleteAfterSuccess] : []),
+          ...failureExamIdsToDeleteAfterSuccess,
+        ].filter(Boolean),
+      ),
+    ];
+    const res = await apiPost<{
+      ok: boolean;
+      exam_dir: string;
+      student_docx: string;
+      teacher_docx: string;
+    }>("/api/exam/export-word", {
+      export_label: exportLabel.trim(),
+      subject: subject.trim(),
+      metadata_title: exportLabel.trim(),
+      template_ref: templateRef,
+      template_path: templatePath,
+      selected_items,
+      overwrite_existing: overwriteExisting ?? undefined,
+      ...(examWorkspaceIdForExport ? { exam_workspace_id: examWorkspaceIdForExport } : {}),
+      ...(idsToDelete.length ? { exam_ids_to_delete_on_success: idsToDelete } : {}),
+    });
+    const dirNorm = res.exam_dir.replace(/\\/g, "/").replace(/^\/+/, "");
+    const m = /^exams\/(.+)$/.exec(dirNorm);
+    const examPathId = m ? m[1]! : null;
+    setLastExportedExamId(examPathId);
+    setWordExamId(examPathId);
+    if (examPathId && examSummaries.find((ex) => ex.exam_id === examPathId)?.has_pdf) {
+      setPdfExamId(examPathId);
+    }
+    if (examPathId) {
+      setPdfVariant("student");
+    }
+    let successText = t("compose:messages.exportWordOk", {
+      student: res.student_docx,
+      teacher: res.teacher_docx,
+      dir: res.exam_dir,
+    });
+    if (idsToDelete.length) {
+      setCurrentExamId((cur) => (cur && idsToDelete.includes(cur) ? null : cur));
+      setExportFailureExamIds([]);
+      successText += t("compose:messages.draftRemovedAfterExport");
+    }
+    setMsg(successText);
+    void refreshExamSummaries();
+  }
   async function exportExam() {
     if (!selectedTpl) {
       return;
@@ -964,6 +1055,7 @@ export function ComposeWorkspace({
         subject: subject.trim(),
       });
       if (check.conflict && check.existing_exam_id) {
+        setConflictExportKind("pdf");
         setConflictTargetId(check.existing_exam_id);
         setBusy(false);
         return;
@@ -991,24 +1083,79 @@ export function ComposeWorkspace({
     }
   }
 
+
+  async function exportWord() {
+    if (!selectedTpl) {
+      return;
+    }
+    onError(null);
+    setBusy(true);
+    setMsg(null);
+    try {
+      const check = await apiPost<{
+        conflict: boolean;
+        existing_exam_id: string | null;
+      }>("/api/exam/export/check-conflict", {
+        export_label: exportLabel.trim(),
+        subject: subject.trim(),
+      });
+      if (check.conflict && check.existing_exam_id) {
+        setConflictExportKind("word");
+        setConflictTargetId(check.existing_exam_id);
+        setBusy(false);
+        return;
+      }
+      const examIdSnapshot = currentExamId;
+      const hasWorkspace = Boolean(examIdSnapshot);
+      await runWordExport(
+        null,
+        hasWorkspace ? null : examIdSnapshot,
+        exportFailureExamIds,
+        hasWorkspace ? examIdSnapshot : null,
+      );
+    } catch (e) {
+      if (e instanceof ApiError && e.examSaved) {
+        setExportFailureExamIds((prev) => [...new Set([...prev, e.examSaved!.exam_id])]);
+        void refreshExamSummaries();
+        onError(
+          t("compose:errors.exportWithDraftSaved", { name: e.examSaved.name, detail: e.message }),
+        );
+      } else {
+        onError(e instanceof Error ? e.message : String(e));
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
   async function confirmOverwriteExport() {
     if (!selectedTpl || !conflictTargetId) {
       return;
     }
     const overwriteId = conflictTargetId;
+    const kind = conflictExportKind ?? "pdf";
     const examIdSnapshot = currentExamId;
     setConflictTargetId(null);
+    setConflictExportKind(null);
     onError(null);
     setBusy(true);
     setMsg(null);
     try {
       const hasWorkspace = Boolean(examIdSnapshot);
-      await runExport(
-        overwriteId,
-        hasWorkspace ? null : examIdSnapshot,
-        exportFailureExamIds,
-        hasWorkspace ? examIdSnapshot : null,
-      );
+      if (kind === "word") {
+        await runWordExport(
+          overwriteId,
+          hasWorkspace ? null : examIdSnapshot,
+          exportFailureExamIds,
+          hasWorkspace ? examIdSnapshot : null,
+        );
+      } else {
+        await runExport(
+          overwriteId,
+          hasWorkspace ? null : examIdSnapshot,
+          exportFailureExamIds,
+          hasWorkspace ? examIdSnapshot : null,
+        );
+      }
     } catch (e) {
       if (e instanceof ApiError && e.examSaved) {
         setExportFailureExamIds((prev) => [...new Set([...prev, e.examSaved!.exam_id])]);
@@ -1097,6 +1244,7 @@ export function ComposeWorkspace({
       }
       setLastExportedExamId((prev) => (prev === examId ? null : prev));
       setPdfExamId((prev) => (prev === examId ? null : prev));
+      setWordExamId((prev) => (prev === examId ? null : prev));
       setMsg(opts?.exported ? t("compose:messages.exportedExamDeleted") : t("compose:messages.draftDeleted"));
       void refreshExamSummaries();
       dispatchExamsChanged({ examId });
@@ -1107,7 +1255,7 @@ export function ComposeWorkspace({
     }
   }
 
-  async function loadExamById(examId: string, pdfForViewer: string | null) {
+  async function loadExamById(examId: string, pdfForViewer: string | null, wordForViewer: string | null = null) {
     onError(null);
     setBusy(true);
     try {
@@ -1125,6 +1273,7 @@ export function ComposeWorkspace({
       }
       setPreviewPdfId(null);
       setPdfExamId(pdfForViewer);
+      setWordExamId(wordForViewer);
       setPdfVariant("student");
       setMsg(t("compose:messages.draftLoaded"));
     } catch (e) {
@@ -1193,6 +1342,14 @@ export function ComposeWorkspace({
         >
           {t("compose:exportPdf")}
         </button>
+        <button
+          type="button"
+          className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-800 disabled:opacity-50"
+          disabled={busy || !countsOk}
+          onClick={() => void exportWord()}
+        >
+          {t("compose:exportWord")}
+        </button>
       </div>
     );
     setToolBar({ left, right });
@@ -1231,6 +1388,11 @@ export function ComposeWorkspace({
 
   /** 右侧 PDF：优先显示校验预览；否则显示所选历史导出试卷 */
   const composeRightPdfPath = previewSessionPdfPath ?? pdfApiPath;
+  const activeDocumentExamId = wordExamId ?? pdfExamId;
+  const activeDocumentSummary = activeDocumentExamId
+    ? examSummaries.find((ex) => ex.exam_id === activeDocumentExamId)
+    : undefined;
+  const wordOpenExamId = wordExamId ?? (activeDocumentSummary?.has_docx ? activeDocumentExamId : null);
 
   return (
     <div className="relative flex h-full min-h-0 flex-col">
@@ -1468,9 +1630,14 @@ export function ComposeWorkspace({
                             : "border-slate-200 bg-white hover:border-slate-300",
                         )}
                         disabled={busy}
-                        onClick={() =>
-                          void loadExamById(ex.exam_id, ex.exam_id)
-                        }
+                        onClick={() => {
+                          setLastExportedExamId(ex.exam_id);
+                          void loadExamById(
+                            ex.exam_id,
+                            ex.has_pdf ? ex.exam_id : null,
+                            ex.has_docx ? ex.exam_id : null,
+                          );
+                        }}
                       >
                         <span className="font-medium text-slate-900">
                           {ex.export_label || ex.name || ex.exam_id}
@@ -1669,7 +1836,10 @@ export function ComposeWorkspace({
                   <button
                     type="button"
                     className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800"
-                    onClick={() => setConflictTargetId(null)}
+                    onClick={() => {
+                      setConflictTargetId(null);
+                      setConflictExportKind(null);
+                    }}
                   >
                     {t("common:cancel")}
                   </button>
@@ -2039,6 +2209,16 @@ export function ComposeWorkspace({
                 onClick={() => void openViewPdfExternally()}
               >
                 {t("compose:openPdfExternal")}
+              </button>
+            ) : null}
+            {wordOpenExamId && !previewPdfId ? (
+              <button
+                type="button"
+                className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-800 disabled:opacity-50"
+                disabled={busy || viewWordBusy}
+                onClick={() => void openViewWordExternally()}
+              >
+                {t("compose:openWordExternal")}
               </button>
             ) : null}
           </div>

@@ -83,6 +83,25 @@ def find_exported_pdf_path(
     raise FileNotFoundError(f"目录中未找到含「{marker}」的 PDF")
 
 
+
+def find_exported_docx_path(
+    project_root: Path,
+    exam_id: str,
+    *,
+    variant: Literal["student", "teacher"],
+) -> Path:
+    """Return path to student or teacher DOCX under ``exams/<label>/<subject>/``."""
+    d = workspace_dir(project_root, exam_id)
+    assert_within_project(project_root, d)
+    if not d.is_dir():
+        raise FileNotFoundError(f"未找到考试目录: {exam_id}")
+    marker = "学生版" if variant == "student" else "教师版"
+    for p in sorted(d.glob("*.docx")):
+        if marker in p.name:
+            return p
+    raise FileNotFoundError(f"目录中未找到含“{marker}”的 Word 文档")
+
+
 def open_pdf_with_default_app(path: Path) -> None:
     """Open a PDF with the OS default handler (local backend only)."""
     target = path.resolve()
@@ -96,6 +115,20 @@ def open_pdf_with_default_app(path: Path) -> None:
     else:
         subprocess.run(["xdg-open", str(target)], check=False)
 
+
+
+def open_docx_with_default_app(path: Path) -> None:
+    """Open a DOCX with the OS default handler (local backend only)."""
+    target = path.resolve()
+    if not target.is_file():
+        raise FileNotFoundError(str(target))
+    system = platform.system()
+    if system == "Windows":
+        os.startfile(str(target))  # type: ignore[attr-defined]
+    elif system == "Darwin":
+        subprocess.run(["open", str(target)], check=False)
+    else:
+        subprocess.run(["xdg-open", str(target)], check=False)
 
 def _flatten_questions(exam: ExamConfig) -> list[ExamQuestion]:
     """Flatten selected_items to ordered ExamQuestion list."""
@@ -142,6 +175,8 @@ def list_exam_results(project_root: Path) -> list[dict[str, Any]]:
                 "section_count": len(exam.selected_items),
                 "score_batch_count": len(score_batches),
                 "has_score": len(score_batches) > 0,
+                "has_pdf": any(dir_path.glob("*.pdf")),
+                "has_docx": any(dir_path.glob("*.docx")),
                 "latest_batch_id": score_batches[0]["batch_id"] if score_batches else None,
                 "exam_dir": exam_id,
                 "mtime": mtime.isoformat(),
@@ -158,6 +193,8 @@ def list_exam_results(project_root: Path) -> list[dict[str, Any]]:
                 "section_count": 0,
                 "score_batch_count": 0,
                 "has_score": False,
+                "has_pdf": any(dir_path.glob("*.pdf")),
+                "has_docx": any(dir_path.glob("*.docx")),
                 "latest_batch_id": None,
                 "exam_dir": exam_id,
                 "mtime": mtime.isoformat(),
@@ -201,6 +238,8 @@ def get_exam_summary(project_root: Path, exam_id: str) -> dict[str, Any]:
         "section_count": len(exam.selected_items),
         "question_count": len(questions),
         "score_batches": score_batches,
+        "has_pdf": any(dir_path.glob("*.pdf")),
+        "has_docx": any(dir_path.glob("*.docx")),
         "exam_dir": exam_id,
     }
 
