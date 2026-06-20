@@ -220,6 +220,8 @@ def test_export_docx_names_files_and_keeps_existing_pdf(
     dest = tmp_path / "exams" / "Label" / "Math"
     dest.mkdir(parents=True)
     (dest / "old.docx").write_bytes(b"old")
+    (dest / "Label-Math-学生版.docx").write_bytes(b"old student")
+    (dest / "Label-Math-教师版.docx").write_bytes(b"old teacher")
     (dest / "keep.pdf").write_bytes(b"pdf")
 
     def fake_build(exam_yaml: Path, out_dir: Path | None, *, clean_workdir: bool = False):
@@ -246,7 +248,7 @@ def test_export_docx_names_files_and_keeps_existing_pdf(
     assert (dest / student_name).read_bytes() == b"student"
     assert (dest / teacher_name).read_bytes() == b"teacher"
     assert (dest / "keep.pdf").is_file()
-    assert not (dest / "old.docx").exists()
+    assert (dest / "old.docx").read_bytes() == b"old"
     assert (dest / "exam.yaml").is_file()
 
 

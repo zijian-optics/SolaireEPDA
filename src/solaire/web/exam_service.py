@@ -411,19 +411,20 @@ def export_docx(
     except PandocError as e:
         raise RuntimeError(format_pandoc_failure_message(e)) from e
 
-    for p in dest.glob("*.docx"):
-        if p.resolve() in {student_docx.resolve(), teacher_docx.resolve()}:
-            continue
-        try:
-            p.unlink()
-        except OSError:
-            pass
-
     stem = f"{safe_filename_component(export_label)}-{safe_filename_component(subject)}"
     s_name = f"{stem}-学生版.docx"
     t_name = f"{stem}-教师版.docx"
     s_new = dest / s_name
     t_new = dest / t_name
+    for p in (s_new, t_new):
+        if p.resolve() in {student_docx.resolve(), teacher_docx.resolve()}:
+            continue
+        try:
+            p.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass
     shutil.move(str(student_docx), s_new)
     shutil.move(str(teacher_docx), t_new)
 
@@ -470,3 +471,4 @@ def export_preview_pdfs(
     shutil.move(str(student_pdf), s_new)
     shutil.move(str(teacher_pdf), t_new)
     return s_name, t_name, warnings
+
