@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import subprocess
+import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock
+from xml.etree import ElementTree as ET
 
 import pytest
 import yaml
@@ -46,7 +49,7 @@ def _write_minimal_exam_project(root: Path) -> Path:
             {
                 "id": "q1",
                 "type": "single_choice",
-                "content": "Compute $x_1+1$.\n:::EMBED_IMG:math/set/existing.png:::",
+                "content": "Compute $x_1+1$ and $y=\\e^x+\\dlim_{n\\to\\infty} a_n+\\arccot x$.\n:::EMBED_IMG:math/set/existing.png:::",
                 "options": {"A": "$1$", "B": "$2$"},
                 "answer": "A",
                 "analysis": "Because $x_1=0$.",
@@ -95,11 +98,104 @@ def test_build_exam_docx_generates_student_and_teacher_markdown(
     teacher_md = (work / "teacher_paper.md").read_text(encoding="utf-8")
     assert "# Docx Test" in student_md
     assert "$x_1+1$" in student_md
+    assert r"$y=\mathrm{e}^x+\displaystyle\lim_{n\to\infty} a_n+\operatorname{arccot} x$" in student_md
+    assert r"\e^x" not in student_md
     assert "![](media/" in student_md
     assert "【答案】" not in student_md
     assert "【答案】" in teacher_md
     assert "Because $x_1=0$." in teacher_md
     assert any((work / "media").glob("*.png"))
+
+
+
+def test_docx_math_macro_normalization_matches_pdf_common_macros() -> None:
+    text = r"before \$3 and $y=\e^x+\i+\dlim_{n\to\infty} a_n+\arccot x+\epsilon$ after"
+
+    normalized = docx_pipeline._normalize_docx_math_macros(text)
+
+    assert r"\$3" in normalized
+    assert r"\mathrm{e}^x" in normalized
+    assert r"\mathrm{i}" in normalized
+    assert r"\displaystyle\lim" in normalized
+    assert r"\operatorname{arccot}" in normalized
+    assert r"\epsilon" in normalized
+    assert r"\e^x" not in normalized
+
+
+def test_run_pandoc_uses_gaokao_reference_docx(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    md_path = tmp_path / "paper.md"
+    docx_path = tmp_path / "paper.docx"
+    ref_paths: list[Path] = []
+    commands: list[list[str]] = []
+    md_path.write_text("# Title\n\nBody", encoding="utf-8")
+
+    def fake_reference(reference_docx: Path, pandoc: str) -> Path:
+        assert pandoc == "pandoc"
+        reference_docx.write_bytes(b"fake reference")
+        ref_paths.append(reference_docx)
+        return reference_docx
+
+    def fake_run(cmd: list[str], **kwargs):
+        commands.append(cmd)
+        docx_path.write_bytes(b"fake docx")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(docx_pipeline, "resolve_exe", lambda *_: "pandoc")
+    monkeypatch.setattr(docx_pipeline, "_ensure_gaokao_reference_docx", fake_reference)
+    monkeypatch.setattr(docx_pipeline.subprocess, "run", fake_run)
+
+    docx_pipeline._run_pandoc(md_path, docx_path)
+
+    assert docx_path.is_file()
+    assert ref_paths == [tmp_path / "gaokao_reference.docx"]
+    assert commands and "--reference-doc" in commands[0]
+    ref_arg = commands[0][commands[0].index("--reference-doc") + 1]
+    assert ref_arg.endswith("gaokao_reference.docx")
+
+def test_gaokao_reference_patch_sets_exam_typography(tmp_path: Path) -> None:
+    ref = tmp_path / "reference.docx"
+    styles_xml = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="{docx_pipeline._W_NS}">
+  <w:style w:type="paragraph" w:styleId="Normal"><w:name w:val="Normal"/></w:style>
+  <w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="Heading 1"/></w:style>
+  <w:style w:type="table" w:styleId="Table"><w:name w:val="Table"/></w:style>
+</w:styles>'''
+    document_xml = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="{docx_pipeline._W_NS}"><w:body><w:p/><w:sectPr/></w:body></w:document>'''
+    with zipfile.ZipFile(ref, "w", compression=zipfile.ZIP_DEFLATED) as z:
+        z.writestr("word/styles.xml", styles_xml.encode("utf-8"))
+        z.writestr("word/document.xml", document_xml.encode("utf-8"))
+
+    docx_pipeline._patch_reference_docx(ref)
+
+    def w(name: str) -> str:
+        return f"{{{docx_pipeline._W_NS}}}{name}"
+
+    with zipfile.ZipFile(ref, "r") as z:
+        styles_root = ET.fromstring(z.read("word/styles.xml"))
+        document_root = ET.fromstring(z.read("word/document.xml"))
+    normal = next(
+        style for style in styles_root.findall(w("style")) if style.get(w("styleId")) == "Normal"
+    )
+    normal_fonts = normal.find(f"{w('rPr')}/{w('rFonts')}")
+    normal_size = normal.find(f"{w('rPr')}/{w('sz')}")
+    assert normal_fonts is not None and normal_fonts.get(w("eastAsia")) == "SimSun"
+    assert normal_size is not None and normal_size.get(w("val")) == "21"
+
+    heading = next(
+        style for style in styles_root.findall(w("style")) if style.get(w("styleId")) == "Heading1"
+    )
+    heading_fonts = heading.find(f"{w('rPr')}/{w('rFonts')}")
+    heading_jc = heading.find(f"{w('pPr')}/{w('jc')}")
+    assert heading_fonts is not None and heading_fonts.get(w("eastAsia")) == "SimHei"
+    assert heading_jc is not None and heading_jc.get(w("val")) == "center"
+
+    pg_sz = document_root.find(f".//{w('sectPr')}/{w('pgSz')}")
+    pg_mar = document_root.find(f".//{w('sectPr')}/{w('pgMar')}")
+    assert pg_sz is not None and pg_sz.get(w("w")) == "11906"
+    assert pg_mar is not None and pg_mar.get(w("left")) == "1021"
 
 
 def test_export_docx_names_files_and_keeps_existing_pdf(

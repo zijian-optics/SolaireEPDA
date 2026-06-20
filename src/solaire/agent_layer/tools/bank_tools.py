@@ -7,11 +7,40 @@ from typing import Any
 
 from solaire.agent_layer.models import InvocationContext, ToolResult
 from solaire.exam_compiler.facade import QuestionItem
+from solaire.exam_compiler.pipeline.math_fragment_check import analyze_math_static_for_record
 from solaire.web.bank_service import get_question_detail, list_bank_entries, save_question
 
 
 def _root(ctx: InvocationContext) -> Any:
     return ctx.project_root
+
+
+def _format_check_payload(qualified_id: str, item: QuestionItem) -> dict[str, Any]:
+    warnings = analyze_math_static_for_record(qualified_id, item)
+    return {
+        "format_ok": not warnings,
+        "format_warning_count": len(warnings),
+        "format_warnings": warnings,
+        "next_action": (
+            "\u8bf7\u6839\u636e format_warnings \u4fee\u6b63\u9898\u5e72/\u7b54\u6848/\u89e3\u6790/\u9009\u9879\u540e\u518d\u6b21\u8c03\u7528 bank.update_item\uff1b"
+            "\u4e0d\u8981\u5728\u4ecd\u6709\u683c\u5f0f\u8b66\u544a\u65f6\u5411\u7528\u6237\u62a5\u544a\u9898\u76ee\u5df2\u5b8c\u5168\u53ef\u5bfc\u51fa\u3002"
+            if warnings
+            else None
+        ),
+    }
+
+
+def _format_warning_summary(qualified_id: str, warnings: list[dict[str, str]]) -> str | None:
+    if not warnings:
+        return None
+    bits = []
+    for w in warnings[:5]:
+        field = w.get("field") or "?"
+        code = w.get("code") or "format_warning"
+        msg = w.get("message") or ""
+        bits.append(f"{field}:{code} {msg}")
+    more = f"\uFF1B\u53E6\u6709 {len(warnings) - 5} \u6761" if len(warnings) > 5 else ""
+    return f"\u9898\u76ee {qualified_id} \u4fdd\u5b58\u540e\u4ecd\u6709\u683c\u5f0f\u8b66\u544a\uff1a" + "\uFF1B".join(bits) + more
 
 
 def tool_bank_search_items(ctx: InvocationContext, args: dict[str, Any]) -> ToolResult:
@@ -141,7 +170,30 @@ def tool_bank_update_item(ctx: InvocationContext, args: dict[str, Any]) -> ToolR
     except Exception as e:
         return ToolResult(status="failed", error_code="save", error_message=str(e))
 
-    return ToolResult(status="succeeded", data={"qualified_id": qid, "updated_fields": list(patch.keys())})
+    try:
+        detail = get_question_detail(_root(ctx), qid)
+        raw_q = detail.get("question")
+        if raw_q is None:
+            return ToolResult(
+                status="failed",
+                error_code="post_validate",
+                error_message="\u56de\u8bfb\u6821\u9a8c\u5931\u8d25\uff1a\u9898\u76ee\u4fdd\u5b58\u540e\u89e3\u6790\u7ed3\u679c\u4e3a\u7a7a\uff0c\u8bf7\u6309\u6a21\u677f\u4fee\u6b63\u540e\u91cd\u8bd5\u3002",
+            )
+        saved_item = QuestionItem.model_validate(raw_q)
+    except Exception as e:
+        return ToolResult(
+            status="failed",
+            error_code="post_validate",
+            error_message=f"\u56de\u8bfb\u6821\u9a8c\u5931\u8d25\uff1a{e}",
+        )
+
+    format_payload = _format_check_payload(qid, saved_item)
+    data = {"qualified_id": qid, "updated_fields": list(patch.keys()), **format_payload}
+    return ToolResult(
+        status="succeeded",
+        data=data,
+        summary_for_llm=_format_warning_summary(qid, data["format_warnings"]),
+    )
 
 
 def tool_bank_create_item(ctx: InvocationContext, args: dict[str, Any]) -> ToolResult:
@@ -234,4 +286,10 @@ def tool_bank_create_item(ctx: InvocationContext, args: dict[str, Any]) -> ToolR
             error_message=f"回读校验失败：{e}",
         )
 
-    return ToolResult(status="succeeded", data={"qualified_id": qualified_id})
+    format_payload = _format_check_payload(qualified_id, QuestionItem.model_validate(raw_q))
+    data = {"qualified_id": qualified_id, **format_payload}
+    return ToolResult(
+        status="succeeded",
+        data=data,
+        summary_for_llm=_format_warning_summary(qualified_id, data["format_warnings"]),
+    )
