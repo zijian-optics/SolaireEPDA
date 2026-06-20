@@ -42,6 +42,8 @@ export type ExamWorkspaceSummary = {
   template_ref?: string | null;
   template_path?: string | null;
   updated_at?: string | null;
+  has_pdf?: boolean;
+  has_docx?: boolean;
   status?: ExamWorkspaceStatus | null;
 };
 

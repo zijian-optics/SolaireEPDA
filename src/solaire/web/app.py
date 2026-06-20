@@ -37,12 +37,14 @@ from solaire.web.bank_exchange import export_bank_exchange_zip, import_bank_exch
 from solaire.web.result_service import (
     compute_statistics,
     delete_score_batch,
+    find_exported_docx_path,
     find_exported_pdf_path,
     generate_score_template,
     get_exam_summary,
     get_score_analysis,
     import_scores,
     list_exam_results,
+    open_docx_with_default_app,
     open_pdf_with_default_app,
 )
 from solaire.edu_analysis.core import (
@@ -126,6 +128,7 @@ from solaire.web.exam_service import (
     discard_build_yaml_backup,
     ensure_probe_list_yaml,
     exam_export_error_detail_short,
+    export_docx,
     export_pdfs,
     export_preview_pdfs,
     find_export_conflict,
@@ -1474,6 +1477,112 @@ def exam_export(body: ExamExportBody) -> dict[str, Any]:
     }
 
 
+
+@app.post("/api/exam/export-word")
+def exam_export_word(body: ExamExportBody) -> dict[str, Any]:
+    root = _require_root()
+    tpl, tpl_rel = resolve_template_under_project(root, body.template_path, body.template_ref)
+    assert_within_project(root, tpl)
+    if not tpl.is_file():
+        raise HTTPException(status_code=400, detail=f"Template file not found: {body.template_path}")
+
+    title = body.metadata_title or body.export_label
+    metadata: dict[str, Any] = {
+        "title": title,
+        "subject": body.subject,
+        "export_label": body.export_label,
+    }
+    sections = _draft_to_sections(body)
+
+    log = logging.getLogger(__name__)
+    backup = snapshot_build_yaml_before_export(root)
+    try:
+        exam_yaml = write_build_exam_yaml(
+            root,
+            exam_id="web_export",
+            template_ref=body.template_ref,
+            template_relative=tpl_rel,
+            metadata=metadata,
+            selected_items=sections,
+        )
+        run_validate(root, exam_yaml)
+        template = load_template(tpl)
+        dest_dir: Path
+        if body.overwrite_existing:
+            dest_dir = _assert_overwrite_target(
+                root, body.overwrite_existing, body.export_label, body.subject
+            )
+        else:
+            wid = str(body.exam_workspace_id or "").strip()
+            if wid:
+                dest_dir = exam_yaml_path(root, wid).parent.resolve()
+            else:
+                try:
+                    dest_dir = exam_yaml_path(
+                        root, exam_id_from_labels(body.export_label, body.subject)
+                    ).parent.resolve()
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e)) from e
+        result_dir, s_name, t_name = export_docx(
+            root,
+            exam_yaml=exam_yaml,
+            export_label=body.export_label,
+            subject=body.subject,
+            template=template,
+            dest_dir=dest_dir,
+        )
+    except ValueError as e:
+        restore_build_yaml_from_backup(root, backup)
+        log.warning("exam Word export validation failed: %s", e)
+        raise HTTPException(status_code=400, detail=_exam_export_failure_detail(root, body, e)) from e
+    except FileNotFoundError as e:
+        restore_build_yaml_from_backup(root, backup)
+        log.warning("exam Word export file not found: %s", e)
+        raise HTTPException(status_code=400, detail=_exam_export_failure_detail(root, body, e)) from e
+    except RuntimeError as e:
+        restore_build_yaml_from_backup(root, backup)
+        log.exception("exam Word export build failed")
+        raise HTTPException(status_code=500, detail=_exam_export_failure_detail(root, body, e)) from e
+    except Exception as e:
+        restore_build_yaml_from_backup(root, backup)
+        log.exception("exam Word export failed")
+        raise HTTPException(status_code=500, detail=_exam_export_failure_detail(root, body, e)) from e
+    else:
+        discard_build_yaml_backup(backup)
+
+    rel = result_dir.relative_to(root)
+    wid = str(body.exam_workspace_id or "").strip()
+    mark_id = wid
+    if not mark_id:
+        try:
+            mark_id = exam_id_from_labels(body.export_label, body.subject)
+        except ValueError:
+            mark_id = ""
+    if mark_id:
+        try:
+            mark_exported(root, mark_id)
+        except Exception:
+            log.warning("mark exam workspace exported failed: %s", mark_id, exc_info=True)
+
+    skip_delete = {wid} if wid else set()
+    to_delete = body.exam_ids_to_delete_on_success or []
+    for raw_id in to_delete:
+        did = str(raw_id).strip()
+        if not did or did in skip_delete:
+            continue
+        try:
+            if exam_yaml_path(root, did).is_file():
+                delete_exam_workspace(root, did)
+        except Exception:
+            log.warning("delete exam workspace after Word export success failed: %s", did)
+
+    return {
+        "ok": True,
+        "exam_dir": rel.as_posix(),
+        "student_docx": s_name,
+        "teacher_docx": t_name,
+    }
+
 @app.post("/api/exam/export/check-conflict")
 def exam_export_check_conflict(body: ExamExportConflictBody) -> dict[str, Any]:
     root = _require_root()
@@ -1706,6 +1815,52 @@ def exams_open_pdf(
         raise HTTPException(status_code=500, detail=f"无法通过系统打开文件: {e}") from e
     return {"ok": True}
 
+
+
+@app.get("/api/exams/{exam_path:path}/docx-file")
+def exams_docx_file(
+    exam_path: str,
+    variant: str = Query("student", description="student 或 teacher"),
+) -> FileResponse:
+    """Download an exported Word document."""
+    root = _require_root()
+    v = variant.strip().lower()
+    if v not in ("student", "teacher"):
+        raise HTTPException(status_code=400, detail="variant 须为 student 或 teacher")
+    try:
+        path = find_exported_docx_path(root, exam_path, variant=v)  # type: ignore[arg-type]
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return FileResponse(
+        path,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename=path.name,
+        content_disposition_type="attachment",
+    )
+
+
+@app.post("/api/exams/{exam_path:path}/open-docx")
+def exams_open_docx(
+    exam_path: str,
+    body: OpenResultPdfBody | None = Body(default=None),
+) -> dict[str, Any]:
+    """Open a Word document with the OS default handler (local backend only)."""
+    root = _require_root()
+    raw = (body.variant if body else "student").strip().lower()
+    if raw not in ("student", "teacher"):
+        raise HTTPException(status_code=400, detail="variant 须为 student 或 teacher")
+    try:
+        path = find_exported_docx_path(root, exam_path, variant=raw)  # type: ignore[arg-type]
+        open_docx_with_default_app(path)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"无法通过系统打开文件: {e}") from e
+    return {"ok": True}
 
 @app.get("/api/exams/{exam_path:path}/summary")
 def exams_summary(exam_path: str) -> dict[str, Any]:

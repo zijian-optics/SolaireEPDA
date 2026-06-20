@@ -316,7 +316,7 @@ _RAW_TOOLS: list[RegisteredTool] = [
     ),
     _fn(
         "bank.update_item",
-        "修改已有独立题目的题干、答案、解析或选项（写入操作，可能需确认）。",
+        "修改已有独立题目的题干、答案、解析或选项（写入操作，可能需确认）。保存后会返回 format_warnings；若 format_ok=false，必须继续修正。",
         {
             "type": "object",
             "properties": {
@@ -335,7 +335,7 @@ _RAW_TOOLS: list[RegisteredTool] = [
     ),
     _fn(
         "bank.create_item",
-        "在指定题集中新建一道独立题目（须符合题型与选项规则）。",
+        "在指定题集中新建一道独立题目（须符合题型、选项规则与格式检查）。保存后会返回 format_warnings；若 format_ok=false，必须继续调用 bank.update_item 修正。",
         {
             "type": "object",
             "properties": {

@@ -26,6 +26,7 @@
     "previewPdfReady": "已生成预览成品，可在右侧查看。",
     "previewPdfReadyWithWarnings": "已生成预览成品（{{n}} 条提示，不影响预览）。",
     "exportOk": "导出成功：{{student}}、{{teacher}}（目录 {{dir}}）",
+    "exportWordOk": "Word 导出成功：{{student}}、{{teacher}}（目录 {{dir}}）",
     "draftRemovedAfterExport": "；已从草稿箱移除此草稿",
     "draftUpdated": "草稿已更新",
     "draftSaved": "草稿已保存",
@@ -62,7 +63,7 @@
   "addToSection": "加入当前小节",
   "removeFromPaper": "移除选中试卷项",
   "overwriteTitle": "是否覆盖已有试卷？",
-  "overwriteBody": "已存在相同「考试标签」与「学科」的导出记录。覆盖将删除该目录下旧版学生版/教师版文件并重新生成。",
+  "overwriteBody": "已存在相同「考试标签」与「学科」的导出记录。覆盖将替换该目录下对应的学生版/教师版文件。",
   "overwriteExport": "覆盖导出",
   "examLabel": "考试标签",
   "subjectPdf": "学科（导出 PDF）",
@@ -70,6 +71,7 @@
   "totalScoreLabel": "卷面总分",
   "validate": "校验",
   "exportPdf": "导出 PDF",
+  "exportWord": "导出 Word",
   "draftName": "草稿名称",
   "draftNamePlaceholder": "便于识别的名称",
   "updateDraft": "更新草稿",
@@ -147,5 +149,6 @@
   "pdfVariantStudent": "学生版",
   "pdfVariantTeacher": "教师版",
   "openPdfExternal": "用系统程序打开",
+  "openWordExternal": "打开 Word",
   "examPreviewEmpty": "请从左侧选择一份已导出试卷，或先导出试卷。"
 }

@@ -1,4 +1,4 @@
-"""Static checks on math delimiters and LaTeX plain-text hazards (M1)."""
+"""Static checks on math delimiters and LaTeX plain-text hazards."""
 
 from __future__ import annotations
 
@@ -9,12 +9,12 @@ if TYPE_CHECKING:
 
 from solaire.exam_compiler.models import BankRecord, QuestionGroupRecord, QuestionItem
 
-# 扫描模式：正文（out）| 行内 $...$（in）| 显示 $$...$$（disp）
+# Scanner modes: normal text, inline math, display math.
 _OUT, _IN, _DISP = "out", "in", "disp"
 
 
 def _collect_text_fields(rec: BankRecord) -> list[tuple[str, str]]:
-    """(field_label, text) for math scanning."""
+    """Return (field_label, text) pairs that should be checked."""
     if isinstance(rec, QuestionItem):
         parts: list[tuple[str, str]] = [
             ("content", rec.content),
@@ -52,24 +52,25 @@ def _unescaped_dollar_count(seg: str) -> int:
 
 
 def _check_dollar_balance(text: str) -> list[str]:
-    """Detect unbalanced $ / $$ (ignores escaped \\$)."""
+    """Detect unbalanced $ / $$ delimiters, ignoring escaped \\$ text."""
     warnings: list[str] = []
     if "$$" in text and text.count("$$") % 2 != 0:
-        warnings.append("`$$` 出现次数为奇数，可能存在未闭合的显示公式。")
+        warnings.append("\u0060$$\u0060 \u51fa\u73b0\u6b21\u6570\u4e3a\u5947\u6570\uff0c\u53ef\u80fd\u5b58\u5728\u672a\u95ed\u5408\u7684\u663e\u793a\u516c\u5f0f\u3002")
     parts = text.split("$$")
     for i in range(0, len(parts), 2):
         seg = parts[i]
         if _unescaped_dollar_count(seg) % 2 != 0:
-            warnings.append("在显示公式块之外，单个 `$` 未成对，请检查行内公式。")
+            warnings.append("\u5728\u663e\u793a\u516c\u5f0f\u5757\u4e4b\u5916\uff0c\u5355\u4e2a \u0060$\u0060 \u672a\u6210\u5bf9\uff0c\u8bf7\u68c0\u67e5\u884c\u5185\u516c\u5f0f\u3002")
             break
     return warnings
 
 
 def _check_latex_special_chars_outside_math(text: str) -> list[tuple[str, str]]:
     """
-    在 LaTeX 中，正文（非数学模式）下 `_` `^` `%` 等会引发错误或吞掉后续内容。
-    按行内 `$...$` 与 `$$...$$` 切换状态，仅在正文段中报警（`\\` 视为转义下一字符）。
-    返回 (code, message) 列表，每种 code 至多一条。
+    In LaTeX, unescaped `_`, `^`, and `%` outside math mode often break export.
+
+    Return one warning per code for text outside `$...$` and `$$...$$`; escaped
+    characters are ignored.
     """
     seen: set[str] = set()
     out: list[tuple[str, str]] = []
@@ -95,8 +96,8 @@ def _check_latex_special_chars_outside_math(text: str) -> list[tuple[str, str]]:
                 out.append(
                     (
                         "latex_underscore",
-                        "正文（非数学模式）中出现未转义的下划线 `_`，LaTeX 版式可能报错；"
-                        "填空横线请用 `\\_` 连续书写或 `\\underline{...}`。",
+                        "\u6b63\u6587\uff08\u975e\u6570\u5b66\u6a21\u5f0f\uff09\u4e2d\u51fa\u73b0\u672a\u8f6c\u4e49\u7684\u4e0b\u5212\u7ebf \u0060_\u0060\uff0cLaTeX \u5bfc\u51fa\u53ef\u80fd\u62a5\u9519\uff1b"
+                        "\u586b\u7a7a\u6a2a\u7ebf\u8bf7\u4f7f\u7528 \u0060\\\\_\u0060 \u8fde\u7eed\u4e66\u5199\u6216 \u0060\\\\underline{...}\u0060\u3002",
                     )
                 )
                 seen.add("latex_underscore")
@@ -104,7 +105,8 @@ def _check_latex_special_chars_outside_math(text: str) -> list[tuple[str, str]]:
                 out.append(
                     (
                         "latex_caret",
-                        "正文（非数学模式）中出现未转义的 `^`，LaTeX 版式可能报错；请用 `\\^{}` 或放入数学公式中。",
+                        "\u6b63\u6587\uff08\u975e\u6570\u5b66\u6a21\u5f0f\uff09\u4e2d\u51fa\u73b0\u672a\u8f6c\u4e49\u7684 \u0060^\u0060\uff0cLaTeX \u5bfc\u51fa\u53ef\u80fd\u62a5\u9519\uff1b"
+                        "\u8bf7\u4f7f\u7528 \u0060\\\\^{}\u0060 \u6216\u653e\u5165\u6570\u5b66\u516c\u5f0f\u4e2d\u3002",
                     )
                 )
                 seen.add("latex_caret")
@@ -112,7 +114,8 @@ def _check_latex_special_chars_outside_math(text: str) -> list[tuple[str, str]]:
                 out.append(
                     (
                         "latex_percent",
-                        "正文（非数学模式）中出现未转义的 `%`，LaTeX 会将其视为注释起始；请改为 `\\%`。",
+                        "\u6b63\u6587\uff08\u975e\u6570\u5b66\u6a21\u5f0f\uff09\u4e2d\u51fa\u73b0\u672a\u8f6c\u4e49\u7684 \u0060%\u0060\uff0cLaTeX \u4f1a\u5c06\u5176\u89c6\u4e3a\u6ce8\u91ca\u8d77\u59cb\uff1b"
+                        "\u8bf7\u6539\u4e3a \u0060\\\\%\u0060\u3002",
                     )
                 )
                 seen.add("latex_percent")
@@ -137,35 +140,43 @@ def _check_latex_special_chars_outside_math(text: str) -> list[tuple[str, str]]:
     return out
 
 
+def analyze_math_static_for_record(qualified_id: str, rec: BankRecord) -> list[dict[str, str]]:
+    """Return static format warnings for one question-bank record."""
+    results: list[dict[str, str]] = []
+    for field, text in _collect_text_fields(rec):
+        for code, msg in _check_latex_special_chars_outside_math(text):
+            results.append(
+                {
+                    "qualified_id": qualified_id,
+                    "field": field,
+                    "code": code,
+                    "message": msg,
+                }
+            )
+        if "$" not in text and "$$" not in text:
+            continue
+        for msg in _check_dollar_balance(text):
+            results.append(
+                {
+                    "qualified_id": qualified_id,
+                    "field": field,
+                    "code": "math_delimiter",
+                    "message": msg,
+                }
+            )
+    return results
+
+
 def analyze_math_static_for_loaded(loaded: LoadedQuestions) -> list[dict[str, str]]:
     """
-    Return a list of warning dicts: qualified_id, field, code, message.
+    Return warning dicts for all loaded questions.
 
-    code 含义：
-    - math_delimiter：$ / $$ 定界符疑似不成对
-    - latex_underscore / latex_caret / latex_percent：正文模式下未转义的 TeX 特殊字符
+    Codes:
+    - math_delimiter: `$` / `$$` delimiters look unbalanced
+    - latex_underscore / latex_caret / latex_percent: unescaped TeX special
+      characters appear outside math mode
     """
     results: list[dict[str, str]] = []
     for qid, rec in loaded.by_qualified.items():
-        for field, text in _collect_text_fields(rec):
-            for code, msg in _check_latex_special_chars_outside_math(text):
-                results.append(
-                    {
-                        "qualified_id": qid,
-                        "field": field,
-                        "code": code,
-                        "message": msg,
-                    }
-                )
-            if "$" not in text and "$$" not in text:
-                continue
-            for msg in _check_dollar_balance(text):
-                results.append(
-                    {
-                        "qualified_id": qid,
-                        "field": field,
-                        "code": "math_delimiter",
-                        "message": msg,
-                    }
-                )
+        results.extend(analyze_math_static_for_record(qid, rec))
     return results

@@ -46,6 +46,11 @@ from solaire.exam_compiler.loaders.template_loader import (
 # 流水线（Pipeline）
 # --------------------------------------------------------------------------
 from solaire.exam_compiler.pipeline.build import build_exam_pdfs, precheck_exam_latex_build
+from solaire.exam_compiler.pipeline.docx import (
+    PandocError,
+    build_exam_docx,
+    format_pandoc_failure_message,
+)
 from solaire.exam_compiler.pipeline.validate import validate_exam
 from solaire.exam_compiler.pipeline.compile_tex import (
     LatexmkError,
@@ -102,10 +107,13 @@ __all__ = [
     "resolve_template_yaml_path",
     # 流水线
     "build_exam_pdfs",
+    "build_exam_docx",
     "precheck_exam_latex_build",
     "validate_exam",
     "LatexmkError",
     "format_latexmk_failure_message",
+    "PandocError",
+    "format_pandoc_failure_message",
     "expand_diagram_fences_in_text",
     "strip_primebrush_fences_for_preview",
     "analyze_math_static_for_loaded",
