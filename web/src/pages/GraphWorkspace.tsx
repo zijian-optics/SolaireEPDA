@@ -32,6 +32,7 @@ import { GraphNodePanel } from "../graph/GraphNodePanel";
 import { useGraphUndoStore } from "../graph/useUndoStack";
 import { useGraphStore, type GraphNodeRow } from "../graph/useGraphStore";
 import i18n from "../i18n/i18n";
+import { confirmDialog } from "../lib/confirmDialog";
 import { cn } from "../lib/utils";
 import { SOLAIRE_SAVE_EVENT } from "../lib/saveEvents";
 
@@ -212,6 +213,9 @@ export function GraphWorkspace({
   }, [setBusy, onError, loadGraphList, setActiveSlug]);
 
   const handleDeleteGraph = useCallback(async (slug: string) => {
+    const graph = graphs.find((g) => g.slug === slug);
+    const ok = await confirmDialog(t("confirmDeleteGraph", { name: graph?.display_name ?? slug }));
+    if (!ok) return;
     setBusy(true);
     onError(null);
     try {
@@ -225,7 +229,7 @@ export function GraphWorkspace({
     } finally {
       setBusy(false);
     }
-  }, [setBusy, onError, loadGraphList, activeSlug, setActiveSlug]);
+  }, [graphs, t, setBusy, onError, loadGraphList, activeSlug, setActiveSlug]);
 
   const handleRenameGraph = useCallback(async (slug: string, newName: string) => {
     setBusy(true);
@@ -565,6 +569,8 @@ export function GraphWorkspace({
   const handlePanelDeleteNode = useCallback(async () => {
     if (!activeSlug || !selectedNode) return;
     const node = selectedNode;
+    const ok = await confirmDialog(t("confirmDeleteNode", { name: node.canonical_name, defaultValue: 'Delete node "{{name}}"? This cannot be undone.' }));
+    if (!ok) return;
     const snapRels = relations.filter(
       (r) => r.from_node_id === node.id || r.to_node_id === node.id,
     );
@@ -614,6 +620,7 @@ export function GraphWorkspace({
   }, [
     activeSlug,
     selectedNode,
+    t,
     relations,
     removeGraphNode,
     addGraphNode,

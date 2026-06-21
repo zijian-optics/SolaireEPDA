@@ -11,6 +11,7 @@
   "newGraphNamePh": "Graph name (e.g. Math)",
   "create": "Create",
   "confirmDeleteGraph": "Delete graph \"{{name}}\"? This cannot be undone.",
+  "confirmDeleteNode": "Delete node \"{{name}}\"? This cannot be undone.",
   "viewMindmap": "Mind map",
   "viewGraph": "Knowledge graph",
   "addNode": "Add node",

@@ -8,6 +8,7 @@ import { useAgentContext } from "../contexts/AgentContext";
 import { useToolBar } from "../contexts/ToolBarContext";
 import i18n from "../i18n/i18n";
 import { SOLAIRE_SAVE_EVENT } from "../lib/saveEvents";
+import { confirmDialog } from "../lib/confirmDialog";
 import { cn } from "../lib/utils";
 
 type TemplateSectionRow = {
@@ -659,7 +660,7 @@ export function TemplateWorkspace({ onError }: { onError: (s: string | null) => 
 
   async function deleteCurrent() {
     if (!path) return;
-    if (!window.confirm(t("deleteConfirm", { path }))) return;
+    if (!(await confirmDialog(t("deleteConfirm", { path })))) return;
     onError(null);
     setBusy(true);
     try {

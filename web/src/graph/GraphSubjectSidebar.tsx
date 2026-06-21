@@ -119,9 +119,7 @@ export function GraphSubjectSidebar({
                         )}
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (window.confirm(t("confirmDeleteGraph", { name: g.display_name }))) {
-                            void onDeleteGraph(g.slug);
-                          }
+                          void onDeleteGraph(g.slug);
                         }}
                       >
                         ✕

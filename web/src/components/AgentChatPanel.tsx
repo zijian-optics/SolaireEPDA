@@ -44,6 +44,7 @@ import {
   type AgentSkillInfo,
 } from "../api/client";
 import { useAgentContext } from "../contexts/AgentContext";
+import { confirmDialog } from "../lib/confirmDialog";
 import i18n from "../i18n/i18n";
 
 type FileAttachment = { path: string; mime_type: string | null; original_name: string };
@@ -658,7 +659,7 @@ export function AgentChatPanel({
 
   const removeHistorySession = useCallback(
     async (id: string) => {
-      if (!window.confirm(t("confirmDeleteSession"))) return;
+      if (!(await confirmDialog(t("confirmDeleteSession")))) return;
       try {
         await apiAgentSessionDelete(id);
         await refreshSessionList();

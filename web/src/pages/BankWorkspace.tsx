@@ -28,6 +28,7 @@ import { useToolBar } from "../contexts/ToolBarContext";
 import { TabPanel, type TabItem } from "../components/layout/TabPanel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import i18n from "../i18n/i18n";
+import { confirmDialog } from "../lib/confirmDialog";
 import { localeCompareStrings } from "../lib/locale";
 import { SOLAIRE_SAVE_EVENT } from "../lib/saveEvents";
 import { cn } from "../lib/utils";
@@ -914,7 +915,7 @@ export function BankWorkspace({
   }
 
   async function removeCollectionRow(namespace: string, label: string) {
-    if (!window.confirm(t("manageDeleteConfirm", { name: label }))) {
+    if (!(await confirmDialog(t("manageDeleteConfirm", { name: label })))) {
       return;
     }
     setBusy(true);
@@ -941,11 +942,11 @@ export function BankWorkspace({
     }
     const isGroup = Boolean(detail.question_group);
     if (
-      !confirm(
+      !(await confirmDialog(
         isGroup
           ? t("errors.deleteGroup", { id: detail.question_group!.id })
           : t("errors.deleteQuestion", { id: selectedId }),
-      )
+      ))
     ) {
       return;
     }

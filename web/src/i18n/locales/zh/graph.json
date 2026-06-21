@@ -11,6 +11,7 @@
   "newGraphNamePh": "图谱名称（如：数学）",
   "create": "创建",
   "confirmDeleteGraph": "确定删除图谱「{{name}}」？此操作不可撤销。",
+  "confirmDeleteNode": "确定删除节点「{{name}}」？此操作不可撤销。",
   "viewMindmap": "思维导图",
   "viewGraph": "知识图谱",
   "addNode": "新建知识点",

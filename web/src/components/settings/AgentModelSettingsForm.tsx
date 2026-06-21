@@ -7,6 +7,7 @@ import {
   type AgentLlmReasoningEffort,
   type AgentLlmSettingsResponse,
 } from "../../api/client";
+import { confirmDialog } from "../../lib/confirmDialog";
 
 const PRESETS: Record<AgentLlmProvider, { baseUrl: string; main: string; fast: string }> = {
   openai: { baseUrl: "", main: "gpt-4o-mini", fast: "gpt-4o-mini" },
@@ -212,7 +213,7 @@ export const AgentModelSettingsForm = forwardRef(function AgentModelSettingsForm
     if (!data) return;
     const confirmKey =
       data.persist_scope === "project" ? "settings:confirmClearKey" : "settings:confirmClearKeyUser";
-    if (!confirm(t(confirmKey))) return;
+    if (!(await confirmDialog(t(confirmKey)))) return;
     setSavingLocal(true);
     setMsg(null);
     onError(null);

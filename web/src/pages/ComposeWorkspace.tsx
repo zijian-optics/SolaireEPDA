@@ -21,6 +21,7 @@ import {
   clusterAdjacentGroupSlots,
   type SectionSlot,
 } from "../lib/groupQuestions";
+import { confirmDialog } from "../lib/confirmDialog";
 import { dispatchExamsChanged, SOLAIRE_EXAMS_CHANGED_EVENT, type ExamsChangedDetail } from "../lib/examEvents";
 import { QUESTION_TYPE_OPTIONS, isChoiceQuestionType, normalizeQuestionTypeForFilter } from "../lib/questionTypes";
 import { cn } from "../lib/utils";
@@ -1227,8 +1228,8 @@ export function ComposeWorkspace({
 
   async function deleteExamById(examId: string, opts?: { exported?: boolean }) {
     const ok = opts?.exported
-      ? window.confirm(t("compose:messages.confirmDeleteExportedExam"))
-      : window.confirm(t("compose:messages.confirmDeleteDraft"));
+      ? await confirmDialog(t("compose:messages.confirmDeleteExportedExam"))
+      : await confirmDialog(t("compose:messages.confirmDeleteDraft"));
     if (!ok) {
       return;
     }

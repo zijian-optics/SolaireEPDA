@@ -23,6 +23,7 @@ import {
   type AnalysisRemediationDraftResponse,
 } from "../api/client";
 import { useAgentContext } from "../contexts/AgentContext";
+import { confirmDialog } from "../lib/confirmDialog";
 import { dispatchExamsChanged } from "../lib/examEvents";
 import { saveBlobToDisk } from "../lib/saveBlobToDisk";
 import { formatLocaleDate } from "../lib/locale";
@@ -510,7 +511,7 @@ export function AnalysisWorkspace({
 
   const handleDeleteBatch = useCallback(async () => {
     if (!selectedExamId || !selectedBatchId) return;
-    const ok = window.confirm(t("confirmDeleteBatch"));
+    const ok = await confirmDialog(t("confirmDeleteBatch"));
     if (!ok) return;
     try {
       await apiDelete<{ ok: boolean }>(
@@ -524,7 +525,7 @@ export function AnalysisWorkspace({
 
   const handleDeleteExam = useCallback(async () => {
     if (!selectedExamId) return;
-    const ok = window.confirm(t("confirmDeleteExam"));
+    const ok = await confirmDialog(t("confirmDeleteExam"));
     if (!ok) return;
     const deletedId = selectedExamId;
     try {
