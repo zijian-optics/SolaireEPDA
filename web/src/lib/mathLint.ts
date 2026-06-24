@@ -52,6 +52,21 @@ const CHAR_RULES: CharRule[] = [
   },
 ];
 
+function stripFencedCodeBlocks(text: string): string {
+  if (!text.includes("```")) return text;
+
+  const out: string[] = [];
+  let inFence = false;
+  for (const line of text.split(/\r?\n/)) {
+    if (/^[ \t]{0,3}```/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (!inFence) out.push(line);
+  }
+  return out.join("\n");
+}
+
 /**
  * 扫描单个正文片段（已确认在数学模式外），检测危险字符。
  * `\\` 开头视为转义序列，跳过下一个字符。
@@ -139,17 +154,18 @@ export function lintMathContent(text: string): MathLintResult[] {
   if (!text) return [];
 
   const results: MathLintResult[] = [];
+  const lintText = stripFencedCodeBlocks(text);
 
   // 1. 定界符平衡检查（基于原始文本，不依赖 tokenizer）
-  if (text.includes("$")) {
-    results.push(...checkDollarBalance(text));
+  if (lintText.includes("$")) {
+    results.push(...checkDollarBalance(lintText));
   }
 
   // 如果定界符严重不平衡，tokenizer 可能产生奇怪结果，仍然做特殊字符扫描
   // （tokenizer 会尽力解析，text token 中的内容仍是可靠的正文区域）
 
   // 2. 正文（非数学模式）中的危险字符扫描
-  const tokens = tokenizeContent(text);
+  const tokens = tokenizeContent(lintText);
   const seen = new Set<string>();
 
   for (const token of tokens) {

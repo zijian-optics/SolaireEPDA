@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -11,6 +12,23 @@ from solaire.exam_compiler.models import BankRecord, QuestionGroupRecord, Questi
 
 # Scanner modes: normal text, inline math, display math.
 _OUT, _IN, _DISP = "out", "in", "disp"
+_FENCE_LINE_RE = re.compile(r"^[ \t]{0,3}```")
+
+
+def _strip_fenced_code_blocks(text: str) -> str:
+    """Remove Markdown triple-backtick fenced blocks before TeX linting."""
+    if "```" not in text:
+        return text
+
+    out: list[str] = []
+    in_fence = False
+    for line in text.splitlines(keepends=True):
+        if _FENCE_LINE_RE.match(line):
+            in_fence = not in_fence
+            continue
+        if not in_fence:
+            out.append(line)
+    return "".join(out)
 
 
 def _collect_text_fields(rec: BankRecord) -> list[tuple[str, str]]:
@@ -144,7 +162,8 @@ def analyze_math_static_for_record(qualified_id: str, rec: BankRecord) -> list[d
     """Return static format warnings for one question-bank record."""
     results: list[dict[str, str]] = []
     for field, text in _collect_text_fields(rec):
-        for code, msg in _check_latex_special_chars_outside_math(text):
+        lint_text = _strip_fenced_code_blocks(text)
+        for code, msg in _check_latex_special_chars_outside_math(lint_text):
             results.append(
                 {
                     "qualified_id": qualified_id,
@@ -153,9 +172,9 @@ def analyze_math_static_for_record(qualified_id: str, rec: BankRecord) -> list[d
                     "message": msg,
                 }
             )
-        if "$" not in text and "$$" not in text:
+        if "$" not in lint_text and "$$" not in lint_text:
             continue
-        for msg in _check_dollar_balance(text):
+        for msg in _check_dollar_balance(lint_text):
             results.append(
                 {
                     "qualified_id": qualified_id,

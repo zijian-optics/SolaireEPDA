@@ -66,6 +66,31 @@ def test_underscore_inside_math_allowed() -> None:
     assert not any(x["code"] == "latex_caret" for x in w)
 
 
+def test_underscore_inside_fenced_code_block_allowed() -> None:
+    lq = LoadedQuestions()
+    lq.by_qualified["ns/q1"] = QuestionItem(
+        id="q1",
+        type="fill",
+        content="Example YAML:\n```yaml\nfoo_bar: 1\nanswer_text: x_y\n```\nDone.",
+        answer="1",
+        analysis="",
+    )
+    w = analyze_math_static_for_loaded(lq)
+    assert not any(x["code"] == "latex_underscore" for x in w)
+
+
+def test_underscore_outside_fenced_code_block_still_warns() -> None:
+    lq = LoadedQuestions()
+    lq.by_qualified["ns/q1"] = QuestionItem(
+        id="q1",
+        type="fill",
+        content="Broken blank ______.\n```yaml\nfoo_bar: 1\n```",
+        answer="1",
+        analysis="",
+    )
+    w = analyze_math_static_for_loaded(lq)
+    assert any(x["code"] == "latex_underscore" for x in w)
+
 @pytest.mark.xfail(
     reason="题干中 \\underline 与静态下划线规则的预期尚未对齐；保留样例作回归锚点",
     strict=False,

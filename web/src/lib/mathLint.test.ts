@@ -67,4 +67,13 @@ describe("lintMathContent", () => {
     const results = lintMathContent("费率为 \\%。");
     expect(results.find((r) => r.code === "latex_percent")).toBeUndefined();
   });
+  it("ignores underscores inside fenced code blocks", () => {
+    const results = lintMathContent("Example:\n```yaml\nfoo_bar: 1\nanswer_text: x_y\n```\nDone.");
+    expect(results.find((r) => r.code === "latex_underscore")).toBeUndefined();
+  });
+
+  it("still warns for underscores outside fenced code blocks", () => {
+    const results = lintMathContent("Broken blank ______.\n```yaml\nfoo_bar: 1\n```");
+    expect(results.find((r) => r.code === "latex_underscore")).toBeDefined();
+  });
 });
