@@ -11,6 +11,7 @@ export type QuestionRow = {
   content_preview: string;
   answer: string;
   analysis: string;
+  metadata?: Record<string, unknown>;
   group_id?: string | null;
   group_member_qualified_ids?: string[];
   group_material?: string | null;

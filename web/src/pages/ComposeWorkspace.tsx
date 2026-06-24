@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -12,6 +13,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { ApiError, apiDelete, apiGet, apiPost, apiPut } from "../api/client";
 import { KatexPlainPreview } from "../components/KatexText";
 import { PdfPreview } from "../components/PdfPreview";
+import { MetadataFilterControls } from "../components/MetadataFilterControls";
 import { TexSetupNotice } from "../components/TexSetupNotice";
 import { useAgentContext } from "../contexts/AgentContext";
 import { useToolBar } from "../contexts/ToolBarContext";
@@ -25,6 +27,12 @@ import { confirmDialog } from "../lib/confirmDialog";
 import { dispatchExamsChanged, SOLAIRE_EXAMS_CHANGED_EVENT, type ExamsChangedDetail } from "../lib/examEvents";
 import { QUESTION_TYPE_OPTIONS, isChoiceQuestionType, normalizeQuestionTypeForFilter } from "../lib/questionTypes";
 import { cn } from "../lib/utils";
+import {
+  buildMetadataFilterDefinitions,
+  hasActiveMetadataFilters,
+  matchesMetadataFilters,
+  type MetadataFilters,
+} from "../lib/metadataFilters";
 import { isTauriShell } from "../lib/tauriEnv";
 import type { ExamDoc, ExamWorkspaceSummary, QuestionRow, RightSelection, TemplateRow } from "../types/compose";
 
@@ -89,6 +97,7 @@ export function ComposeWorkspace({
   const [questions, setQuestions] = useState<QuestionRow[]>([]);
   const [namespaceFilter, setNamespaceFilter] = useState<string>("__all__");
   const [typeFilter, setTypeFilter] = useState<string>("__all__");
+  const [metadataFilters, setMetadataFilters] = useState<MetadataFilters>({});
   const [search, setSearch] = useState("");
   const [composeFilterExpanded, setComposeFilterExpanded] = useState(false);
   const [activeSection, setActiveSection] = useState<string | null>(null);
@@ -269,11 +278,14 @@ export function ComposeWorkspace({
     return [...s].sort();
   }, [questionsForSubject]);
 
-  const filteredQuestions = useMemo(() => {
+  const collapsedQuestionsForSubject = useMemo(
+    () => collapseGroupRowsForList(questionsForSubject),
+    [questionsForSubject],
+  );
+
+  const metadataScopeQuestions = useMemo(() => {
     const ns = namespaceFilter === "__all__" ? null : namespaceFilter;
-    const qlow = search.trim().toLowerCase();
-    const collapsed = collapseGroupRowsForList(questionsForSubject);
-    return collapsed.filter((q) => {
+    return collapsedQuestionsForSubject.filter((q) => {
       const coll = q.collection ?? q.namespace;
       if (ns && coll !== ns) {
         return false;
@@ -281,22 +293,50 @@ export function ComposeWorkspace({
       if (typeFilter !== "__all__" && !questionTypeMatchesSection(q.type, typeFilter, q.answer)) {
         return false;
       }
-      if (!qlow) {
-        return true;
-      }
-      const gid = (q.group_id ?? "").toLowerCase();
-      const gmat = (q.group_material ?? "").toLowerCase();
-      return (
-        q.id.toLowerCase().includes(qlow) ||
-        q.qualified_id.toLowerCase().includes(qlow) ||
-        q.content_preview.toLowerCase().includes(qlow) ||
-        normalizeQuestionTypeForFilter(q.type, q.answer).toLowerCase().includes(qlow) ||
-        (gid && gid.includes(qlow)) ||
-        (gmat && gmat.includes(qlow))
-      );
+      return true;
     });
-  }, [questionsForSubject, namespaceFilter, typeFilter, search]);
+  }, [collapsedQuestionsForSubject, namespaceFilter, typeFilter]);
 
+  const metadataFilterDefinitions = useMemo(
+    () => buildMetadataFilterDefinitions(metadataScopeQuestions),
+    [metadataScopeQuestions],
+  );
+  const deferredSearch = useDeferredValue(search);
+  const deferredMetadataFilters = useDeferredValue(metadataFilters);
+  const activeMetadataFilters = useMemo(
+    () => (hasActiveMetadataFilters(deferredMetadataFilters) ? deferredMetadataFilters : null),
+    [deferredMetadataFilters],
+  );
+  const metadataScopeSearchQuestions = useMemo(
+    () =>
+      metadataScopeQuestions.map((question) => ({
+        question,
+        searchText: [
+          question.id,
+          question.qualified_id,
+          question.content_preview,
+          normalizeQuestionTypeForFilter(question.type, question.answer),
+          question.group_id ?? "",
+          question.group_material ?? "",
+          JSON.stringify(question.metadata ?? {}),
+        ]
+          .join("\n")
+          .toLowerCase(),
+      })),
+    [metadataScopeQuestions],
+  );
+
+  const filteredQuestions = useMemo(() => {
+    const qlow = deferredSearch.trim().toLowerCase();
+    return metadataScopeSearchQuestions
+      .filter(({ question, searchText }) => {
+        if (activeMetadataFilters && !matchesMetadataFilters(question.metadata, activeMetadataFilters)) {
+          return false;
+        }
+        return !qlow || searchText.includes(qlow);
+      })
+      .map(({ question }) => question);
+  }, [activeMetadataFilters, metadataScopeSearchQuestions, deferredSearch]);
   const selectedLeftIdsSet = useMemo(() => new Set(selectedLeftIds), [selectedLeftIds]);
 
   useEffect(() => {
@@ -1690,7 +1730,7 @@ export function ComposeWorkspace({
                           : typeFilter === "group"
                             ? t("compose:groupOption")
                             : t(`lib:questionTypes.${typeFilter}`, { defaultValue: typeFilter }),
-                      search: search.trim() ? t("common:searchingSuffix") : "",
+                      search: `${search.trim() ? t("common:searchingSuffix") : ""}${hasActiveMetadataFilters(metadataFilters) ? " · metadata" : ""}`,
                     })}
               </span>
             </button>
@@ -1750,6 +1790,11 @@ export function ComposeWorkspace({
                     onChange={(e) => setSearch(e.target.value)}
                   />
                 </label>
+                <MetadataFilterControls
+                  definitions={metadataFilterDefinitions}
+                  filters={metadataFilters}
+                  onChange={setMetadataFilters}
+                />
               </div>
             )}
             <p className="mt-2 text-[10px] leading-snug text-slate-500">{t("compose:bankListMultiSelectHint")}</p>
@@ -1793,6 +1838,15 @@ export function ComposeWorkspace({
                         text={q.content_preview}
                         className="mt-1 line-clamp-3 text-xs leading-snug text-slate-600 [&_.katex]:text-[0.92em]"
                       />
+                      {Object.keys(q.metadata ?? {}).length > 0 && (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {Object.entries(q.metadata ?? {}).map(([k, v]) => (
+                            <span key={k} className="rounded-full bg-slate-200/80 px-1.5 py-0.5 text-[10px] text-slate-600">
+                              {k}:{String(v)}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </button>
                   </li>
                 );

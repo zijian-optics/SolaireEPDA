@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, X } from "lucide-react";
 import yaml from "js-yaml";
@@ -23,7 +23,7 @@ import { ContentWithPrimeBrush } from "../components/ContentWithPrimeBrush";
 import { KatexPlainPreview } from "../components/KatexText";
 import { MathInsertOverlay } from "../components/MathInsertOverlay";
 import { MermaidEditorModal } from "../components/MermaidEditorModal";
-import { PrimeBrushEditorModal } from "../components/PrimeBrushEditorModal";
+import { MetadataFilterControls } from "../components/MetadataFilterControls";
 import { useAgentContext } from "../contexts/AgentContext";
 import { useToolBar } from "../contexts/ToolBarContext";
 import { TabPanel, type TabItem } from "../components/layout/TabPanel";
@@ -35,6 +35,12 @@ import { SOLAIRE_SAVE_EVENT } from "../lib/saveEvents";
 import { cn } from "../lib/utils";
 import { collapseGroupRowsForList } from "../lib/groupQuestions";
 import { QUESTION_TYPE_OPTIONS, isChoiceQuestionType } from "../lib/questionTypes";
+import {
+  buildMetadataFilterDefinitions,
+  hasActiveMetadataFilters,
+  matchesMetadataFilters,
+  type MetadataFilters,
+} from "../lib/metadataFilters";
 
 /** 新建题组时生成一条占位小题（与后端 QuestionGroupRecord 一致） */
 function defaultItemsForNewGroup(unifiedUi: string, subStem: string): QuestionGroupJson["items"] {
@@ -99,6 +105,7 @@ export function BankWorkspace({
   const [filterSubject, setFilterSubject] = useState<string>("__all__");
   const [filterCollection, setFilterCollection] = useState<string>("__all__");
   const [filterType, setFilterType] = useState<string>("__all__");
+  const [metadataFilters, setMetadataFilters] = useState<MetadataFilters>({});
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /** 已打开的题目标签（多窗口编辑） */
@@ -136,7 +143,6 @@ export function BankWorkspace({
   const [metaRows, setMetaRows] = useState<{ key: string; value: string }[]>([]);
   const [mathOpen, setMathOpen] = useState(false);
   const [mermaidOpen, setMermaidOpen] = useState(false);
-  const [primeBrushOpen, setPrimeBrushOpen] = useState(false);
   /** 题目全限定 id → 已关联知识点（用于列表与编辑区标签） */
   const [graphLinkIndex, setGraphLinkIndex] = useState<
     Record<string, { id: string; canonical_name: string; node_kind: string }[]>
@@ -191,11 +197,6 @@ export function BankWorkspace({
     setMermaidOpen(true);
   }, []);
 
-  const beginPrimeBrushEmbed = useCallback((kind: EmbedKind, sel: { start: number; end: number } | null) => {
-    embedKindRef.current = kind;
-    embedSelectionRef.current = sel;
-    setPrimeBrushOpen(true);
-  }, []);
 
   const beginImageEmbed = useCallback((kind: EmbedKind, sel: { start: number; end: number } | null) => {
     imageEmbedKindRef.current = kind;
@@ -421,10 +422,10 @@ export function BankWorkspace({
     });
   }, [collections, filterSubject]);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    const collapsed = collapseGroupRowsForList(items);
-    return collapsed.filter((it) => {
+  const collapsedBankItems = useMemo(() => collapseGroupRowsForList(items), [items]);
+
+  const metadataScopeItems = useMemo(() => {
+    return collapsedBankItems.filter((it) => {
       if (filterSubject !== "__all__" && (it.subject ?? "") !== filterSubject) {
         return false;
       }
@@ -434,21 +435,48 @@ export function BankWorkspace({
       if (filterType !== "__all__" && it.type !== filterType) {
         return false;
       }
-      if (!q) {
-        return true;
-      }
-      const gid = (it.group_id ?? "").toLowerCase();
-      const gmat = (it.group_material ?? "").toLowerCase();
-      return (
-        it.qualified_id.toLowerCase().includes(q) ||
-        it.content_preview.toLowerCase().includes(q) ||
-        JSON.stringify(it.metadata ?? {}).toLowerCase().includes(q) ||
-        (gid && gid.includes(q)) ||
-        (gmat && gmat.includes(q))
-      );
+      return true;
     });
-  }, [items, filterSubject, filterCollection, filterType, search]);
+  }, [collapsedBankItems, filterSubject, filterCollection, filterType]);
 
+  const metadataFilterDefinitions = useMemo(
+    () => buildMetadataFilterDefinitions(metadataScopeItems),
+    [metadataScopeItems],
+  );
+  const deferredSearch = useDeferredValue(search);
+  const deferredMetadataFilters = useDeferredValue(metadataFilters);
+  const activeMetadataFilters = useMemo(
+    () => (hasActiveMetadataFilters(deferredMetadataFilters) ? deferredMetadataFilters : null),
+    [deferredMetadataFilters],
+  );
+  const metadataScopeSearchItems = useMemo(
+    () =>
+      metadataScopeItems.map((it) => ({
+        item: it,
+        searchText: [
+          it.qualified_id,
+          it.content_preview,
+          it.group_id ?? "",
+          it.group_material ?? "",
+          JSON.stringify(it.metadata ?? {}),
+        ]
+          .join("\n")
+          .toLowerCase(),
+      })),
+    [metadataScopeItems],
+  );
+
+  const filtered = useMemo(() => {
+    const q = deferredSearch.trim().toLowerCase();
+    return metadataScopeSearchItems
+      .filter(({ item, searchText }) => {
+        if (activeMetadataFilters && !matchesMetadataFilters(item.metadata, activeMetadataFilters)) {
+          return false;
+        }
+        return !q || searchText.includes(q);
+      })
+      .map(({ item }) => item);
+  }, [activeMetadataFilters, metadataScopeSearchItems, deferredSearch]);
   const bankFilterSummary = useMemo(() => {
     const all = t("bank:filterAllLabel");
     const sub = filterSubject === "__all__" ? all : filterSubject;
@@ -462,9 +490,10 @@ export function BankWorkspace({
         : filterType === "group"
           ? t("bank:typeGroup")
           : t(`lib:questionTypes.${filterType}`);
-    const suffix = search.trim() ? t("bank:filterSearchActive") : "";
-    return `${sub} · ${collLabel} · ${typLabel}${suffix}`;
-  }, [filterSubject, filterCollection, filterType, search, collections, t]);
+    const searchSuffix = search.trim() ? t("bank:filterSearchActive") : "";
+    const tagSuffix = hasActiveMetadataFilters(metadataFilters) ? " · metadata" : "";
+    return `${sub} · ${collLabel} · ${typLabel}${searchSuffix}${tagSuffix}`;
+  }, [filterSubject, filterCollection, filterType, search, metadataFilters, collections, t]);
 
   useEffect(() => {
     if (!bankFilterMenuOpen) return;
@@ -1170,6 +1199,11 @@ export function BankWorkspace({
                     placeholder={t("searchPlaceholder")}
                   />
                 </label>
+                <MetadataFilterControls
+                  definitions={metadataFilterDefinitions}
+                  filters={metadataFilters}
+                  onChange={setMetadataFilters}
+                />
               </div>
             </div>
           ) : null}
@@ -1811,7 +1845,6 @@ export function BankWorkspace({
                     imageInputRef={imageInputRef}
                     beginMathEmbed={beginMathEmbed}
                     beginMermaidEmbed={beginMermaidEmbed}
-                    beginPrimeBrushEmbed={beginPrimeBrushEmbed}
                     beginImageEmbed={beginImageEmbed}
                     onImageFileSelected={onImageFileSelected}
                     onRemove={removeQuestion}
@@ -1844,7 +1877,6 @@ export function BankWorkspace({
                     imageInputRef={imageInputRef}
                     beginMathEmbed={beginMathEmbed}
                     beginMermaidEmbed={beginMermaidEmbed}
-                    beginPrimeBrushEmbed={beginPrimeBrushEmbed}
                     beginImageEmbed={beginImageEmbed}
                     onImageFileSelected={onImageFileSelected}
                     onRemove={removeQuestion}
@@ -1888,7 +1920,6 @@ export function BankWorkspace({
             imageInputRef={imageInputRef}
             beginMathEmbed={beginMathEmbed}
             beginMermaidEmbed={beginMermaidEmbed}
-            beginPrimeBrushEmbed={beginPrimeBrushEmbed}
             beginImageEmbed={beginImageEmbed}
             onImageFileSelected={onImageFileSelected}
             onRemove={removeQuestion}
@@ -2075,21 +2106,6 @@ export function BankWorkspace({
       open={mermaidOpen}
       onClose={() => {
         setMermaidOpen(false);
-        embedKindRef.current = null;
-        embedSelectionRef.current = null;
-      }}
-      onConfirm={(fencedBlock) => {
-        const k = embedKindRef.current;
-        const sel = embedSelectionRef.current;
-        embedKindRef.current = null;
-        embedSelectionRef.current = null;
-        if (k) insertSnippet(fencedBlock, k, sel);
-      }}
-    />
-    <PrimeBrushEditorModal
-      open={primeBrushOpen}
-      onClose={() => {
-        setPrimeBrushOpen(false);
         embedKindRef.current = null;
         embedSelectionRef.current = null;
       }}

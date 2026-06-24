@@ -7,7 +7,7 @@ metadata:
   author: solaire-builtin
   version: "1.1"
   label: 按规范创建题目
-  tool_patterns: "bank.create_item bank.update_item bank.get_item bank.search_items file.read file.list file.search agent.read_skill_reference agent.switch_focus agent.activate_skill agent.enter_plan_mode agent.exit_plan_mode agent.set_task_plan agent.update_task_step agent.run_subtask agent.run_tool_pipeline memory.read_index memory.read_topic memory.search"
+  tool_patterns: "bank.create_item bank.update_item bank.get_item bank.search_items graph.search_nodes graph.bind_question graph.batch_bind_questions file.read file.list file.search agent.read_skill_reference agent.switch_focus agent.activate_skill agent.enter_plan_mode agent.exit_plan_mode agent.set_task_plan agent.update_task_step agent.run_subtask agent.run_tool_pipeline memory.read_index memory.read_topic memory.search"
   suggested_user_input: 请帮我按题库规范创建一道新题，并确保格式校验通过。
 ---
 
@@ -17,6 +17,14 @@ metadata:
 2. 需要参照现有题时可用 `bank.get_item` 或 `file.read` 读取项目内 YAML
 3. 新建调用 `bank.create_item`；改题调用 `bank.update_item`
 4. 校验失败时根据返回信息逐项修正，避免猜测合法取值
+
+## 默认 metadata 与图谱挂载
+
+- 新建或导入题目时，默认写入操作筛选型 metadata：`难度`、`来源`、`年份`、`题目用途`、`难度评分`、`创新性`。
+- `难度` 建议值：`低` / `中` / `高`；`题目用途` 建议值：`新授` / `巩固` / `复习` / `测评` / `补弱` / `压轴`。
+- `难度评分`、`创新性` 写为 0 到 1 的数字；数值越高表示越难/越创新。
+- 不要把知识点/核心考点重复写进 metadata；知识归属由知识图谱绑定表达。
+- 保存题目后，根据题干与解析中的明确知识点调用 `graph.search_nodes` 搜索已有图谱节点；只有候选唯一且名称/别名精确匹配时，才调用 `graph.bind_question` 或 `graph.batch_bind_questions` 自动挂载。无候选或多个候选时，仅报告未自动挂载原因，不新建图谱节点。
 
 ## 题型与规则（摘要）
 
