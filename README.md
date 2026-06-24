@@ -26,6 +26,14 @@
 <img width="2559" height="1358" alt="image" src="https://github.com/user-attachments/assets/06e2ef28-a6a5-422e-98cc-c94ba2e50b04" />
 <img width="2559" height="1363" alt="image" src="https://github.com/user-attachments/assets/b2173185-61a7-4cdc-89f3-ca469a018113" />
 
+## 在线试用
+
+不用装 Pixi / MSVC / TeX Live，先在线试一张卷子：上传 syllabus / chapter / question-bank YAML，立刻体验组卷与学情分析。
+
+[![Try soledu-k12-teacher-agent on Socialistic](https://socialistic.ai/api/embed/soledu-k12-teacher-agent-dab7e3?lang=zh)](https://socialistic.ai/zh/skill/soledu-k12-teacher-agent-dab7e3?utm_source=github&utm_medium=readme&utm_campaign=20260525-law-edu-skill-creators&utm_content=badge)
+
+> 在线版基于本仓库的 `soledu-k12-teacher-agent` SKILL，适合零成本快速试用；完整功能与桌面体验仍以下方的 Windows `.msi` 安装包为准。
+
 ## 功能概览
 
 
