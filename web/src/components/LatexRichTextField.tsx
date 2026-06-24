@@ -13,6 +13,7 @@ import { MathfieldElement } from "mathlive";
 import "mathlive";
 import "mathlive/fonts.css";
 import mermaid from "mermaid";
+import { Shapes } from "lucide-react";
 
 import { resourceApiUrl } from "../api/client";
 import { tokenizeContent, type ContentToken } from "../lib/contentTokenizer";
@@ -357,6 +358,7 @@ export type LatexRichTextFieldProps = {
   minRows?: number;
   placeholder?: string;
   onRequestMermaid?: (sel: { start: number; end: number } | null) => void;
+  onRequestPrimeBrush?: (sel: { start: number; end: number } | null) => void;
   onRequestImage?: (sel: { start: number; end: number } | null) => void;
   busy?: boolean;
 };
@@ -387,6 +389,7 @@ export function LatexRichTextField({
   minRows = 4,
   placeholder,
   onRequestMermaid,
+  onRequestPrimeBrush,
   onRequestImage,
   busy = false,
 }: LatexRichTextFieldProps) {
@@ -691,6 +694,12 @@ export function LatexRichTextField({
     onRequestMermaid?.(sel);
   }, [textAreaRef, onRequestMermaid]);
 
+  const handleRequestPrimeBrush = useCallback(() => {
+    const ta = textAreaRef.current;
+    const sel = ta ? { start: ta.selectionStart, end: ta.selectionEnd } : null;
+    onRequestPrimeBrush?.(sel);
+  }, [textAreaRef, onRequestPrimeBrush]);
+
   const handleRequestImage = useCallback(() => {
     const ta = textAreaRef.current;
     const sel = ta ? { start: ta.selectionStart, end: ta.selectionEnd } : null;
@@ -980,6 +989,19 @@ export function LatexRichTextField({
 
         <div className="mx-1 h-4 w-px bg-slate-300" />
 
+        {/* insert primebrush */}
+        {onRequestPrimeBrush && (
+          <button
+            type="button"
+            className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] font-medium text-slate-600 transition-colors hover:bg-white hover:text-sky-700 hover:shadow-sm disabled:opacity-40"
+            disabled={mode !== "visual" || busy}
+            onClick={handleRequestPrimeBrush}
+            title="插入教育绘图 / PrimeBrush"
+          >
+            <Shapes className="h-3.5 w-3.5" aria-hidden />
+            <span>绘图</span>
+          </button>
+        )}
         {/* insert mermaid */}
         {onRequestMermaid && (
           <button

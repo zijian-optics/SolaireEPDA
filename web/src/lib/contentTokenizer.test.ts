@@ -69,6 +69,12 @@ describe("tokenizeContent", () => {
     expect(result.every((t) => t.type !== "inlineMath")).toBe(true);
   });
 
+  it("protects PrimeBrush fences from math tokenization", () => {
+    const block = "```primebrush\nprimebrush:\n  type: plot_2D\n  elements:\n    - label: \"$x$\"\n```";
+    const result = tokenizeContent(block);
+    expect(result).toEqual<ContentToken[]>([{ type: "text", content: block }]);
+  });
+
   it("混合内容", () => {
     const result = tokenizeContent("设 $x=1$，则 $$x^2=1$$。");
     const types = result.map((t) => t.type);

@@ -80,6 +80,7 @@ export type BankQuestionEditorPanelProps = {
   imageInputRef: RefObject<HTMLInputElement | null>;
   beginMathEmbed: (kind: EmbedKind, sel: { start: number; end: number } | null) => void;
   beginMermaidEmbed: (kind: EmbedKind, sel: { start: number; end: number } | null) => void;
+  beginPrimeBrushEmbed: (kind: EmbedKind, sel: { start: number; end: number } | null) => void;
   beginImageEmbed: (kind: EmbedKind, sel: { start: number; end: number } | null) => void;
   onImageFileSelected: (e: ChangeEvent<HTMLInputElement>) => void;
   onRemove: () => void;
@@ -105,6 +106,7 @@ function BankGiLatexField({
   minRows,
   onChange,
   beginMermaidEmbed,
+  beginPrimeBrushEmbed,
   beginImageEmbed,
   busy,
 }: {
@@ -115,6 +117,7 @@ function BankGiLatexField({
   minRows: number;
   onChange: (next: string) => void;
   beginMermaidEmbed: BankQuestionEditorPanelProps["beginMermaidEmbed"];
+  beginPrimeBrushEmbed: BankQuestionEditorPanelProps["beginPrimeBrushEmbed"];
   beginImageEmbed: BankQuestionEditorPanelProps["beginImageEmbed"];
   busy: boolean;
 }) {
@@ -130,6 +133,7 @@ function BankGiLatexField({
         value={value}
         onChange={onChange}
         onRequestMermaid={(sel) => beginMermaidEmbed({ k: "gi", i: memberIndex, f: field }, sel)}
+        onRequestPrimeBrush={(sel) => beginPrimeBrushEmbed({ k: "gi", i: memberIndex, f: field }, sel)}
         onRequestImage={(sel) => beginImageEmbed({ k: "gi", i: memberIndex, f: field }, sel)}
         busy={busy}
       />
@@ -155,6 +159,7 @@ export function BankQuestionEditorPanel({
   imageInputRef,
   beginMathEmbed,
   beginMermaidEmbed,
+  beginPrimeBrushEmbed,
   beginImageEmbed,
   onImageFileSelected,
   onRemove,
@@ -347,6 +352,17 @@ export function BankQuestionEditorPanel({
                     </button>
                     <button
                       type="button"
+                      className="rounded border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50"
+                      onClick={() => {
+                        const el = materialGroupRef.current;
+                        const sel = el ? { start: el.selectionStart, end: el.selectionEnd } : null;
+                        beginPrimeBrushEmbed({ k: "gm" }, sel);
+                      }}
+                    >
+                      绘图
+                    </button>
+                    <button
+                      type="button"
                       className="inline-flex items-center gap-0.5 rounded border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                       disabled={busy}
                       title={t("components:bankEditor.insertImageTitle")}
@@ -477,6 +493,17 @@ export function BankQuestionEditorPanel({
                         </button>
                         <button
                           type="button"
+                          className="rounded border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50"
+                          onClick={() => {
+                            const el = document.getElementById(giFieldId(i, "content")) as HTMLTextAreaElement | null;
+                            const sel = el ? { start: el.selectionStart, end: el.selectionEnd } : null;
+                            beginPrimeBrushEmbed({ k: "gi", i, f: "content" }, sel);
+                          }}
+                        >
+                          绘图
+                        </button>
+                        <button
+                          type="button"
                           className="inline-flex items-center gap-0.5 rounded border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                           disabled={busy}
                           title={t("components:bankEditor.insertImageTitle")}
@@ -524,6 +551,7 @@ export function BankQuestionEditorPanel({
                         busy={busy}
                         makeEmbedKind={(key) => ({ k: "gio", i, key })}
                         beginMermaidEmbed={beginMermaidEmbed}
+                        beginPrimeBrushEmbed={beginPrimeBrushEmbed}
                         beginImageEmbed={beginImageEmbed}
                       />
                     </div>
@@ -542,6 +570,7 @@ export function BankQuestionEditorPanel({
                         setDetail({ ...detail, question_group: { ...qg, items }, question: q });
                       }}
                       beginMermaidEmbed={beginMermaidEmbed}
+                      beginPrimeBrushEmbed={beginPrimeBrushEmbed}
                       beginImageEmbed={beginImageEmbed}
                       busy={busy}
                     />
@@ -560,6 +589,7 @@ export function BankQuestionEditorPanel({
                         setDetail({ ...detail, question_group: { ...qg, items }, question: q });
                       }}
                       beginMermaidEmbed={beginMermaidEmbed}
+                      beginPrimeBrushEmbed={beginPrimeBrushEmbed}
                       beginImageEmbed={beginImageEmbed}
                       busy={busy}
                     />
@@ -615,6 +645,7 @@ export function BankQuestionEditorPanel({
                   value={detail.question.content}
                   onChange={(next) => setDetail({ ...detail, question: { ...detail.question, content: next } })}
                   onRequestMermaid={(sel) => beginMermaidEmbed({ k: "q", f: "content" }, sel)}
+                  onRequestPrimeBrush={(sel) => beginPrimeBrushEmbed({ k: "q", f: "content" }, sel)}
                   onRequestImage={(sel) => beginImageEmbed({ k: "q", f: "content" }, sel)}
                   busy={busy}
                 />
@@ -628,6 +659,7 @@ export function BankQuestionEditorPanel({
                     busy={busy}
                     makeEmbedKind={(key) => ({ k: "qo", key })}
                     beginMermaidEmbed={beginMermaidEmbed}
+                    beginPrimeBrushEmbed={beginPrimeBrushEmbed}
                     beginImageEmbed={beginImageEmbed}
                   />
                 </div>
@@ -640,6 +672,7 @@ export function BankQuestionEditorPanel({
                   value={detail.question.answer}
                   onChange={(next) => setDetail({ ...detail, question: { ...detail.question, answer: next } })}
                   onRequestMermaid={(sel) => beginMermaidEmbed({ k: "q", f: "answer" }, sel)}
+                  onRequestPrimeBrush={(sel) => beginPrimeBrushEmbed({ k: "q", f: "answer" }, sel)}
                   onRequestImage={(sel) => beginImageEmbed({ k: "q", f: "answer" }, sel)}
                   busy={busy}
                 />
@@ -652,6 +685,7 @@ export function BankQuestionEditorPanel({
                   value={detail.question.analysis}
                   onChange={(next) => setDetail({ ...detail, question: { ...detail.question, analysis: next } })}
                   onRequestMermaid={(sel) => beginMermaidEmbed({ k: "q", f: "analysis" }, sel)}
+                  onRequestPrimeBrush={(sel) => beginPrimeBrushEmbed({ k: "q", f: "analysis" }, sel)}
                   onRequestImage={(sel) => beginImageEmbed({ k: "q", f: "analysis" }, sel)}
                   busy={busy}
                 />

@@ -29,6 +29,7 @@ export type ChoiceOptionsFieldsProps = {
   busy?: boolean;
   makeEmbedKind: (optionKey: string) => EmbedKind;
   beginMermaidEmbed: (kind: EmbedKind, sel: { start: number; end: number } | null) => void;
+  beginPrimeBrushEmbed: (kind: EmbedKind, sel: { start: number; end: number } | null) => void;
   beginImageEmbed: (kind: EmbedKind, sel: { start: number; end: number } | null) => void;
 };
 
@@ -39,6 +40,7 @@ function ChoiceOptionRow({
   busy,
   makeEmbedKind,
   beginMermaidEmbed,
+  beginPrimeBrushEmbed,
   beginImageEmbed,
   onChange,
   onRemove,
@@ -50,6 +52,7 @@ function ChoiceOptionRow({
   busy: boolean;
   makeEmbedKind: (optionKey: string) => EmbedKind;
   beginMermaidEmbed: ChoiceOptionsFieldsProps["beginMermaidEmbed"];
+  beginPrimeBrushEmbed: ChoiceOptionsFieldsProps["beginPrimeBrushEmbed"];
   beginImageEmbed: ChoiceOptionsFieldsProps["beginImageEmbed"];
   onChange: (next: string) => void;
   onRemove: () => void;
@@ -81,6 +84,7 @@ function ChoiceOptionRow({
         value={value}
         onChange={onChange}
         onRequestMermaid={(sel) => beginMermaidEmbed(makeEmbedKind(optionKey), sel)}
+        onRequestPrimeBrush={(sel) => beginPrimeBrushEmbed(makeEmbedKind(optionKey), sel)}
         onRequestImage={(sel) => beginImageEmbed(makeEmbedKind(optionKey), sel)}
         busy={busy}
       />
@@ -95,6 +99,7 @@ export function ChoiceOptionsFields({
   busy = false,
   makeEmbedKind,
   beginMermaidEmbed,
+  beginPrimeBrushEmbed,
   beginImageEmbed,
 }: ChoiceOptionsFieldsProps) {
   const { t } = useTranslation("components");
@@ -140,6 +145,7 @@ export function ChoiceOptionsFields({
             busy={busy}
             makeEmbedKind={makeEmbedKind}
             beginMermaidEmbed={beginMermaidEmbed}
+            beginPrimeBrushEmbed={beginPrimeBrushEmbed}
             beginImageEmbed={beginImageEmbed}
             onChange={(next) => updateKey(key, next)}
             onRemove={() => removeKey(key)}

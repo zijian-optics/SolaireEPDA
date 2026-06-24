@@ -30,6 +30,7 @@ from solaire.exam_compiler.facade import (
     materialize_metadata_defaults_for_editor,
     strip_hydrate_fields,
 )
+from solaire.primebrush.api import parse_primebrush, render as render_primebrush
 
 from solaire.web import bundled_paths, extension_registry, help_docs, recent_projects, state, system_tools
 from solaire.web.agent_api import router as agent_router
@@ -295,6 +296,11 @@ class BankRawFileBody(BaseModel):
     yaml: str = Field(..., description="Full file contents")
 
 
+class PrimeBrushRenderBody(BaseModel):
+    source: str = Field(..., min_length=1, max_length=100_000)
+    seed: int | None = None
+
+
 class GraphCreateBody(BaseModel):
     display_name: str = Field(..., min_length=1, description="图谱名称（对应科目名）")
     slug: str | None = Field(default=None, description="内部标识；留空则自动生成")
@@ -414,6 +420,15 @@ def health() -> dict[str, str]:
         "product": "sol_edu",
         "exam_workspace_layout": "two_level",
     }
+
+
+@app.post("/api/primebrush/render")
+def primebrush_render(body: PrimeBrushRenderBody) -> dict[str, str]:
+    try:
+        doc = parse_primebrush(body.source)
+        return {"svg": render_primebrush(doc, seed=body.seed)}
+    except (ValueError, TypeError, NotImplementedError, RuntimeError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @app.get("/api/system/tex-status")

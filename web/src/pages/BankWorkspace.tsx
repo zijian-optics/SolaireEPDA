@@ -23,6 +23,7 @@ import { ContentWithPrimeBrush } from "../components/ContentWithPrimeBrush";
 import { KatexPlainPreview } from "../components/KatexText";
 import { MathInsertOverlay } from "../components/MathInsertOverlay";
 import { MermaidEditorModal } from "../components/MermaidEditorModal";
+import { PrimeBrushEditorModal } from "../components/PrimeBrushEditorModal";
 import { MetadataFilterControls } from "../components/MetadataFilterControls";
 import { useAgentContext } from "../contexts/AgentContext";
 import { useToolBar } from "../contexts/ToolBarContext";
@@ -143,6 +144,7 @@ export function BankWorkspace({
   const [metaRows, setMetaRows] = useState<{ key: string; value: string }[]>([]);
   const [mathOpen, setMathOpen] = useState(false);
   const [mermaidOpen, setMermaidOpen] = useState(false);
+  const [primeBrushOpen, setPrimeBrushOpen] = useState(false);
   /** 题目全限定 id → 已关联知识点（用于列表与编辑区标签） */
   const [graphLinkIndex, setGraphLinkIndex] = useState<
     Record<string, { id: string; canonical_name: string; node_kind: string }[]>
@@ -197,6 +199,11 @@ export function BankWorkspace({
     setMermaidOpen(true);
   }, []);
 
+  const beginPrimeBrushEmbed = useCallback((kind: EmbedKind, sel: { start: number; end: number } | null) => {
+    embedKindRef.current = kind;
+    embedSelectionRef.current = sel;
+    setPrimeBrushOpen(true);
+  }, []);
 
   const beginImageEmbed = useCallback((kind: EmbedKind, sel: { start: number; end: number } | null) => {
     imageEmbedKindRef.current = kind;
@@ -1845,6 +1852,7 @@ export function BankWorkspace({
                     imageInputRef={imageInputRef}
                     beginMathEmbed={beginMathEmbed}
                     beginMermaidEmbed={beginMermaidEmbed}
+                    beginPrimeBrushEmbed={beginPrimeBrushEmbed}
                     beginImageEmbed={beginImageEmbed}
                     onImageFileSelected={onImageFileSelected}
                     onRemove={removeQuestion}
@@ -1877,6 +1885,7 @@ export function BankWorkspace({
                     imageInputRef={imageInputRef}
                     beginMathEmbed={beginMathEmbed}
                     beginMermaidEmbed={beginMermaidEmbed}
+                    beginPrimeBrushEmbed={beginPrimeBrushEmbed}
                     beginImageEmbed={beginImageEmbed}
                     onImageFileSelected={onImageFileSelected}
                     onRemove={removeQuestion}
@@ -1920,6 +1929,7 @@ export function BankWorkspace({
             imageInputRef={imageInputRef}
             beginMathEmbed={beginMathEmbed}
             beginMermaidEmbed={beginMermaidEmbed}
+            beginPrimeBrushEmbed={beginPrimeBrushEmbed}
             beginImageEmbed={beginImageEmbed}
             onImageFileSelected={onImageFileSelected}
             onRemove={removeQuestion}
@@ -2100,6 +2110,21 @@ export function BankWorkspace({
         embedKindRef.current = null;
         embedSelectionRef.current = null;
         if (k) insertSnippet(snippet, k, sel);
+      }}
+    />
+    <PrimeBrushEditorModal
+      open={primeBrushOpen}
+      onClose={() => {
+        setPrimeBrushOpen(false);
+        embedKindRef.current = null;
+        embedSelectionRef.current = null;
+      }}
+      onConfirm={(fencedBlock) => {
+        const k = embedKindRef.current;
+        const sel = embedSelectionRef.current;
+        embedKindRef.current = null;
+        embedSelectionRef.current = null;
+        if (k) insertSnippet(fencedBlock, k, sel);
       }}
     />
     <MermaidEditorModal
