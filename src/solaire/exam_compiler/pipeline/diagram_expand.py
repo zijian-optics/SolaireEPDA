@@ -17,6 +17,7 @@ from solaire.exam_compiler.pipeline.primebrush_expand import (
 
 # ```primebrush``` or ```mermaid``` — body until closing ```
 _FENCE = re.compile(r"```(primebrush|mermaid)\s*\n(.*?)```", re.DOTALL)
+_TABLE_FENCE = re.compile(r"```solaire-table\s*\n(.*?)```", re.DOTALL)
 
 _EMBED_IMG_RE = re.compile(r":::EMBED_IMG:([^:]+):::")
 
@@ -254,6 +255,7 @@ def strip_diagram_fences_for_preview(text: str, max_len: int = 200) -> str:
         text,
     )
     t = _EMBED_IMG_STRIP.sub(" [图片] ", t)
+    t = _TABLE_FENCE.sub(" [table] ", t)
     t = " ".join(t.split())
     return t if len(t) <= max_len else t[: max_len - 3] + "..."
 

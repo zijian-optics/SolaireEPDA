@@ -42,6 +42,9 @@ export function buildKatexHtml(text: string): string {
         // 同上，占位符原样保留
         parts.push(escapeHtml(token.raw));
         break;
+      case "table":
+        parts.push(escapeHtml(token.raw));
+        break;
     }
   }
 

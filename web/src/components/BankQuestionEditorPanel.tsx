@@ -96,7 +96,7 @@ function giFieldId(i: number, f: "content" | "answer" | "analysis") {
   return `bank-gi-${i}-${f}`;
 }
 
-type GiLatexMemberField = "answer" | "analysis";
+type GiLatexMemberField = "content" | "answer" | "analysis";
 
 function BankGiLatexField({
   memberIndex,
@@ -125,7 +125,7 @@ function BankGiLatexField({
   const syncId = giFieldId(memberIndex, field);
   return (
     <div className="block">
-      <span className="text-xs font-medium text-slate-600">{label}</span>
+      {label ? <span className="text-xs font-medium text-slate-600">{label}</span> : null}
       <LatexRichTextField
         textAreaRef={textAreaRef}
         syncTextAreaId={syncId}
@@ -377,18 +377,21 @@ export function BankQuestionEditorPanel({
                     </button>
                   </div>
                 </div>
-                <textarea
-                  ref={materialGroupRef as LegacyRef<HTMLTextAreaElement>}
-                  className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 font-mono text-sm"
-                  rows={5}
+                <LatexRichTextField
+                  textAreaRef={materialGroupRef}
+                  minRows={5}
                   value={qg.material}
-                  onChange={(e) =>
+                  onChange={(next) =>
                     setDetail({
                       ...detail,
-                      question_group: { ...qg, material: e.target.value },
-                      question: { ...detail.question, group_material: e.target.value },
+                      question_group: { ...qg, material: next },
+                      question: { ...detail.question, group_material: next },
                     })
                   }
+                  onRequestMermaid={(sel) => beginMermaidEmbed({ k: "gm" }, sel)}
+                  onRequestPrimeBrush={(sel) => beginPrimeBrushEmbed({ k: "gm" }, sel)}
+                  onRequestImage={(sel) => beginImageEmbed({ k: "gm" }, sel)}
+                  busy={busy}
                 />
               </div>
               <div className="flex flex-wrap gap-2">
@@ -518,18 +521,22 @@ export function BankQuestionEditorPanel({
                         </button>
                       </div>
                     </div>
-                    <textarea
-                      id={giFieldId(i, "content")}
-                      className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 font-mono text-sm"
-                      rows={4}
+                    <BankGiLatexField
+                      memberIndex={i}
+                      field="content"
+                      label=""
                       value={it.content}
-                      onChange={(e) => {
+                      minRows={4}
+                      onChange={(next) => {
                         const items = [...qg.items];
-                        items[i] = { ...items[i], content: e.target.value };
-                        const q =
-                          memberIdx === i ? { ...detail.question, content: e.target.value, group_material: qg.material } : detail.question;
+                        items[i] = { ...items[i], content: next };
+                        const q = memberIdx === i ? { ...detail.question, content: next, group_material: qg.material } : detail.question;
                         setDetail({ ...detail, question_group: { ...qg, items }, question: q });
                       }}
+                      beginMermaidEmbed={beginMermaidEmbed}
+                      beginPrimeBrushEmbed={beginPrimeBrushEmbed}
+                      beginImageEmbed={beginImageEmbed}
+                      busy={busy}
                     />
                   </div>
                   {(unifiedUi === "mixed" ? isChoiceQuestionType(it.type) : isChoiceQuestionType(innerTypeForItems)) && (

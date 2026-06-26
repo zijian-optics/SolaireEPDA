@@ -13,7 +13,7 @@ import { MathfieldElement } from "mathlive";
 import "mathlive";
 import "mathlive/fonts.css";
 import mermaid from "mermaid";
-import { Shapes } from "lucide-react";
+import { Shapes, Table2 } from "lucide-react";
 
 import { resourceApiUrl } from "../api/client";
 import { tokenizeContent, type ContentToken } from "../lib/contentTokenizer";
@@ -22,6 +22,14 @@ import { renderMathToHtmlSimple } from "../lib/katexRender";
 import { lintMathContent, type MathLintResult } from "../lib/mathLint";
 import { initMermaid } from "../lib/mermaidInit";
 import { isImeComposingKeyboardEvent } from "../lib/ime";
+import { TableEditorModal } from "./TableEditorModal";
+import {
+  defaultSolaireTable,
+  expandSolaireTable,
+  parseSolaireTable,
+  serializeSolaireTableBody,
+  type SolaireTableCell,
+} from "../lib/solaireTable";
 
 /* ═══════════════════ constants ═══════════════════ */
 
@@ -29,6 +37,7 @@ const MATH_WIDGET_CLASS = "lrt-math-widget";
 const DISPLAY_MATH_WIDGET_CLASS = "lrt-display-math-widget";
 const MERMAID_WIDGET_CLASS = "lrt-mermaid-widget";
 const IMAGE_WIDGET_CLASS = "lrt-image-widget";
+const TABLE_WIDGET_CLASS = "lrt-table-widget";
 
 /* ═══════════════════ utility functions ═══════════════════ */
 
@@ -46,6 +55,31 @@ async function renderMermaidToElement(source: string, container: HTMLElement) {
     container.textContent = "图表语法有误";
     container.classList.add("text-amber-600");
   }
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function renderTableCellHtml(text: string): string {
+  return tokenizeContent(text)
+    .map((token) => {
+      if (token.type === "text") return escapeHtml(token.content).replace(/\n/g, "<br/>");
+      if (token.type === "inlineMath") return renderMathHtml(token.latex, false);
+      if (token.type === "displayMath") return renderMathHtml(token.latex, true);
+      return "raw" in token ? escapeHtml(token.raw) : "";
+    })
+    .join("");
+}
+
+function tableCellAlignClass(cell: SolaireTableCell): string {
+  if (cell.align === "center") return "text-center";
+  if (cell.align === "right") return "text-right";
+  return "text-left";
 }
 
 /* ═══════════════════ Tokenizer ═══════════════════ */
@@ -139,6 +173,55 @@ function createImageWidget(kind: string, path: string): HTMLSpanElement {
   return span;
 }
 
+function createTableWidget(source: string): HTMLDivElement {
+  const div = document.createElement("div");
+  div.className = `${TABLE_WIDGET_CLASS} my-1.5 block w-full cursor-pointer rounded border border-cyan-200 bg-cyan-50/40 p-2 transition-colors hover:border-cyan-300 hover:bg-cyan-50`;
+  div.contentEditable = "false";
+  div.tabIndex = -1;
+  div.dataset.tableSource = source;
+  div.setAttribute("role", "button");
+  div.title = "点击编辑表格";
+
+  const header = document.createElement("div");
+  header.className = "mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-cyan-800";
+  header.textContent = "表格 · 点击编辑";
+  div.appendChild(header);
+
+  const body = document.createElement("div");
+  body.className = "max-h-56 overflow-auto rounded bg-white/90";
+  try {
+    const expanded = expandSolaireTable(parseSolaireTable(source));
+    const table = document.createElement("table");
+    table.className = "w-full border-collapse text-xs text-slate-800";
+    const tbody = document.createElement("tbody");
+    expanded.slots.forEach((row, r) => {
+      const tr = document.createElement("tr");
+      row.forEach((slot, c) => {
+        if (slot.covered) return;
+        const cell = document.createElement(slot.cell.header ? "th" : "td");
+        cell.rowSpan = slot.cell.rowSpan ?? 1;
+        cell.colSpan = slot.cell.colSpan ?? 1;
+        cell.className = `border border-slate-300 px-2 py-1 align-top ${tableCellAlignClass(slot.cell)} ${
+          slot.cell.header ? "bg-slate-100 font-semibold" : "bg-white"
+        }`;
+        cell.innerHTML = renderTableCellHtml(slot.cell.text);
+        cell.dataset.tableCell = `${r}:${c}`;
+        tr.appendChild(cell);
+      });
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    body.appendChild(table);
+  } catch (e) {
+    const pre = document.createElement("pre");
+    pre.className = "whitespace-pre-wrap p-2 text-xs text-red-700";
+    pre.textContent = e instanceof Error ? e.message : String(e);
+    body.appendChild(pre);
+  }
+  div.appendChild(body);
+  return div;
+}
+
 /* ═══════════════════ buildEditorDom ═══════════════════ */
 
 function buildEditorDom(root: HTMLElement, value: string): void {
@@ -159,6 +242,8 @@ function buildEditorDom(root: HTMLElement, value: string): void {
       root.appendChild(createMermaidWidget(token.source));
     } else if (token.type === "image") {
       root.appendChild(createImageWidget(token.kind, token.path));
+    } else if (token.type === "table") {
+      root.appendChild(createTableWidget(token.source));
     }
   }
   if (root.childNodes.length === 0) {
@@ -196,6 +281,10 @@ function serializeEditor(root: HTMLElement): string {
       out += `:::${kind}:${path}:::`;
       return;
     }
+    if (el.classList.contains(TABLE_WIDGET_CLASS)) {
+      out += "```solaire-table\n" + (el.dataset.tableSource ?? "") + "\n```";
+      return;
+    }
     if (el.tagName === "BR") {
       out += "\n";
       return;
@@ -224,6 +313,9 @@ function widgetSerializedLength(el: HTMLElement): number {
     const path = el.dataset.imagePath ?? "";
     return `:::${kind}:${path}:::`.length;
   }
+  if (el.classList.contains(TABLE_WIDGET_CLASS)) {
+    return ("```solaire-table\n" + (el.dataset.tableSource ?? "") + "\n```").length;
+  }
   return 0;
 }
 
@@ -232,7 +324,8 @@ function isWidget(el: HTMLElement): boolean {
     el.classList.contains(MATH_WIDGET_CLASS) ||
     el.classList.contains(DISPLAY_MATH_WIDGET_CLASS) ||
     el.classList.contains(MERMAID_WIDGET_CLASS) ||
-    el.classList.contains(IMAGE_WIDGET_CLASS)
+    el.classList.contains(IMAGE_WIDGET_CLASS) ||
+    el.classList.contains(TABLE_WIDGET_CLASS)
   );
 }
 
@@ -381,6 +474,12 @@ type ImagePopupState = {
   path: string;
 } | null;
 
+type TablePopupState = {
+  widget: HTMLElement;
+  source: string;
+  isNew: boolean;
+} | null;
+
 export function LatexRichTextField({
   value,
   onChange,
@@ -424,7 +523,11 @@ export function LatexRichTextField({
   const imagePopupStateRef = useRef<ImagePopupState>(null);
   imagePopupStateRef.current = imagePopup;
 
-  const anyPopupOpen = !!(mathPopup || mermaidPopup || imagePopup);
+  const [tablePopup, setTablePopup] = useState<TablePopupState>(null);
+  const tablePopupStateRef = useRef<TablePopupState>(null);
+  tablePopupStateRef.current = tablePopup;
+
+  const anyPopupOpen = !!(mathPopup || mermaidPopup || imagePopup || tablePopup);
 
   const minH = `${Math.max(6, minRows * 1.45)}rem`;
 
@@ -624,6 +727,34 @@ export function LatexRichTextField({
     }
   }, []);
 
+  /* 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?TABLE POPUP 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?*/
+
+  const openTablePopup = useCallback((widget: HTMLElement, source: string, isNew: boolean) => {
+    setTablePopup({ widget, source, isNew });
+  }, []);
+
+  const closeTablePopup = useCallback(
+    (confirm: boolean, nextSource?: string) => {
+      const popup = tablePopupStateRef.current;
+      if (!popup) return;
+      if (confirm && nextSource != null) {
+        const nextWidget = createTableWidget(nextSource);
+        popup.widget.replaceWith(nextWidget);
+      } else if (!confirm && popup.isNew) {
+        popup.widget.remove();
+      }
+      setTablePopup(null);
+      const root = editorRef.current;
+      if (root) {
+        const next = serializeEditor(root);
+        lastEmittedRef.current = next;
+        onChangeRef.current(next);
+        root.focus();
+      }
+    },
+    [],
+  );
+
   /* ═══════════════════ Outside-click dismiss ═══════════════════ */
 
   useEffect(() => {
@@ -689,6 +820,28 @@ export function LatexRichTextField({
     },
     [mode, openMathPopup],
   );
+
+  const insertTableAtCursor = useCallback(() => {
+    if (mode !== "visual") return;
+    const root = editorRef.current;
+    if (!root) return;
+    root.focus();
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    const source = serializeSolaireTableBody(defaultSolaireTable());
+    const widget = createTableWidget(source);
+    range.deleteContents();
+    range.insertNode(widget);
+    const after = document.createTextNode("\u200B");
+    widget.after(after);
+    const nr = document.createRange();
+    nr.setStartAfter(after);
+    nr.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(nr);
+    openTablePopup(widget, source, true);
+  }, [mode, openTablePopup]);
 
   const handleRequestMermaid = useCallback(() => {
     const ta = textAreaRef.current;
@@ -825,6 +978,12 @@ export function LatexRichTextField({
     if (imgW && editorRef.current?.contains(imgW)) {
       e.preventDefault();
       openImagePopup(imgW, imgW.dataset.imageKind ?? "EMBED_IMG", imgW.dataset.imagePath ?? "");
+      return;
+    }
+    const tableW = t.closest?.(`.${TABLE_WIDGET_CLASS}`) as HTMLElement | null;
+    if (tableW && editorRef.current?.contains(tableW)) {
+      e.preventDefault();
+      openTablePopup(tableW, tableW.dataset.tableSource ?? "", false);
       return;
     }
     if (editorRef.current?.contains(t)) syncHiddenSelection();
@@ -1017,6 +1176,17 @@ export function LatexRichTextField({
             <span className="mr-0.5">📊</span>图表
           </button>
         )}
+
+        <button
+          type="button"
+          className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] font-medium text-slate-600 transition-colors hover:bg-white hover:text-cyan-700 hover:shadow-sm disabled:opacity-40"
+          disabled={mode !== "visual" || busy}
+          onClick={insertTableAtCursor}
+          title="插入表格"
+        >
+          <Table2 className="h-3.5 w-3.5" aria-hidden />
+          <span>表格</span>
+        </button>
 
         {/* insert image */}
         {onRequestImage && (
@@ -1252,6 +1422,13 @@ export function LatexRichTextField({
           </div>
         </div>
       )}
+
+      <TableEditorModal
+        open={!!tablePopup}
+        initialSource={tablePopup?.source}
+        onClose={() => closeTablePopup(false)}
+        onConfirm={(source) => closeTablePopup(true, source)}
+      />
     </div>
   );
 }

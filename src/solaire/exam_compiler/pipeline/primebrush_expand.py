@@ -107,6 +107,7 @@ def expand_hydrated_for_latex(hydrated: HydratedExam, loaded: LoadedQuestions) -
         primebrush_pdf_options_from_metadata,
         project_root_from_library_root,
     )
+    from solaire.exam_compiler.pipeline.table_expand import expand_tables_for_latex
     from solaire.exam_compiler.qualified_id import namespace_of_qualified
 
     mermaid_pdf = mermaid_pdf_options_from_metadata(hydrated.metadata)
@@ -133,6 +134,7 @@ def expand_hydrated_for_latex(hydrated: HydratedExam, loaded: LoadedQuestions) -
             q.content = expand_embed_img_markers_in_text(
                 q.content, mode="latex", project_root=pr, primebrush_pdf=primebrush_pdf
             )
+            q.content = expand_tables_for_latex(q.content)
             q.answer, pi, mi = expand_diagram_fences_in_text(
                 q.answer,
                 image_dir=image_dir,
@@ -145,6 +147,7 @@ def expand_hydrated_for_latex(hydrated: HydratedExam, loaded: LoadedQuestions) -
             q.answer = expand_embed_img_markers_in_text(
                 q.answer, mode="latex", project_root=pr, primebrush_pdf=primebrush_pdf
             )
+            q.answer = expand_tables_for_latex(q.answer)
             q.analysis, pi, mi = expand_diagram_fences_in_text(
                 q.analysis or "",
                 image_dir=image_dir,
@@ -157,6 +160,24 @@ def expand_hydrated_for_latex(hydrated: HydratedExam, loaded: LoadedQuestions) -
             q.analysis = expand_embed_img_markers_in_text(
                 q.analysis, mode="latex", project_root=pr, primebrush_pdf=primebrush_pdf
             )
+            q.analysis = expand_tables_for_latex(q.analysis)
+            if q.options:
+                next_options: dict[str, str] = {}
+                for key, value in q.options.items():
+                    opt, pi, mi = expand_diagram_fences_in_text(
+                        value,
+                        image_dir=image_dir,
+                        mode="latex",
+                        primebrush_start=pi,
+                        mermaid_start=mi,
+                        mermaid_pdf=mermaid_pdf,
+                        primebrush_pdf=primebrush_pdf,
+                    )
+                    opt = expand_embed_img_markers_in_text(
+                        opt, mode="latex", project_root=pr, primebrush_pdf=primebrush_pdf
+                    )
+                    next_options[key] = expand_tables_for_latex(opt)
+                q.options = next_options
             if q.group_material:
                 q.group_material, _, _ = expand_diagram_fences_in_text(
                     q.group_material,
@@ -170,3 +191,4 @@ def expand_hydrated_for_latex(hydrated: HydratedExam, loaded: LoadedQuestions) -
                 q.group_material = expand_embed_img_markers_in_text(
                     q.group_material, mode="latex", project_root=pr, primebrush_pdf=primebrush_pdf
                 )
+                q.group_material = expand_tables_for_latex(q.group_material)

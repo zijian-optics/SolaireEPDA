@@ -24,6 +24,7 @@ from solaire.exam_compiler.pipeline.diagram_expand import (
 )
 from solaire.exam_compiler.pipeline.hydrate import HydratedExam, HydratedQuestion, hydrate
 from solaire.exam_compiler.pipeline.primebrush_expand import _svg_to_png, ensure_primebrush_block_files
+from solaire.exam_compiler.pipeline.table_expand import expand_tables_for_docx_markdown
 from solaire.exam_compiler.pipeline.validate import validate_exam
 from solaire.exam_compiler.qualified_id import namespace_of_qualified
 from solaire.web.extension_registry import resolve_exe
@@ -269,7 +270,9 @@ def _render_text(
     media_dir: Path,
 ) -> str:
     return _normalize_docx_math_macros(
-        _clean_latex_for_markdown(_materialize_visuals(text, hq, loaded, media_dir))
+        _clean_latex_for_markdown(
+            expand_tables_for_docx_markdown(_materialize_visuals(text, hq, loaded, media_dir))
+        )
     )
 
 
@@ -290,6 +293,13 @@ def _append_options(
         return
     options = dict(sorted(q.options.items()))
     pairs = [(k, _render_text(v, hq, loaded, media_dir)) for k, v in choice_option_pairs(options)]
+    if any("```{=openxml}" in v for _k, v in pairs):
+        for k, v in pairs:
+            lines.append(f"**{k}.**")
+            if v:
+                lines.append(v)
+            lines.append("")
+        return
     layout = resolve_choice_layout(metadata, options)
     if layout == "inline_one_line":
         lines.append("    ".join(f"**{k}.** {v}" for k, v in pairs))
@@ -834,7 +844,7 @@ def _run_pandoc(
         pandoc,
         md_path.name,
         "-f",
-        "markdown+tex_math_dollars+pipe_tables+raw_tex",
+        "markdown+tex_math_dollars+pipe_tables+raw_tex+raw_attribute",
         "-t",
         "docx",
         "--standalone",

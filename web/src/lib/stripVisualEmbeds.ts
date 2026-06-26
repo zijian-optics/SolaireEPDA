@@ -3,7 +3,7 @@
  * 用于仅需「文字 + $…$ 公式」的摘要预览（不加载图、不跑 Mermaid）。
  */
 export const VISUAL_EMBED_RE =
-  /:::((?:PRIMEBRUSH|MERMAID|EMBED)_IMG):([^:]+):::|```mermaid\s*\n([\s\S]*?)```/g;
+  /:::((?:PRIMEBRUSH|MERMAID|EMBED)_IMG):([^:]+):::|```(?:mermaid|solaire-table)\s*\n([\s\S]*?)```/g;
 
 export function stripVisualEmbeds(text: string): string {
   VISUAL_EMBED_RE.lastIndex = 0;

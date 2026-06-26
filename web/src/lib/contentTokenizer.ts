@@ -15,7 +15,8 @@ export type ContentToken =
   | { type: "inlineMath"; latex: string }
   | { type: "displayMath"; latex: string }
   | { type: "mermaid"; source: string; raw: string }
-  | { type: "image"; kind: string; path: string; raw: string };
+  | { type: "image"; kind: string; path: string; raw: string }
+  | { type: "table"; source: string; raw: string };
 
 /* ── delimiter 列表（顺序重要：$$ 必须排在 $ 前面） ── */
 
@@ -111,11 +112,12 @@ function splitAtDelimiters(text: string, delimiters: Delimiter[]): MathPart[] {
 
 /* ── Mermaid / 图片占位符提取 ── */
 
-const DIAGRAM_FENCE_RE = /```(mermaid|primebrush)\s*\n([\s\S]*?)```/g;
+const DIAGRAM_FENCE_RE = /```(mermaid|primebrush|solaire-table)\s*\n([\s\S]*?)```/g;
 const IMAGE_PLACEHOLDER_RE = /:::((?:PRIMEBRUSH|MERMAID|EMBED)_IMG):([^:]+):::/g;
 
 type SavedBlock =
   | { kind: "mermaid"; source: string; raw: string }
+  | { kind: "table"; source: string; raw: string }
   | { kind: "protectedText"; raw: string }
   | { kind: "image"; imgKind: string; path: string; raw: string };
 
@@ -136,6 +138,8 @@ export function tokenizeContent(value: string): ContentToken[] {
     const idx = saved.length;
     if (kind === "mermaid") {
       saved.push({ kind: "mermaid", source, raw: _full });
+    } else if (kind === "solaire-table") {
+      saved.push({ kind: "table", source, raw: _full });
     } else {
       saved.push({ kind: "protectedText", raw: _full });
     }
@@ -182,6 +186,8 @@ export function tokenizeContent(value: string): ContentToken[] {
         if (block) {
           if (block.kind === "mermaid") {
             tokens.push({ type: "mermaid", source: block.source, raw: block.raw });
+          } else if (block.kind === "table") {
+            tokens.push({ type: "table", source: block.source, raw: block.raw });
           } else if (block.kind === "protectedText") {
             tokens.push({ type: "text", content: block.raw });
           } else {

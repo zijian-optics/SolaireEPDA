@@ -75,6 +75,13 @@ describe("tokenizeContent", () => {
     expect(result).toEqual<ContentToken[]>([{ type: "text", content: block }]);
   });
 
+  it("recognizes solaire-table fences and protects cell math", () => {
+    const block = "```solaire-table\nversion: 1\nrows:\n  - - text: $x$\n```";
+    const result = tokenizeContent(block);
+    expect(result).toEqual<ContentToken[]>([{ type: "table", source: "version: 1\nrows:\n  - - text: $x$\n", raw: block }]);
+    expect(result.every((t) => t.type !== "inlineMath")).toBe(true);
+  });
+
   it("混合内容", () => {
     const result = tokenizeContent("设 $x=1$，则 $$x^2=1$$。");
     const types = result.map((t) => t.type);

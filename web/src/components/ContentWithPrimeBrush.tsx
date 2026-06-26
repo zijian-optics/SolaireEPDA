@@ -5,6 +5,7 @@ import { resourceApiUrl } from "../api/client";
 import { tokenizeContent } from "../lib/contentTokenizer";
 import { initMermaid } from "../lib/mermaidInit";
 import { renderMathToHtmlSimple } from "../lib/katexRender";
+import { expandSolaireTable, parseSolaireTable, type SolaireTableCell } from "../lib/solaireTable";
 
 function escapeHtml(s: string): string {
   return s
@@ -41,6 +42,72 @@ function MermaidFencePreview({ body }: { body: string }) {
       ref={ref}
       className="my-2 max-h-72 w-full max-w-full overflow-auto rounded border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600"
     />
+  );
+}
+
+function renderCellHtml(text: string): string {
+  return tokenizeContent(text)
+    .map((token) => {
+      switch (token.type) {
+        case "text":
+          return escapeHtml(token.content).replace(/\n/g, "<br/>");
+        case "inlineMath":
+          return renderMathToHtmlSimple(token.latex, false);
+        case "displayMath":
+          return renderMathToHtmlSimple(token.latex, true);
+        case "mermaid":
+        case "image":
+        case "table":
+          return escapeHtml(token.raw);
+      }
+    })
+    .join("");
+}
+
+function cellAlignClass(cell: SolaireTableCell): string {
+  if (cell.align === "center") return "text-center";
+  if (cell.align === "right") return "text-right";
+  return "text-left";
+}
+
+function SolaireTablePreview({ source }: { source: string }) {
+  let expanded;
+  try {
+    expanded = expandSolaireTable(parseSolaireTable(source));
+  } catch (e) {
+    return (
+      <pre className="my-2 overflow-auto rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+        {e instanceof Error ? e.message : String(e)}
+      </pre>
+    );
+  }
+  return (
+    <div className="my-2 max-w-full overflow-x-auto">
+      <table className="min-w-full border-collapse text-sm text-slate-800">
+        <tbody>
+          {expanded.slots.map((row, r) => (
+            <tr key={r}>
+              {row.map((slot, c) => {
+                if (slot.covered) return null;
+                const CellTag = slot.cell.header ? "th" : "td";
+                return (
+                  <CellTag
+                    key={`${r}-${c}`}
+                    rowSpan={slot.cell.rowSpan ?? 1}
+                    colSpan={slot.cell.colSpan ?? 1}
+                    className={`border border-slate-300 px-2 py-1.5 align-top ${cellAlignClass(slot.cell)} ${
+                      slot.cell.header ? "bg-slate-100 font-semibold" : "bg-white"
+                    }`}
+                    // eslint-disable-next-line react/no-danger
+                    dangerouslySetInnerHTML={{ __html: renderCellHtml(slot.cell.text) }}
+                  />
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -124,6 +191,9 @@ export function ContentWithPrimeBrush({ text, className }: { text: string; class
       }
       case "mermaid":
         nodes.push(<MermaidFencePreview key={key++} body={token.source} />);
+        break;
+      case "table":
+        nodes.push(<SolaireTablePreview key={key++} source={token.source} />);
         break;
     }
   }
