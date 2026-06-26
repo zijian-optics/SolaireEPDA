@@ -34,6 +34,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "../lib/utils";
 import type { GraphNodeRow, GraphRelationRow } from "./useGraphStore";
 import { useGraphUndoStore } from "./useUndoStack";
+import { isImeComposingKeyboardEvent } from "../lib/ime";
 import i18n from "../i18n/i18n";
 
 // Virtual root sentinel
@@ -196,6 +197,7 @@ function MindMapNodeInner({ data, selected }: NodeProps) {
             value={inlineValue}
             onChange={(e) => onInlineChange?.(e.target.value)}
             onKeyDown={(e) => {
+              if (isImeComposingKeyboardEvent(e)) return;
               if (e.key === "Enter" || e.key === "Escape") {
                 e.preventDefault();
                 onInlineCommit?.();
@@ -441,6 +443,7 @@ export function MindMapCanvas({
   // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (isImeComposingKeyboardEvent(e)) return;
       if (inlineEditId) return; // editing mode, ignore
       const target = e.target as HTMLElement;
       if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;

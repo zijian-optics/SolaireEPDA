@@ -34,6 +34,7 @@ import {
   type MetadataFilters,
 } from "../lib/metadataFilters";
 import { isTauriShell } from "../lib/tauriEnv";
+import { isImeComposingKeyboardEvent, isImeCompositionActive } from "../lib/ime";
 import type { ExamDoc, ExamWorkspaceSummary, QuestionRow, RightSelection, TemplateRow } from "../types/compose";
 
 type GraphBindingNode = { id: string; canonical_name: string; node_kind?: string };
@@ -98,6 +99,7 @@ export function ComposeWorkspace({
   const [namespaceFilter, setNamespaceFilter] = useState<string>("__all__");
   const [typeFilter, setTypeFilter] = useState<string>("__all__");
   const [metadataFilters, setMetadataFilters] = useState<MetadataFilters>({});
+  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [composeFilterExpanded, setComposeFilterExpanded] = useState(false);
   const [activeSection, setActiveSection] = useState<string | null>(null);
@@ -338,6 +340,10 @@ export function ComposeWorkspace({
       .map(({ question }) => question);
   }, [activeMetadataFilters, metadataScopeSearchQuestions, deferredSearch]);
   const selectedLeftIdsSet = useMemo(() => new Set(selectedLeftIds), [selectedLeftIds]);
+
+  const commitSearch = useCallback((value: string) => {
+    setSearch(value);
+  }, []);
 
   useEffect(() => {
     const allowed = new Set(filteredQuestions.map((q) => q.qualified_id));
@@ -1213,6 +1219,7 @@ export function ComposeWorkspace({
   }
 
   const saveDraftToServer = useCallback(async () => {
+    if (isImeCompositionActive()) return;
     if (!selectedTpl || !templatePath.trim()) {
       onError(t("compose:errors.selectTemplateForDraft"));
       return;
@@ -1305,6 +1312,7 @@ export function ComposeWorkspace({
       applyExamDocument(r.exam);
       setNamespaceFilter("__all__");
       setTypeFilter("__all__");
+      setSearchInput("");
       setSearch("");
       setComposeFilterExpanded(false);
       const items = r.exam.selected_items ?? [];
@@ -1786,8 +1794,15 @@ export function ComposeWorkspace({
                   <input
                     className="mt-0.5 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm placeholder:text-slate-400"
                     placeholder={t("compose:searchPlaceholder")}
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
+                    value={searchInput}
+                    onChange={(e) => setSearchInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter" || isImeComposingKeyboardEvent(e)) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      commitSearch(e.currentTarget.value);
+                    }}
+                    onBlur={(e) => commitSearch(e.currentTarget.value)}
                   />
                 </label>
                 <MetadataFilterControls

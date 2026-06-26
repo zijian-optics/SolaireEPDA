@@ -8,6 +8,7 @@ import { useAgentContext } from "../contexts/AgentContext";
 import { useToolBar } from "../contexts/ToolBarContext";
 import i18n from "../i18n/i18n";
 import { SOLAIRE_SAVE_EVENT } from "../lib/saveEvents";
+import { isImeCompositionActive } from "../lib/ime";
 import { confirmDialog } from "../lib/confirmDialog";
 import { cn } from "../lib/utils";
 
@@ -608,6 +609,7 @@ export function TemplateWorkspace({ onError }: { onError: (s: string | null) => 
   );
 
   async function save() {
+    if (isImeCompositionActive()) return;
     if (!path) {
       return;
     }

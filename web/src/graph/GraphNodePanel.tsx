@@ -24,6 +24,7 @@ import { KatexPlainPreview } from "../components/KatexText";
 import { cn } from "../lib/utils";
 import { QUESTION_TYPE_OPTIONS } from "../lib/questionTypes";
 import { localeCompareStrings } from "../lib/locale";
+import { isImeCompositionActive } from "../lib/ime";
 import type { GraphNodeNoteRow, GraphNodeRow, GraphRelationRow, BoundQuestion, NodeFileLink, PanelTab } from "./useGraphStore";
 
 const REL_KEYS = ["prerequisite", "part_of", "related", "causal"] as const;
@@ -225,6 +226,7 @@ export function GraphNodePanel({
   });
 
   const saveEdits = async () => {
+    if (isImeCompositionActive()) return;
     if (!selectedNode) return;
     setBusy(true);
     onError(null);

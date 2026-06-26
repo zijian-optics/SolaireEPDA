@@ -21,6 +21,7 @@ import { canonicalizeLatex } from "../lib/latexCanon";
 import { renderMathToHtmlSimple } from "../lib/katexRender";
 import { lintMathContent, type MathLintResult } from "../lib/mathLint";
 import { initMermaid } from "../lib/mermaidInit";
+import { isImeComposingKeyboardEvent } from "../lib/ime";
 
 /* ═══════════════════ constants ═══════════════════ */
 
@@ -538,6 +539,7 @@ export function LatexRichTextField({
       mf.focus();
     });
     const handleMfKey = (e: globalThis.KeyboardEvent) => {
+      if (isImeComposingKeyboardEvent(e)) return;
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); closeMathPopup(true); }
       if (e.key === "Escape") { e.preventDefault(); closeMathPopup(false); }
     };
@@ -715,6 +717,7 @@ export function LatexRichTextField({
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (composingRef.current || isImeComposingKeyboardEvent(e)) return;
     if (anyPopupOpen) return;
     const root = editorRef.current;
     if (!root) return;
@@ -1054,8 +1057,10 @@ export function LatexRichTextField({
           }}
           onCompositionEnd={() => {
             composingRef.current = false;
-            emitFromEditor();
-            syncHiddenSelection();
+            window.requestAnimationFrame(() => {
+              emitFromEditor();
+              syncHiddenSelection();
+            });
           }}
           onKeyUp={syncHiddenSelection}
           onMouseUp={syncHiddenSelection}
@@ -1066,8 +1071,20 @@ export function LatexRichTextField({
           style={{ minHeight: minH }}
           value={value}
           onChange={(e) => {
+            if (composingRef.current) return;
             lastEmittedRef.current = e.target.value;
             onChange(e.target.value);
+          }}
+          onCompositionStart={() => {
+            composingRef.current = true;
+          }}
+          onCompositionEnd={(e) => {
+            composingRef.current = false;
+            const target = e.currentTarget;
+            window.requestAnimationFrame(() => {
+              lastEmittedRef.current = target.value;
+              onChange(target.value);
+            });
           }}
           placeholder={placeholder}
           spellCheck={false}

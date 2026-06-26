@@ -8,6 +8,7 @@ import {
   type AgentLlmSettingsResponse,
 } from "../../api/client";
 import { confirmDialog } from "../../lib/confirmDialog";
+import { isImeCompositionActive } from "../../lib/ime";
 
 const PRESETS: Record<AgentLlmProvider, { baseUrl: string; main: string; fast: string }> = {
   openai: { baseUrl: "", main: "gpt-4o-mini", fast: "gpt-4o-mini" },
@@ -162,6 +163,7 @@ export const AgentModelSettingsForm = forwardRef(function AgentModelSettingsForm
   }, [data?.provider_options]);
 
   const handleSave = useCallback(async () => {
+    if (isImeCompositionActive()) return;
     if (!data) return;
     setSavingLocal(true);
     setMsg(null);

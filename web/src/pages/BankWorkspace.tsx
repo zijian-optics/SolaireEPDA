@@ -33,6 +33,7 @@ import i18n from "../i18n/i18n";
 import { confirmDialog } from "../lib/confirmDialog";
 import { localeCompareStrings } from "../lib/locale";
 import { SOLAIRE_SAVE_EVENT } from "../lib/saveEvents";
+import { isImeComposingKeyboardEvent, isImeCompositionActive } from "../lib/ime";
 import { cn } from "../lib/utils";
 import { collapseGroupRowsForList } from "../lib/groupQuestions";
 import { QUESTION_TYPE_OPTIONS, isChoiceQuestionType } from "../lib/questionTypes";
@@ -107,6 +108,7 @@ export function BankWorkspace({
   const [filterCollection, setFilterCollection] = useState<string>("__all__");
   const [filterType, setFilterType] = useState<string>("__all__");
   const [metadataFilters, setMetadataFilters] = useState<MetadataFilters>({});
+  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /** 已打开的题目标签（多窗口编辑） */
@@ -746,6 +748,7 @@ export function BankWorkspace({
   }
 
   async function saveForm() {
+    if (isImeCompositionActive()) return;
     if (!detail) {
       return;
     }
@@ -770,6 +773,7 @@ export function BankWorkspace({
   }
 
   async function saveRawYaml() {
+    if (isImeCompositionActive()) return;
     if (!detail) {
       return;
     }
@@ -1088,6 +1092,10 @@ export function BankWorkspace({
     [trySelectId],
   );
 
+  const commitSearch = useCallback((value: string) => {
+    setSearch(value);
+  }, []);
+
   const closeTab = useCallback(
     (qid: string) => {
       if (qid === selectedId && dirty && !window.confirm(t("closeTabConfirm"))) {
@@ -1201,8 +1209,15 @@ export function BankWorkspace({
                   {t("search")}
                   <input
                     className="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
+                    value={searchInput}
+                    onChange={(e) => setSearchInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter" || isImeComposingKeyboardEvent(e)) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      commitSearch(e.currentTarget.value);
+                    }}
+                    onBlur={(e) => commitSearch(e.currentTarget.value)}
                     placeholder={t("searchPlaceholder")}
                   />
                 </label>
@@ -1545,7 +1560,9 @@ export function BankWorkspace({
     bankFilterSummary,
     filterSubject,
     filterType,
+    searchInput,
     search,
+    commitSearch,
     subjects,
     items,
     collectionOptions,

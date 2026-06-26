@@ -25,6 +25,7 @@ import { SettingsWorkspace } from "./pages/SettingsWorkspace";
 import { WelcomePage } from "./pages/WelcomePage";
 import { apiGet, apiPost } from "./api/client";
 import { dispatchSolaireSave } from "./lib/saveEvents";
+import { installImeCompositionTracker, isImeComposingKeyboardEvent } from "./lib/ime";
 import { cn } from "./lib/utils";
 import { isTauriShell } from "./lib/tauriEnv";
 import type { AppPage } from "./app/appPages";
@@ -85,7 +86,12 @@ function AppShell() {
   }, [info?.bound, setSidebarOpen]);
 
   useEffect(() => {
+    return installImeCompositionTracker();
+  }, []);
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (isImeComposingKeyboardEvent(e)) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
         dispatchSolaireSave();

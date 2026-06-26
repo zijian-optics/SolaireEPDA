@@ -45,6 +45,7 @@ import {
 } from "../api/client";
 import { useAgentContext } from "../contexts/AgentContext";
 import { confirmDialog } from "../lib/confirmDialog";
+import { isImeComposingKeyboardEvent } from "../lib/ime";
 import i18n from "../i18n/i18n";
 
 type FileAttachment = { path: string; mime_type: string | null; original_name: string };
@@ -1154,6 +1155,7 @@ export function AgentChatPanel({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
+              if (isImeComposingKeyboardEvent(e)) return;
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 void send();

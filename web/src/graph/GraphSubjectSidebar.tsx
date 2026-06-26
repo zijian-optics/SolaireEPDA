@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { GraphInfo } from "../api/client";
 import { cn } from "../lib/utils";
+import { isImeComposingKeyboardEvent, isImeCompositionActive } from "../lib/ime";
 
 interface Props {
   graphs: GraphInfo[];
@@ -71,10 +72,11 @@ export function GraphSubjectSidebar({
                       autoFocus
                       onChange={(e) => setRenameValue(e.target.value)}
                       onKeyDown={(e) => {
+                        if (isImeComposingKeyboardEvent(e)) return;
                         if (e.key === "Enter") void commitRename();
                         if (e.key === "Escape") setRenamingSlug(null);
                       }}
-                      onBlur={() => void commitRename()}
+                      onBlur={() => { if (!isImeCompositionActive()) void commitRename(); }}
                     />
                   </div>
                 ) : (
@@ -142,6 +144,7 @@ export function GraphSubjectSidebar({
               autoFocus
               onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => {
+                if (isImeComposingKeyboardEvent(e)) return;
                 if (e.key === "Enter") void handleCreate();
                 if (e.key === "Escape") { setCreating(false); setNewName(""); }
               }}
