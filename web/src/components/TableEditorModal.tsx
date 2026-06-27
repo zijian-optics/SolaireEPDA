@@ -22,6 +22,7 @@ import {
 } from "../lib/solaireTable";
 
 type Selection = { r1: number; c1: number; r2: number; c2: number };
+type EditingCell = { row: number; col: number; value: string } | null;
 
 type TableEditorModalProps = {
   open: boolean;
@@ -116,6 +117,7 @@ function IconButton({
 export function TableEditorModal({ open, initialSource, onClose, onConfirm }: TableEditorModalProps) {
   const [doc, setDoc] = useState<SolaireTableDoc>(() => defaultSolaireTable());
   const [selection, setSelection] = useState<Selection>({ r1: 0, c1: 0, r2: 0, c2: 0 });
+  const [editingCell, setEditingCell] = useState<EditingCell>(null);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -129,6 +131,7 @@ export function TableEditorModal({ open, initialSource, onClose, onConfirm }: Ta
       setDoc(defaultSolaireTable());
     }
     setSelection({ r1: 0, c1: 0, r2: 0, c2: 0 });
+    setEditingCell(null);
   }, [open, initialSource]);
 
   const expanded = useMemo(() => expandSolaireTable(doc), [doc]);
@@ -233,6 +236,35 @@ export function TableEditorModal({ open, initialSource, onClose, onConfirm }: Ta
     }
   }
 
+  function docWithCommittedEditing(): SolaireTableDoc {
+    if (!editingCell) return doc;
+    return patchCell(doc, editingCell.row, editingCell.col, (cell) => ({
+      ...cell,
+      text: editingCell.value,
+    }));
+  }
+
+  function commitEditing() {
+    if (!editingCell) return;
+    try {
+      setDoc(docWithCommittedEditing());
+      setEditingCell(null);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  function cancelEditing() {
+    setEditingCell(null);
+  }
+
+  function beginEditing(row: number, col: number, value: string) {
+    setDragging(false);
+    setSelection({ r1: row, c1: col, r2: row, c2: col });
+    setEditingCell({ row, col, value });
+  }
+
   function addRow() {
     applyAnchors((anchors, height, width) => ({
       anchors: [
@@ -307,7 +339,7 @@ export function TableEditorModal({ open, initialSource, onClose, onConfirm }: Ta
         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
           <div>
             <h3 className="text-sm font-semibold text-slate-900">编辑表格</h3>
-            <p className="mt-0.5 text-xs text-slate-500">拖选单元格后可合并；单元格内可输入 $...$ 公式。</p>
+            <p className="mt-0.5 text-xs text-slate-500">拖选单元格后可合并；双击单元格编辑，Enter 确认。</p>
           </div>
           <button type="button" className="rounded px-2 py-1 text-sm text-slate-500 hover:bg-slate-100" onClick={onClose}>
             关闭
@@ -359,8 +391,8 @@ export function TableEditorModal({ open, initialSource, onClose, onConfirm }: Ta
           </button>
         </div>
 
-        <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_280px] gap-3 overflow-hidden p-4">
-          <div className="min-h-0 overflow-auto rounded border border-slate-200 bg-slate-50 p-2">
+        <div className="min-h-0 flex-1 overflow-hidden p-4">
+          <div className="h-full min-h-0 overflow-auto rounded border border-slate-200 bg-slate-50 p-2">
             <table className="min-w-full border-collapse bg-white text-sm" onMouseUp={() => setDragging(false)}>
               <tbody>
                 {expanded.slots.map((row, r) => (
@@ -371,6 +403,7 @@ export function TableEditorModal({ open, initialSource, onClose, onConfirm }: Ta
                       const s = spans(slot.cell);
                       const cr = cellRect({ row: r, col: c, cell: slot.cell });
                       const selected = intersects(cr, selectedRect);
+                      const editing = editingCell?.row === r && editingCell?.col === c;
                       return (
                         <CellTag
                           key={`${r}-${c}`}
@@ -381,6 +414,10 @@ export function TableEditorModal({ open, initialSource, onClose, onConfirm }: Ta
                             setDragging(true);
                             selectCell(r, c, e.shiftKey);
                           }}
+                          onDoubleClick={(e) => {
+                            e.preventDefault();
+                            beginEditing(r, c, slot.cell.text);
+                          }}
                           onMouseEnter={() => {
                             if (dragging) selectCell(r, c, true);
                           }}
@@ -389,7 +426,33 @@ export function TableEditorModal({ open, initialSource, onClose, onConfirm }: Ta
                           } ${slot.cell.header ? "font-semibold text-slate-900" : "text-slate-700"}`}
                           style={{ textAlign: slot.cell.align ?? "left" }}
                         >
-                          <span className="whitespace-pre-wrap break-words">{slot.cell.text || "\u00a0"}</span>
+                          {editing ? (
+                            <textarea
+                              autoFocus
+                              className="block min-h-16 w-full resize-none rounded border border-blue-300 bg-white px-2 py-1 text-sm font-normal leading-relaxed text-slate-900 outline-none ring-2 ring-blue-200"
+                              value={editingCell.value}
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onDoubleClick={(e) => e.stopPropagation()}
+                              onChange={(e) =>
+                                setEditingCell((cur) =>
+                                  cur && cur.row === r && cur.col === c ? { ...cur, value: e.target.value } : cur,
+                                )
+                              }
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && !e.shiftKey) {
+                                  e.preventDefault();
+                                  commitEditing();
+                                } else if (e.key === "Escape") {
+                                  e.preventDefault();
+                                  cancelEditing();
+                                }
+                              }}
+                              onBlur={commitEditing}
+                              spellCheck={false}
+                            />
+                          ) : (
+                            <span className="whitespace-pre-wrap break-words">{slot.cell.text || "\u00a0"}</span>
+                          )}
                         </CellTag>
                       );
                     })}
@@ -399,18 +462,9 @@ export function TableEditorModal({ open, initialSource, onClose, onConfirm }: Ta
             </table>
           </div>
 
-          <div className="flex min-h-0 flex-col">
-            <label className="text-xs font-medium text-slate-600">单元格内容</label>
-            <textarea
-              className="mt-1 min-h-0 flex-1 resize-none rounded border border-slate-300 px-2 py-1.5 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-blue-400"
-              value={activeCell?.text ?? ""}
-              onChange={(e) => updateActiveCell((cell) => ({ ...cell, text: e.target.value }))}
-              spellCheck={false}
-            />
-            <p className="mt-2 text-xs text-slate-500">
-              当前表格：{expanded.height} 行 x {expanded.width} 列
-            </p>
-            {error && <p className="mt-2 rounded bg-red-50 px-2 py-1 text-xs text-red-700">{error}</p>}
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+            <span>{expanded.height} 行 x {expanded.width} 列 · 双击单元格编辑，Enter 确认，Shift+Enter 换行</span>
+            {error && <span className="rounded bg-red-50 px-2 py-1 text-red-700">{error}</span>}
           </div>
         </div>
 
@@ -421,7 +475,12 @@ export function TableEditorModal({ open, initialSource, onClose, onConfirm }: Ta
           <button
             type="button"
             className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800"
-            onClick={() => onConfirm(serializeSolaireTableBody(doc))}
+            onClick={() => {
+              const next = docWithCommittedEditing();
+              setDoc(next);
+              setEditingCell(null);
+              onConfirm(serializeSolaireTableBody(next));
+            }}
           >
             确认
           </button>
