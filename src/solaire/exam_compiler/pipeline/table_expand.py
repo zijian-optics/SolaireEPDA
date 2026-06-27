@@ -154,8 +154,10 @@ def _col_width(width: int, span: int = 1) -> str:
 
 def table_to_latex(source: str) -> str:
     expanded = expand_table(parse_table(source))
-    spec = "|" + "|".join([rf">{{\raggedright\arraybackslash}}p{{{_col_width(expanded.width)}}}" for _ in range(expanded.width)]) + "|"
+    spec = "|" + "|".join([rf"p{{{_col_width(expanded.width)}}}" for _ in range(expanded.width)]) + "|"
     lines = [r"\begin{center}", r"\small", rf"\begin{{tabular}}{{{spec}}}", r"\hline"]
+    if any(anchor.cell.row_span > 1 for anchor in expanded.anchors):
+        lines.insert(2, r"\providecommand{\multirow}[3]{#3}")
     for r, row in enumerate(expanded.slots):
         rendered: list[str] = []
         c = 0

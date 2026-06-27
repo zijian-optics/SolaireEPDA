@@ -21,13 +21,38 @@ rows:
 """
 
 
+EMPTY_TABLE = """version: 1
+rows:
+  - - text: ''
+    - text: ''
+    - text: ''
+  - - text: ''
+    - text: ''
+    - text: ''
+  - - text: ''
+    - text: ''
+    - text: ''
+"""
+
+
 def test_table_to_latex_supports_colspan_and_rowspan() -> None:
     out = table_to_latex(TABLE)
 
     assert "\\begin{tabular}" in out
+    assert "\\providecommand{\\multirow}[3]{#3}" in out
     assert "\\multicolumn{2}" in out
     assert "\\multirow{2}" in out
     assert "$x$" in out
+
+
+def test_empty_table_to_latex_does_not_require_array_package() -> None:
+    out = table_to_latex(EMPTY_TABLE)
+
+    assert "\\begin{tabular}" in out
+    assert "\\arraybackslash" not in out
+    assert ">{" not in out
+    assert "\\multirow" not in out
+    assert " &  & " in out
 
 
 def test_expand_tables_for_latex_replaces_fenced_block() -> None:
