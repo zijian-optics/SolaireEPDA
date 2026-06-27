@@ -565,6 +565,38 @@ export function LatexRichTextField({
     onChangeRef.current(next);
   }, []);
 
+  const deleteWidgetWithUndo = useCallback(
+    (widget: HTMLElement) => {
+      const root = editorRef.current;
+      if (!root || !root.contains(widget)) return;
+
+      root.focus();
+      const sel = window.getSelection();
+      if (!sel) return;
+
+      const range = document.createRange();
+      range.selectNode(widget);
+      sel.removeAllRanges();
+      sel.addRange(range);
+
+      try {
+        document.execCommand("delete");
+      } catch {
+        // Fall back below when the browser refuses the editing command.
+      }
+
+      if (widget.isConnected) {
+        widget.remove();
+      }
+
+      window.requestAnimationFrame(() => {
+        emitFromEditor();
+        syncHiddenSelection();
+      });
+    },
+    [emitFromEditor, syncHiddenSelection],
+  );
+
   /* ─── Rebuild editor from prop ─── */
 
   useLayoutEffect(() => {
@@ -716,16 +748,16 @@ export function LatexRichTextField({
   const removeImageWidget = useCallback(() => {
     const popup = imagePopupStateRef.current;
     if (!popup) return;
-    popup.widget.remove();
     setImagePopup(null);
-    const root = editorRef.current;
-    if (root) {
-      const next = serializeEditor(root);
-      lastEmittedRef.current = next;
-      onChangeRef.current(next);
-      root.focus();
-    }
-  }, []);
+    deleteWidgetWithUndo(popup.widget);
+  }, [deleteWidgetWithUndo]);
+
+  const removeMermaidWidget = useCallback(() => {
+    const popup = mermaidPopupStateRef.current;
+    if (!popup) return;
+    setMermaidPopup(null);
+    deleteWidgetWithUndo(popup.widget);
+  }, [deleteWidgetWithUndo]);
 
   /* 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?TABLE POPUP 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?*/
 
@@ -908,9 +940,7 @@ export function LatexRichTextField({
         const prev = startContainer.previousSibling;
         if (prev instanceof HTMLElement && isWidget(prev)) {
           e.preventDefault();
-          prev.remove();
-          emitFromEditor();
-          syncHiddenSelection();
+          deleteWidgetWithUndo(prev);
           return;
         }
       }
@@ -918,9 +948,7 @@ export function LatexRichTextField({
         const prev = root.childNodes[startOffset - 1];
         if (prev instanceof HTMLElement && isWidget(prev)) {
           e.preventDefault();
-          prev.remove();
-          emitFromEditor();
-          syncHiddenSelection();
+          deleteWidgetWithUndo(prev);
         }
       }
       return;
@@ -932,9 +960,7 @@ export function LatexRichTextField({
         const next = root.childNodes[startOffset];
         if (next instanceof HTMLElement && isWidget(next)) {
           e.preventDefault();
-          next.remove();
-          emitFromEditor();
-          syncHiddenSelection();
+          deleteWidgetWithUndo(next);
         }
         return;
       }
@@ -944,9 +970,7 @@ export function LatexRichTextField({
           const next = startContainer.nextSibling;
           if (next instanceof HTMLElement && isWidget(next)) {
             e.preventDefault();
-            next.remove();
-            emitFromEditor();
-            syncHiddenSelection();
+            deleteWidgetWithUndo(next);
           }
         }
       }
@@ -1349,17 +1373,7 @@ export function LatexRichTextField({
               <button
                 type="button"
                 className="rounded-md px-3 py-1 text-xs text-red-600 hover:bg-red-50"
-                onClick={() => {
-                  mermaidPopupStateRef.current?.widget.remove();
-                  setMermaidPopup(null);
-                  const root = editorRef.current;
-                  if (root) {
-                    const next = serializeEditor(root);
-                    lastEmittedRef.current = next;
-                    onChangeRef.current(next);
-                    root.focus();
-                  }
-                }}
+                onClick={removeMermaidWidget}
               >
                 删除图表
               </button>
